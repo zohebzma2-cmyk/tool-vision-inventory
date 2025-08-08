@@ -324,14 +324,50 @@ class BrotherQLPrinterService implements PrinterService {
     try {
       console.log('Sending minimal safe test print...');
       
-      // Ultra-minimal test that should work on any Brother QL
+      // Complete Brother QL print sequence that should actually print
       const testCommands: number[] = [
-        0x1B, 0x40, // Initialize
-        0x1B, 0x69, 0x52, 0x01, // Raster mode
-        0x67, 0x00, 0x10, // 16 byte line
-        ...Array(16).fill(0xFF), // Black line
-        0x1A // Print
+        // Initialize printer
+        0x1B, 0x40,
+        
+        // Switch to raster mode  
+        0x1B, 0x69, 0x52, 0x01,
+        
+        // Set media & quality (required for actual printing)
+        0x1B, 0x69, 0x7A, 0x84, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
+        
+        // Set margins (0 margin)
+        0x1B, 0x69, 0x64, 0x00, 0x00,
+        
+        // Auto cut on
+        0x1B, 0x69, 0x4D, 0x40,
+        
+        // Set print length (20mm for test)
+        0x1B, 0x69, 0x41, 0x01, 0x00,
+        
+        // No compression
+        0x1B, 0x69, 0x4B, 0x08,
+        
+        // Send 20 lines of raster data (enough to trigger print)
       ];
+
+      // Add raster lines - simple pattern that should be visible
+      for (let line = 0; line < 20; line++) {
+        testCommands.push(0x67, 0x00, 0x09); // 9 bytes per line for 10mm tape
+        
+        // Create visible pattern
+        for (let byte = 0; byte < 9; byte++) {
+          if (line < 3 || line >= 17) {
+            testCommands.push(0xFF); // Top/bottom border
+          } else if (byte === 0 || byte === 8) {
+            testCommands.push(0xFF); // Side borders
+          } else {
+            testCommands.push(line % 2 === 0 ? 0xAA : 0x55); // Checkerboard pattern
+          }
+        }
+      }
+
+      // Print and cut
+      testCommands.push(0x1A); // Print command
 
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
