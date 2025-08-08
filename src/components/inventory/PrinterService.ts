@@ -212,9 +212,19 @@ class BrotherQLPrinterService implements PrinterService {
     // Byte 11: Media width
     // Byte 17: Media length (for die-cut labels)
     
+    if (!statusData || statusData.length < 18) {
+      console.error('Invalid status data received:', statusData);
+      return null;
+    }
+    
     const mediaType = statusData[10];
     const mediaWidth = statusData[11];
     const mediaLength = statusData[17];
+    
+    if (mediaType === undefined || mediaWidth === undefined || mediaLength === undefined) {
+      console.error('Could not parse media info from status data');
+      return null;
+    }
     
     console.log(`Media type: 0x${mediaType.toString(16)}, Width: ${mediaWidth}mm, Length: ${mediaLength}mm`);
     
