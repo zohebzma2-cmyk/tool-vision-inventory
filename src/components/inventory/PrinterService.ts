@@ -137,15 +137,34 @@ class BrotherQLPrinterService implements PrinterService {
     }
   }
 
+  async getStatus(): Promise<any> {
+    if (!this.device || !this.isConnected) {
+      throw new Error('Brother QL printer not connected');
+    }
+
+    try {
+      // Request status
+      const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
+      await this.device.transferOut(1, statusRequest.buffer);
+      
+      // Read status response
+      const result = await this.device.transferIn(1, 32);
+      return result.data;
+    } catch (error) {
+      console.error('Failed to get printer status:', error);
+      return null;
+    }
+  }
+
   async testPrint(): Promise<boolean> {
     if (!this.device || !this.isConnected) {
       throw new Error('Brother QL printer not connected');
     }
 
     try {
-      console.log('Sending test print to Brother QL printer...');
+      console.log('Sending simplified test print...');
 
-      // Simple test pattern for Brother QL-800 (62mm tape)
+      // Very simple universal test pattern - just initialize and print a small pattern
       const testCommands: number[] = [
         // Initialize printer
         0x1B, 0x40, // ESC @ - Initialize
@@ -153,52 +172,34 @@ class BrotherQLPrinterService implements PrinterService {
         // Invalidate
         0x1B, 0x69, 0x4B, 0x08,
         
-        // Status information request
-        0x1B, 0x69, 0x53,
-        
-        // Set media & quality for 2.4" red/black tape (62mm)
-        0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        
-        // Set margin
-        0x1B, 0x69, 0x64, 0x23, 0x00,
+        // Auto format mode (use current media automatically)
+        0x1B, 0x69, 0x41, 0x01,
         
         // Switch to raster mode
         0x1B, 0x69, 0x52, 0x01,
-        
-        // Print information command
-        0x1B, 0x69, 0x7A, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-        
-        // Set compression mode
-        0x1B, 0x69, 0x4D, 0x00,
-        
-        // Set feed amount
-        0x1B, 0x69, 0x41, 0x01
       ];
 
-      // Create simple test pattern (black stripes)
-      const labelWidth = 696; // 62mm = 696 pixels at 300 DPI
-      const labelHeight = 100; // Small test label
-      const bytesPerLine = Math.ceil(labelWidth / 8);
+      // Create minimal test pattern - just a few lines
+      const labelHeight = 50;
+      const bytesPerLine = 90; // Standard width that should work on most media
 
-      // Add raster data for test pattern
+      // Add raster data for simple test pattern
       for (let line = 0; line < labelHeight; line++) {
         // Raster line command
-        testCommands.push(0x67, 0x00, bytesPerLine); // 'g' command with line length
+        testCommands.push(0x67, 0x00, bytesPerLine);
         
-        // Create alternating stripe pattern
+        // Simple pattern: alternating lines
         for (let byte = 0; byte < bytesPerLine; byte++) {
-          if (line % 10 < 5) {
-            // Black stripe every 10 lines for 5 lines
-            testCommands.push(0xFF);
+          if (line % 4 < 2) {
+            testCommands.push(0xFF); // Black line
           } else {
-            // White space
-            testCommands.push(0x00);
+            testCommands.push(0x00); // White line
           }
         }
       }
 
-      // Print command
-      testCommands.push(0x1A); // Print and feed
+      // Print and feed
+      testCommands.push(0x1A);
 
       // Convert to Uint8Array and send
       const uint8Data = new Uint8Array(testCommands);
@@ -206,7 +207,6 @@ class BrotherQLPrinterService implements PrinterService {
       
       if (result.status === 'ok') {
         console.log('Test print sent successfully');
-        console.log('Bytes written:', result.bytesWritten);
         return true;
       } else {
         console.error('Test print failed with status:', result.status);
@@ -237,9 +237,14 @@ class BrotherQLPrinterService implements PrinterService {
 // Singleton printer service
 export const printerService = new BrotherQLPrinterService();
 
-// Auto-print function using Supabase edge function
-export async function autoPrintLabel(locationId: string): Promise<{ success: boolean; message: string }> {
+// Auto-print function using Supabase edge function with status reporting
+export async function autoPrintLabel(
+  locationId: string, 
+  onStatusUpdate?: (status: string) => void
+): Promise<{ success: boolean; message: string }> {
   try {
+    onStatusUpdate?.('Connecting to printer...');
+    
     // Connect to printer if not already connected
     if (!printerService.isConnected) {
       console.log('Printer not connected, attempting to connect...');
@@ -252,12 +257,14 @@ export async function autoPrintLabel(locationId: string): Promise<{ success: boo
       }
     }
 
+    onStatusUpdate?.('Generating label data...');
+    
     // Get print data from the edge function using Supabase client
     const { supabase } = await import('@/integrations/supabase/client');
     
     console.log('Requesting print data for location:', locationId);
     const { data: result, error } = await supabase.functions.invoke('print-location-label', {
-      body: { locationId }
+      body: { locationId, autoFormat: true } // Request auto-format mode
     });
 
     if (error) {
@@ -268,12 +275,14 @@ export async function autoPrintLabel(locationId: string): Promise<{ success: boo
       throw new Error(result.error || 'Failed to generate print data');
     }
 
+    onStatusUpdate?.('Sending to printer...');
     console.log('Print data received from edge function, sending to printer...');
 
     // Send print commands to printer
     const printed = await printerService.print(result.printData);
     
     if (printed) {
+      onStatusUpdate?.('Print complete!');
       return {
         success: true,
         message: `Label printed successfully for ${result.location.name}!`

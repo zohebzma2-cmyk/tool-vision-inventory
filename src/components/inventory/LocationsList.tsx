@@ -93,11 +93,30 @@ export function LocationsList() {
       // Auto-print label if enabled and printer is available
       if (autoPrintEnabled && isPrintingSupported()) {
         try {
-          const printResult = await autoPrintLabel(data.id);
+          let currentStatus = "Preparing to print...";
+          
+          // Show initial toast with status
+          const { dismiss } = toast({
+            title: "Location Added!",
+            description: currentStatus,
+            duration: 10000, // Keep it visible during printing
+          });
+
+          const printResult = await autoPrintLabel(data.id, (status) => {
+            currentStatus = status;
+            dismiss(); // Remove previous toast
+            toast({
+              title: "Location Added!",
+              description: status,
+              duration: status === 'Print complete!' ? 3000 : 10000,
+            });
+          });
+          
+          dismiss(); // Remove any remaining toast
           
           if (printResult.success) {
             toast({
-              title: "Location Added & Label Printed!",
+              title: "Success!",
               description: printResult.message,
             });
           } else {

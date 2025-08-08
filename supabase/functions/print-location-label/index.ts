@@ -68,8 +68,8 @@ function qrMatrixToBitmap(matrix: number[][], scale: number = 8): Uint8Array {
   return bitmap
 }
 
-// Generate Brother QL-800 print commands for 2.4" red/black labels
-function generateBrotherQLLabel(location: LocationData): Uint8Array {
+// Generate Brother QL-800 print commands with auto-format support
+function generateBrotherQLLabel(location: LocationData, autoFormat: boolean = false): Uint8Array {
   const commands: number[] = []
   
   // Initialize printer
@@ -77,27 +77,41 @@ function generateBrotherQLLabel(location: LocationData): Uint8Array {
   
   // Invalidate
   commands.push(0x1B, 0x69, 0x4B, 0x08)
-  
-  // Status information request
-  commands.push(0x1B, 0x69, 0x53)
-  
-  // Set media & quality for 2.4" red/black tape (62mm)
-  commands.push(0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-  
-  // Set margin (0.1" = ~3mm = 35 dots at 300 DPI)
-  commands.push(0x1B, 0x69, 0x64, 0x23, 0x00)
-  
-  // Switch to raster mode
-  commands.push(0x1B, 0x69, 0x52, 0x01)
-  
-  // Print information command
-  commands.push(0x1B, 0x69, 0x7A, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00)
-  
-  // Set compression mode
-  commands.push(0x1B, 0x69, 0x4D, 0x00)
-  
-  // Set feed amount
-  commands.push(0x1B, 0x69, 0x41, 0x01)
+
+  if (autoFormat) {
+    // Auto format mode - let printer detect and use current media
+    commands.push(
+      // Auto format mode
+      0x1B, 0x69, 0x41, 0x01,
+      
+      // Switch to raster mode
+      0x1B, 0x69, 0x52, 0x01
+    )
+  } else {
+    // Manual format mode with specific media settings
+    commands.push(
+      // Status information request
+      0x1B, 0x69, 0x53,
+      
+      // Set media & quality for 2.4" red/black tape (62mm)
+      0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      
+      // Set margin (0.1" = ~3mm = 35 dots at 300 DPI)
+      0x1B, 0x69, 0x64, 0x23, 0x00,
+      
+      // Switch to raster mode
+      0x1B, 0x69, 0x52, 0x01,
+      
+      // Print information command
+      0x1B, 0x69, 0x7A, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+      
+      // Set compression mode
+      0x1B, 0x69, 0x4D, 0x00,
+      
+      // Set feed amount
+      0x1B, 0x69, 0x41, 0x01
+    )
+  }
   
   // Generate QR code bitmap
   const qrMatrix = generateQRMatrix(location.qr_code, 25)
@@ -183,7 +197,7 @@ serve(async (req) => {
   }
 
   try {
-    const { locationId } = await req.json()
+    const { locationId, autoFormat = false } = await req.json()
     
     if (!locationId) {
       return new Response(
@@ -211,10 +225,10 @@ serve(async (req) => {
       )
     }
 
-    console.log('Generating print commands for location:', location.name)
+    console.log('Generating print commands for location:', location.name, 'Auto-format:', autoFormat)
 
-    // Generate Brother QL print commands
-    const printCommands = generateBrotherQLLabel(location)
+    // Generate Brother QL print commands with auto-format option
+    const printCommands = generateBrotherQLLabel(location, autoFormat)
 
     console.log('Print commands generated successfully for:', location.qr_code)
     console.log('Command length:', printCommands.length, 'bytes')
