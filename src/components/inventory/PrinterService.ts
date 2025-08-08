@@ -78,15 +78,41 @@ class BrotherQLPrinterService implements PrinterService {
       await this.device.open();
       console.log('Device opened successfully');
 
-      // Select configuration
+      // Select configuration (try different configurations)
       if (this.device.configuration === null) {
-        await this.device.selectConfiguration(1);
-        console.log('Configuration selected');
+        try {
+          await this.device.selectConfiguration(1);
+          console.log('Configuration 1 selected');
+        } catch (error) {
+          console.log('Configuration 1 failed, trying default');
+        }
       }
 
-      // Claim the printer interface (usually interface 0)
-      await this.device.claimInterface(0);
-      console.log('Interface claimed');
+      // Add delay to ensure device is ready
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Try to claim interface 0 first, then try interface 1 if that fails
+      let interfaceClaimed = false;
+      let claimedInterface = 0;
+      
+      for (let interfaceNum = 0; interfaceNum <= 2; interfaceNum++) {
+        try {
+          await this.device.claimInterface(interfaceNum);
+          console.log(`Interface ${interfaceNum} claimed successfully`);
+          interfaceClaimed = true;
+          claimedInterface = interfaceNum;
+          break;
+        } catch (error) {
+          console.log(`Failed to claim interface ${interfaceNum}:`, error);
+        }
+      }
+
+      if (!interfaceClaimed) {
+        throw new Error('Unable to claim any printer interface. Please close any Brother P-touch Editor or other printer software and try again.');
+      }
+
+      // Store the claimed interface number for later use
+      (this.device as any).claimedInterface = claimedInterface;
 
       this.isConnected = true;
       console.log('Successfully connected to Brother QL printer via WebUSB!');
