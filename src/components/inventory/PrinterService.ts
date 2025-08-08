@@ -177,17 +177,59 @@ class BrotherQLPrinterService implements PrinterService {
     }
 
     try {
-      // Request status
+      console.log('Requesting printer status...');
+      // Request status information
       const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
-      await this.device.transferOut(1, statusRequest.buffer);
+      await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
       
-      // Read status response
-      const result = await this.device.transferIn(1, 32);
-      return result.data;
+      // Add delay for printer to process
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // Read status response (Brother QL returns 32 bytes)
+      const result = await this.device.transferIn(this.inEndpoint, 32);
+      
+      if (result.status === 'ok') {
+        const statusData = new Uint8Array(result.data.buffer);
+        console.log('Status response:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        
+        // Parse paper information from status response
+        const paperInfo = this.parsePaperInfo(statusData);
+        console.log('Detected paper:', paperInfo);
+        return paperInfo;
+      } else {
+        console.error('Failed to read status:', result.status);
+        return null;
+      }
     } catch (error) {
       console.error('Failed to get printer status:', error);
       return null;
     }
+  }
+
+  private parsePaperInfo(statusData: Uint8Array): any {
+    // Brother QL status byte layout (simplified)
+    // Byte 10: Media type
+    // Byte 11: Media width
+    // Byte 17: Media length (for die-cut labels)
+    
+    const mediaType = statusData[10];
+    const mediaWidth = statusData[11];
+    const mediaLength = statusData[17];
+    
+    console.log(`Media type: 0x${mediaType.toString(16)}, Width: ${mediaWidth}mm, Length: ${mediaLength}mm`);
+    
+    // Calculate print dimensions based on width (at 180 DPI)
+    const printWidth = Math.floor((mediaWidth * 180) / 25.4); // Convert mm to pixels
+    const bytesPerLine = Math.ceil(printWidth / 8); // Convert pixels to bytes
+    
+    return {
+      type: mediaType,
+      width: mediaWidth,
+      length: mediaLength,
+      printWidth,
+      bytesPerLine,
+      isEndless: mediaLength === 0 // Endless tape vs die-cut labels
+    };
   }
 
   async testPrint(): Promise<boolean> {
@@ -196,9 +238,20 @@ class BrotherQLPrinterService implements PrinterService {
     }
 
     try {
-      console.log('Sending universal test print...');
+      console.log('Reading paper information from printer...');
+      
+      // First, get the paper info from the printer
+      const paperInfo = await this.getStatus();
+      
+      if (!paperInfo) {
+        console.log('Could not detect paper, using safe defaults...');
+        return this.sendSimpleTestPrint();
+      }
 
-      // Universal Brother QL commands that work with any paper
+      console.log('Detected paper info:', paperInfo);
+      console.log('Sending test print optimized for detected paper...');
+
+      // Create print commands based on detected paper
       const testCommands: number[] = [
         // Initialize printer
         0x1B, 0x40, // ESC @ - Initialize printer
@@ -206,30 +259,32 @@ class BrotherQLPrinterService implements PrinterService {
         // Switch to raster mode
         0x1B, 0x69, 0x52, 0x01,
         
-        // Auto cut (but don't specify paper type)
+        // Auto cut
         0x1B, 0x69, 0x4D, 0x40,
         
         // Set compression mode off
         0x1B, 0x69, 0x4B, 0x08,
       ];
 
-      // Very simple, small test pattern that should work on any Brother QL paper
-      const labelHeight = 20; // Very small test
-      const bytesPerLine = 60; // Conservative width that fits most papers
+      // Use detected paper dimensions for test pattern
+      const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
+      const bytesPerLine = Math.min(paperInfo.bytesPerLine, 90); // Use detected width but cap it
 
-      // Add raster data for simple test pattern
+      console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
+
+      // Add raster data for test pattern
       for (let line = 0; line < labelHeight; line++) {
         // Raster line command
         testCommands.push(0x67, 0x00, bytesPerLine);
         
-        // Create simple test pattern
+        // Create a simple test pattern that shows the detected paper size
         for (let byte = 0; byte < bytesPerLine; byte++) {
-          if (line === 0 || line === labelHeight - 1 || byte === 0 || byte === bytesPerLine - 1) {
-            testCommands.push(0xFF); // Border
-          } else if (line === 10 && byte >= 20 && byte <= 40) {
-            testCommands.push(0xFF); // Center line
+          if (line < 3 || line >= labelHeight - 3 || byte < 2 || byte >= bytesPerLine - 2) {
+            testCommands.push(0xFF); // Border to show full width/height
+          } else if (line >= Math.floor(labelHeight/2) - 2 && line <= Math.floor(labelHeight/2) + 2) {
+            testCommands.push(0xFF); // Center horizontal line
           } else {
-            testCommands.push(0x00); // White
+            testCommands.push(0x00); // White background
           }
         }
       }
@@ -237,7 +292,7 @@ class BrotherQLPrinterService implements PrinterService {
       // Print command
       testCommands.push(0x1A);
 
-      // Convert to Uint8Array and send using the detected output endpoint
+      // Convert to Uint8Array and send
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
@@ -251,6 +306,29 @@ class BrotherQLPrinterService implements PrinterService {
 
     } catch (error) {
       console.error('Failed to send test print:', error);
+      return false;
+    }
+  }
+
+  private async sendSimpleTestPrint(): Promise<boolean> {
+    try {
+      console.log('Sending minimal safe test print...');
+      
+      // Ultra-minimal test that should work on any Brother QL
+      const testCommands: number[] = [
+        0x1B, 0x40, // Initialize
+        0x1B, 0x69, 0x52, 0x01, // Raster mode
+        0x67, 0x00, 0x10, // 16 byte line
+        ...Array(16).fill(0xFF), // Black line
+        0x1A // Print
+      ];
+
+      const uint8Data = new Uint8Array(testCommands);
+      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
+      
+      return result.status === 'ok';
+    } catch (error) {
+      console.error('Simple test print failed:', error);
       return false;
     }
   }
