@@ -91,6 +91,155 @@ export type Database = {
           },
         ]
       }
+      item_locations: {
+        Row: {
+          created_at: string
+          date_placed: string
+          date_removed: string | null
+          id: string
+          item_id: string
+          location_id: string
+          quantity: number
+        }
+        Insert: {
+          created_at?: string
+          date_placed?: string
+          date_removed?: string | null
+          id?: string
+          item_id: string
+          location_id: string
+          quantity?: number
+        }
+        Update: {
+          created_at?: string
+          date_placed?: string
+          date_removed?: string | null
+          id?: string
+          item_id?: string
+          location_id?: string
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "item_locations_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "item_locations_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      items: {
+        Row: {
+          brand: string | null
+          category: string
+          created_at: string
+          date_added: string
+          description: string | null
+          id: string
+          last_seen: string | null
+          model: string | null
+          name: string
+          notes: string | null
+          photo_path: string | null
+          purchase_date: string | null
+          purchase_price: number | null
+          quantity: number | null
+          quantity_unit: string | null
+          size_specs: string | null
+          updated_at: string
+        }
+        Insert: {
+          brand?: string | null
+          category: string
+          created_at?: string
+          date_added?: string
+          description?: string | null
+          id?: string
+          last_seen?: string | null
+          model?: string | null
+          name: string
+          notes?: string | null
+          photo_path?: string | null
+          purchase_date?: string | null
+          purchase_price?: number | null
+          quantity?: number | null
+          quantity_unit?: string | null
+          size_specs?: string | null
+          updated_at?: string
+        }
+        Update: {
+          brand?: string | null
+          category?: string
+          created_at?: string
+          date_added?: string
+          description?: string | null
+          id?: string
+          last_seen?: string | null
+          model?: string | null
+          name?: string
+          notes?: string | null
+          photo_path?: string | null
+          purchase_date?: string | null
+          purchase_price?: number | null
+          quantity?: number | null
+          quantity_unit?: string | null
+          size_specs?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      locations: {
+        Row: {
+          capacity: number | null
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          parent_location_id: string | null
+          qr_code: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          capacity?: number | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          parent_location_id?: string | null
+          qr_code: string
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          capacity?: number | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          parent_location_id?: string | null
+          qr_code?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "locations_parent_location_id_fkey"
+            columns: ["parent_location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       payments: {
         Row: {
           amount: number
@@ -128,6 +277,44 @@ export type Database = {
             columns: ["invoice_id"]
             isOneToOne: false
             referencedRelation: "invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      usage_log: {
+        Row: {
+          checked_in_date: string | null
+          checked_out_date: string
+          created_at: string
+          id: string
+          item_id: string
+          notes: string | null
+          project: string | null
+        }
+        Insert: {
+          checked_in_date?: string | null
+          checked_out_date?: string
+          created_at?: string
+          id?: string
+          item_id: string
+          notes?: string | null
+          project?: string | null
+        }
+        Update: {
+          checked_in_date?: string | null
+          checked_out_date?: string
+          created_at?: string
+          id?: string
+          item_id?: string
+          notes?: string | null
+          project?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "usage_log_item_id_fkey"
+            columns: ["item_id"]
+            isOneToOne: false
+            referencedRelation: "items"
             referencedColumns: ["id"]
           },
         ]
