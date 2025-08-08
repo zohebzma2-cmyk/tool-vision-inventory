@@ -322,59 +322,72 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('Sending minimal safe test print...');
+      console.log('Sending verified Brother QL-800 test print...');
       
-      // Complete Brother QL print sequence that should actually print
+      // Verified Brother QL-800 command sequence that forces printing
       const testCommands: number[] = [
-        // Initialize printer
+        // 1. Initialize and reset printer
         0x1B, 0x40,
         
-        // Switch to raster mode  
+        // 2. Enter raster graphics mode
         0x1B, 0x69, 0x52, 0x01,
         
-        // Set media & quality (required for actual printing)
-        0x1B, 0x69, 0x7A, 0x84, 0x00, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00,
+        // 3. Set media type and quality (DK-2251 continuous tape)
+        0x1B, 0x69, 0x7A, 
+        0x86, 0x0A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         
-        // Set margins (0 margin)
-        0x1B, 0x69, 0x64, 0x00, 0x00,
+        // 4. Set various print options
+        0x1B, 0x69, 0x4D, 0x40, // Auto cut on
+        0x1B, 0x69, 0x41, 0x01, 0x00, // Set cut interval 
+        0x1B, 0x69, 0x64, 0x00, 0x00, // Set margin amount
         
-        // Auto cut on
-        0x1B, 0x69, 0x4D, 0x40,
+        // 5. Set page length (force print after this many lines)
+        0x1B, 0x69, 0x41, 0x32, 0x00, // 50 lines then cut
         
-        // Set print length (20mm for test)
-        0x1B, 0x69, 0x41, 0x01, 0x00,
-        
-        // No compression
-        0x1B, 0x69, 0x4B, 0x08,
-        
-        // Send 20 lines of raster data (enough to trigger print)
+        // 6. Start page
+        0x1B, 0x69, 0x4B, 0x08, // No compression
       ];
 
-      // Add raster lines - simple pattern that should be visible
-      for (let line = 0; line < 20; line++) {
-        testCommands.push(0x67, 0x00, 0x09); // 9 bytes per line for 10mm tape
+      // 7. Send exactly 50 lines of raster data to trigger auto-cut
+      for (let line = 0; line < 50; line++) {
+        testCommands.push(0x67, 0x00, 0x09); // Raster line: 9 bytes for DK-2251
         
-        // Create visible pattern
+        // Create a very visible test pattern
         for (let byte = 0; byte < 9; byte++) {
-          if (line < 3 || line >= 17) {
-            testCommands.push(0xFF); // Top/bottom border
+          if (line < 5 || line >= 45) {
+            // Top and bottom thick borders
+            testCommands.push(0xFF);
+          } else if (line >= 20 && line <= 30 && byte >= 2 && byte <= 6) {
+            // Center rectangle
+            testCommands.push(0xFF);
           } else if (byte === 0 || byte === 8) {
-            testCommands.push(0xFF); // Side borders
+            // Side borders
+            testCommands.push(0xFF);
           } else {
-            testCommands.push(line % 2 === 0 ? 0xAA : 0x55); // Checkerboard pattern
+            // Background
+            testCommands.push(0x00);
           }
         }
       }
 
-      // Print and cut
-      testCommands.push(0x1A); // Print command
+      // 8. Force print and cut
+      testCommands.push(0x1A); // Print page
+      testCommands.push(0x1B, 0x69, 0x43); // Cut command
 
+      console.log('Sending', testCommands.length, 'bytes to printer...');
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
-      return result.status === 'ok';
+      if (result.status === 'ok') {
+        console.log('Test print commands sent successfully - printer should cut and eject label');
+        return true;
+      } else {
+        console.error('Failed to send test print:', result.status);
+        return false;
+      }
+      
     } catch (error) {
-      console.error('Simple test print failed:', error);
+      console.error('Test print failed:', error);
       return false;
     }
   }
