@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2 } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService } from "./PrinterService";
 
 interface Location {
   id: string;
@@ -26,6 +27,8 @@ export function LocationsList() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
+  const [printerConnected, setPrinterConnected] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     type: "",
@@ -41,6 +44,7 @@ export function LocationsList() {
 
   useEffect(() => {
     fetchLocations();
+    setPrinterConnected(printerService.isConnected);
   }, []);
 
   const fetchLocations = async () => {
@@ -86,37 +90,35 @@ export function LocationsList() {
 
       setLocations([data, ...locations]);
       
-      // Print label for the new location
-      try {
-        const { data: printResult, error: printError } = await supabase.functions.invoke('print-location-label', {
-          body: { locationId: data.id }
-        });
-
-        if (printError) {
-          console.error('Print error:', printError);
+      // Auto-print label if enabled and printer is available
+      if (autoPrintEnabled && isPrintingSupported()) {
+        try {
+          const printResult = await autoPrintLabel(data.id);
+          
+          if (printResult.success) {
+            toast({
+              title: "Location Added & Label Printed!",
+              description: printResult.message,
+            });
+          } else {
+            toast({
+              title: "Location Added",
+              description: `Location created successfully. Print failed: ${printResult.message}`,
+              variant: "destructive"
+            });
+          }
+        } catch (printError) {
+          console.error('Auto-print error:', printError);
           toast({
             title: "Location Added",
-            description: `Location created successfully, but printing failed: ${printError.message}`,
+            description: "Location created but auto-printing failed. Please print manually.",
             variant: "destructive"
           });
-        } else {
-          toast({
-            title: "Location Added & Label Generated",
-            description: `Location created and label generated! ${printResult.instructions}`,
-          });
-          
-          // If you want to show the label preview, you could open it in a new window
-          if (printResult.labelSVG) {
-            const blob = new Blob([printResult.labelSVG], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(blob);
-            window.open(url, '_blank');
-          }
         }
-      } catch (printError) {
-        console.error('Print function error:', printError);
+      } else {
         toast({
           title: "Location Added",
-          description: "Location created successfully, but label printing is unavailable.",
+          description: "Location created successfully!",
         });
       }
 
@@ -160,6 +162,24 @@ export function LocationsList() {
     }
   };
 
+  const handleSetupPrinter = async () => {
+    const connected = await setupPrinter();
+    setPrinterConnected(connected);
+    
+    if (connected) {
+      toast({
+        title: "Printer Connected",
+        description: "Brother QL-800 connected successfully! Labels will now auto-print.",
+      });
+    } else {
+      toast({
+        title: "Connection Failed",
+        description: "Could not connect to Brother QL-800. Please check USB connection.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const getParentLocationName = (parentId?: string) => {
     if (!parentId) return null;
     const parent = locations.find(loc => loc.id === parentId);
@@ -190,13 +210,26 @@ export function LocationsList() {
               Organize your workspace with QR-coded locations
             </p>
           </div>
-          <Button 
-            onClick={() => setShowAddDialog(true)}
-            className="shadow-soft"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Location
-          </Button>
+          <div className="flex gap-2">
+            {isPrintingSupported() && (
+              <Button 
+                variant="outline"
+                size="sm"
+                onClick={handleSetupPrinter}
+                className={printerConnected ? "bg-success/10 border-success text-success" : ""}
+              >
+                <Printer className="h-4 w-4 mr-2" />
+                {printerConnected ? "Printer Ready" : "Setup Printer"}
+              </Button>
+            )}
+            <Button 
+              onClick={() => setShowAddDialog(true)}
+              className="shadow-soft"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Location
+            </Button>
+          </div>
         </div>
 
         {locations.length === 0 ? (
