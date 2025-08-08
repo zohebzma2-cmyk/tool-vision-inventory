@@ -32,14 +32,26 @@ class BrotherQLPrinterService implements PrinterService {
         throw new Error('Web Serial API not supported in this browser');
       }
 
-      // Request a port
-      this.port = await (navigator as any).serial.requestPort({
-        filters: [
-          { usbVendorId: 0x04f9 }, // Brother vendor ID
-        ]
-      });
+      console.log('Requesting Brother QL printer connection...');
 
-      // Open the port
+      // Request a port - try Brother-specific first, then any device
+      try {
+        this.port = await (navigator as any).serial.requestPort({
+          filters: [
+            { usbVendorId: 0x04f9 }, // Brother vendor ID
+            { usbVendorId: 0x04F9 }, // Brother vendor ID (uppercase)
+            { usbVendorId: 1273 },   // Brother vendor ID (decimal)
+          ]
+        });
+      } catch (filterError) {
+        console.log('Brother-specific filter failed, trying without filters...');
+        // Fallback: let user choose any serial device
+        this.port = await (navigator as any).serial.requestPort();
+      }
+
+      console.log('Printer port obtained, opening connection...');
+
+      // Open the port with Brother QL-800 compatible settings
       await this.port.open({ 
         baudRate: 9600,
         dataBits: 8,
@@ -49,10 +61,15 @@ class BrotherQLPrinterService implements PrinterService {
       });
 
       this.isConnected = true;
-      console.log('Connected to Brother QL printer');
+      console.log('Successfully connected to Brother QL printer');
       return true;
     } catch (error) {
-      console.error('Failed to connect to printer:', error);
+      console.error('Failed to connect to printer. Error details:', error);
+      console.error('Make sure:');
+      console.error('1. Brother QL-800 is connected via USB');
+      console.error('2. Printer is powered on');
+      console.error('3. You are using Chrome/Edge browser');
+      console.error('4. The printer is not being used by another application');
       this.isConnected = false;
       return false;
     }
