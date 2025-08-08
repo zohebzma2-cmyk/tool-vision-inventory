@@ -77,7 +77,7 @@ export function LocationsList() {
           ...formData,
           qr_code: generateQRCode(),
           capacity: formData.capacity ? parseInt(formData.capacity) : null,
-          parent_location_id: formData.parent_location_id || null
+          parent_location_id: formData.parent_location_id === "none" ? null : formData.parent_location_id || null
         }])
         .select()
         .single();
@@ -85,10 +85,40 @@ export function LocationsList() {
       if (error) throw error;
 
       setLocations([data, ...locations]);
-      toast({
-        title: "Success",
-        description: "Location added successfully!"
-      });
+      
+      // Print label for the new location
+      try {
+        const { data: printResult, error: printError } = await supabase.functions.invoke('print-location-label', {
+          body: { locationId: data.id }
+        });
+
+        if (printError) {
+          console.error('Print error:', printError);
+          toast({
+            title: "Location Added",
+            description: `Location created successfully, but printing failed: ${printError.message}`,
+            variant: "destructive"
+          });
+        } else {
+          toast({
+            title: "Location Added & Label Generated",
+            description: `Location created and label generated! ${printResult.instructions}`,
+          });
+          
+          // If you want to show the label preview, you could open it in a new window
+          if (printResult.labelSVG) {
+            const blob = new Blob([printResult.labelSVG], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+          }
+        }
+      } catch (printError) {
+        console.error('Print function error:', printError);
+        toast({
+          title: "Location Added",
+          description: "Location created successfully, but label printing is unavailable.",
+        });
+      }
 
       setFormData({
         name: "",
