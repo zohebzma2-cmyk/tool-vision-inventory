@@ -150,83 +150,102 @@ export function LocationsList() {
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Locations ({locations.length})</CardTitle>
-            <Button onClick={() => setShowAddDialog(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Location
-            </Button>
+      <div className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-lg font-semibold text-foreground">
+              Locations ({locations.length})
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Organize your workspace with QR-coded locations
+            </p>
           </div>
-        </CardHeader>
-        <CardContent>
-          {locations.length === 0 ? (
-            <div className="text-center py-8">
-              <MapPin className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <p className="text-muted-foreground">
-                No locations created yet. Click 'Add Location' to get started!
-              </p>
+          <Button 
+            onClick={() => setShowAddDialog(true)}
+            className="shadow-soft"
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Location
+          </Button>
+        </div>
+
+        {locations.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
+              <MapPin className="h-10 w-10 text-muted-foreground" />
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {locations.map(location => (
-                <Card key={location.id} className="relative">
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h3 className="font-semibold text-foreground">{location.name}</h3>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <QrCode className="h-3 w-3" />
-                          <span className="font-mono">{location.qr_code}</span>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm">
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => deleteLocation(location.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+            <h3 className="text-lg font-semibold mb-2">No locations yet</h3>
+            <p className="text-muted-foreground max-w-sm mx-auto">
+              Create your first location to start organizing your tools with QR codes for easy tracking.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {locations.map(location => (
+              <Card key={location.id} className="group hover:shadow-soft transition-all duration-200 border-0 shadow-sm">
+                <CardContent className="p-5">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-foreground text-lg mb-1">{location.name}</h3>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground bg-muted/50 rounded-md px-2 py-1 w-fit">
+                        <QrCode className="h-3 w-3" />
+                        <span className="font-mono text-xs">{location.qr_code}</span>
                       </div>
                     </div>
-                    
-                    <Badge variant="outline" className="mb-2 capitalize">
-                      {location.type}
-                    </Badge>
-                    
-                    {location.description && (
-                      <p className="text-sm text-muted-foreground mb-2 line-clamp-2">
-                        {location.description}
-                      </p>
-                    )}
-                    
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => deleteLocation(location.id)}
+                        className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  <Badge 
+                    variant="outline" 
+                    className="mb-3 capitalize bg-accent/10 text-accent border-accent/20"
+                  >
+                    {location.type}
+                  </Badge>
+                  
+                  {location.description && (
+                    <p className="text-sm text-muted-foreground mb-3 line-clamp-2 leading-relaxed">
+                      {location.description}
+                    </p>
+                  )}
+                  
+                  <div className="space-y-2">
                     {getParentLocationName(location.parent_location_id) && (
-                      <div className="text-xs text-muted-foreground mb-1">
-                        Parent: {getParentLocationName(location.parent_location_id)}
+                      <div className="text-xs text-muted-foreground">
+                        Parent: <span className="font-medium">{getParentLocationName(location.parent_location_id)}</span>
                       </div>
                     )}
                     
                     {location.capacity && (
                       <div className="text-xs text-muted-foreground">
-                        Capacity: {location.capacity}
+                        Capacity: <span className="font-medium">{location.capacity} items</span>
                       </div>
                     )}
                     
-                    <div className="mt-2 text-xs text-muted-foreground">
-                      0 items stored
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Items stored:</span>
+                      <Badge variant="secondary" className="text-xs bg-success/10 text-success border-success/20">
+                        0 items
+                      </Badge>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
 
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent>
