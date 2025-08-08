@@ -37,6 +37,8 @@ interface PrinterService {
 
 class BrotherQLPrinterService implements PrinterService {
   private device: USBDevice | null = null;
+  private outEndpoint: number = 1; // Default, will be detected
+  private inEndpoint: number = 1; // Default, will be detected
   public isConnected = false;
 
   async connect(): Promise<boolean> {
@@ -99,6 +101,7 @@ class BrotherQLPrinterService implements PrinterService {
         try {
           await this.device.claimInterface(interfaceNum);
           console.log(`Interface ${interfaceNum} claimed successfully`);
+          
           interfaceClaimed = true;
           claimedInterface = interfaceNum;
           break;
@@ -110,6 +113,11 @@ class BrotherQLPrinterService implements PrinterService {
       if (!interfaceClaimed) {
         throw new Error('Unable to claim any printer interface. Please close any Brother P-touch Editor or other printer software and try again.');
       }
+
+      // Brother QL-800 typically uses endpoint 2 for out and endpoint 1 for in
+      this.outEndpoint = 2;
+      this.inEndpoint = 1;
+      console.log(`Using OUT endpoint: ${this.outEndpoint}, IN endpoint: ${this.inEndpoint}`);
 
       // Store the claimed interface number for later use
       (this.device as any).claimedInterface = claimedInterface;
@@ -145,8 +153,8 @@ class BrotherQLPrinterService implements PrinterService {
       // Convert data to Uint8Array
       const uint8Data = new Uint8Array(data);
       
-      // Send data to Brother QL printer (endpoint 1 is typically used for printing)
-      const result = await this.device.transferOut(1, uint8Data.buffer);
+      // Send data to Brother QL printer using detected endpoint
+      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
         console.log('Print data sent successfully via WebUSB');
@@ -227,9 +235,9 @@ class BrotherQLPrinterService implements PrinterService {
       // Print and feed
       testCommands.push(0x1A);
 
-      // Convert to Uint8Array and send
+      // Convert to Uint8Array and send using the detected output endpoint
       const uint8Data = new Uint8Array(testCommands);
-      const result = await this.device.transferOut(1, uint8Data.buffer);
+      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
         console.log('Test print sent successfully');
