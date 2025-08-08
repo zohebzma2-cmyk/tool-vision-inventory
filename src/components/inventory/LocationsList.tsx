@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService } from "./PrinterService";
+import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
 
 interface Location {
   id: string;
@@ -180,6 +180,23 @@ export function LocationsList() {
     }
   };
 
+  const handleTestPrint = async () => {
+    const result = await testPrint();
+    
+    if (result.success) {
+      toast({
+        title: "Test Print Sent",
+        description: result.message,
+      });
+    } else {
+      toast({
+        title: "Test Print Failed",
+        description: result.message,
+        variant: "destructive"
+      });
+    }
+  };
+
   const getParentLocationName = (parentId?: string) => {
     if (!parentId) return null;
     const parent = locations.find(loc => loc.id === parentId);
@@ -212,15 +229,27 @@ export function LocationsList() {
           </div>
           <div className="flex gap-2">
             {isPrintingSupported() && (
-              <Button 
-                variant="outline"
-                size="sm"
-                onClick={handleSetupPrinter}
-                className={printerConnected ? "bg-success/10 border-success text-success" : ""}
-              >
-                <Printer className="h-4 w-4 mr-2" />
-                {printerConnected ? "Printer Ready" : "Setup Printer"}
-              </Button>
+              <>
+                <Button 
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSetupPrinter}
+                  className={printerConnected ? "bg-success/10 border-success text-success" : ""}
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  {printerConnected ? "Printer Ready" : "Setup Printer"}
+                </Button>
+                {printerConnected && (
+                  <Button 
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTestPrint}
+                  >
+                    <TestTube className="h-4 w-4 mr-2" />
+                    Test Print
+                  </Button>
+                )}
+              </>
             )}
             <Button 
               onClick={() => setShowAddDialog(true)}

@@ -137,6 +137,88 @@ class BrotherQLPrinterService implements PrinterService {
     }
   }
 
+  async testPrint(): Promise<boolean> {
+    if (!this.device || !this.isConnected) {
+      throw new Error('Brother QL printer not connected');
+    }
+
+    try {
+      console.log('Sending test print to Brother QL printer...');
+
+      // Simple test pattern for Brother QL-800 (62mm tape)
+      const testCommands: number[] = [
+        // Initialize printer
+        0x1B, 0x40, // ESC @ - Initialize
+        
+        // Invalidate
+        0x1B, 0x69, 0x4B, 0x08,
+        
+        // Status information request
+        0x1B, 0x69, 0x53,
+        
+        // Set media & quality for 2.4" red/black tape (62mm)
+        0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        
+        // Set margin
+        0x1B, 0x69, 0x64, 0x23, 0x00,
+        
+        // Switch to raster mode
+        0x1B, 0x69, 0x52, 0x01,
+        
+        // Print information command
+        0x1B, 0x69, 0x7A, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
+        
+        // Set compression mode
+        0x1B, 0x69, 0x4D, 0x00,
+        
+        // Set feed amount
+        0x1B, 0x69, 0x41, 0x01
+      ];
+
+      // Create simple test pattern (black stripes)
+      const labelWidth = 696; // 62mm = 696 pixels at 300 DPI
+      const labelHeight = 100; // Small test label
+      const bytesPerLine = Math.ceil(labelWidth / 8);
+
+      // Add raster data for test pattern
+      for (let line = 0; line < labelHeight; line++) {
+        // Raster line command
+        testCommands.push(0x67, 0x00, bytesPerLine); // 'g' command with line length
+        
+        // Create alternating stripe pattern
+        for (let byte = 0; byte < bytesPerLine; byte++) {
+          if (line % 10 < 5) {
+            // Black stripe every 10 lines for 5 lines
+            testCommands.push(0xFF);
+          } else {
+            // White space
+            testCommands.push(0x00);
+          }
+        }
+      }
+
+      // Print command
+      testCommands.push(0x1A); // Print and feed
+
+      // Convert to Uint8Array and send
+      const uint8Data = new Uint8Array(testCommands);
+      const result = await this.device.transferOut(1, uint8Data.buffer);
+      
+      if (result.status === 'ok') {
+        console.log('Test print sent successfully');
+        console.log('Bytes written:', result.bytesWritten);
+        return true;
+      } else {
+        console.error('Test print failed with status:', result.status);
+        return false;
+      }
+
+    } catch (error) {
+      console.error('Failed to send test print:', error);
+      return false;
+    }
+  }
+
   disconnect(): void {
     if (this.device) {
       try {
@@ -208,6 +290,45 @@ export async function autoPrintLabel(locationId: string): Promise<{ success: boo
     return {
       success: false,
       message: `Print failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+    };
+  }
+}
+
+// Test print function
+export async function testPrint(): Promise<{ success: boolean; message: string }> {
+  try {
+    // Connect to printer if not already connected
+    if (!printerService.isConnected) {
+      console.log('Printer not connected, attempting to connect...');
+      const connected = await printerService.connect();
+      if (!connected) {
+        return {
+          success: false,
+          message: 'Failed to connect to Brother QL printer. Please ensure it\'s connected via USB and try again.'
+        };
+      }
+    }
+
+    console.log('Sending test print...');
+    const printed = await printerService.testPrint();
+    
+    if (printed) {
+      return {
+        success: true,
+        message: 'Test print sent successfully! Check your printer for output.'
+      };
+    } else {
+      return {
+        success: false,
+        message: 'Failed to send test print to Brother QL printer'
+      };
+    }
+
+  } catch (error) {
+    console.error('Test print error:', error);
+    return {
+      success: false,
+      message: `Test print failed: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
   }
 }
