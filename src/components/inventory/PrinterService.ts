@@ -198,41 +198,52 @@ class BrotherQLPrinterService implements PrinterService {
     try {
       console.log('Sending simplified test print...');
 
-      // Very simple universal test pattern - just initialize and print a small pattern
+      // Brother QL-800 specific commands for DK-2251 labels (62mm x 29mm)
       const testCommands: number[] = [
         // Initialize printer
-        0x1B, 0x40, // ESC @ - Initialize
+        0x1B, 0x40, // ESC @ - Initialize printer
         
-        // Invalidate
-        0x1B, 0x69, 0x4B, 0x08,
-        
-        // Auto format mode (use current media automatically)
-        0x1B, 0x69, 0x41, 0x01,
+        // Print information command - request status
+        0x1B, 0x69, 0x53,
         
         // Switch to raster mode
         0x1B, 0x69, 0x52, 0x01,
+        
+        // Media and quality - DK-2251 (62mm)
+        0x1B, 0x69, 0x7A, 0x84, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00,
+        
+        // Margin (0mm)
+        0x1B, 0x69, 0x64, 0x23, 0x00,
+        
+        // Auto cut
+        0x1B, 0x69, 0x4D, 0x40,
+        
+        // Expanded mode
+        0x1B, 0x69, 0x4B, 0x08,
       ];
 
-      // Create minimal test pattern - just a few lines
-      const labelHeight = 50;
-      const bytesPerLine = 90; // Standard width that should work on most media
+      // Create a simple test pattern - black rectangle in center
+      const labelHeight = 200; // About 29mm at 180 DPI
+      const bytesPerLine = 90;  // 62mm at 180 DPI / 8 bits
 
-      // Add raster data for simple test pattern
+      // Add raster data for test pattern
       for (let line = 0; line < labelHeight; line++) {
         // Raster line command
         testCommands.push(0x67, 0x00, bytesPerLine);
         
-        // Simple pattern: alternating lines
+        // Create a simple border pattern
         for (let byte = 0; byte < bytesPerLine; byte++) {
-          if (line % 4 < 2) {
-            testCommands.push(0xFF); // Black line
+          if (line < 5 || line >= labelHeight - 5 || byte < 2 || byte >= bytesPerLine - 2) {
+            testCommands.push(0xFF); // Black border
+          } else if (line >= 95 && line <= 105 && byte >= 20 && byte <= 70) {
+            testCommands.push(0xFF); // Black center stripe
           } else {
-            testCommands.push(0x00); // White line
+            testCommands.push(0x00); // White background
           }
         }
       }
 
-      // Print and feed
+      // Print command (print and feed)
       testCommands.push(0x1A);
 
       // Convert to Uint8Array and send using the detected output endpoint
