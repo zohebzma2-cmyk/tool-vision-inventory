@@ -287,14 +287,14 @@ export function LocationsList() {
             <div className="space-y-2">
               <Label htmlFor="parent">Parent Location</Label>
               <Select 
-                value={formData.parent_location_id} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, parent_location_id: value }))}
+                value={formData.parent_location_id || "none"} 
+                onValueChange={(value) => setFormData(prev => ({ ...prev, parent_location_id: value === "none" ? "" : value }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select parent location (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {locations.map(loc => (
                     <SelectItem key={loc.id} value={loc.id}>
                       {loc.name}
