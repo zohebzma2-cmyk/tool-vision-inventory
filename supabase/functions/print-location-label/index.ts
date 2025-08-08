@@ -68,7 +68,7 @@ function qrMatrixToBitmap(matrix: number[][], scale: number = 8): Uint8Array {
   return bitmap
 }
 
-// Generate Brother QL-800 print commands
+// Generate Brother QL-800 print commands for 2.4" red/black labels
 function generateBrotherQLLabel(location: LocationData): Uint8Array {
   const commands: number[] = []
   
@@ -81,11 +81,11 @@ function generateBrotherQLLabel(location: LocationData): Uint8Array {
   // Status information request
   commands.push(0x1B, 0x69, 0x53)
   
-  // Set media & quality
-  commands.push(0x1B, 0x69, 0x7A, 0x86, 0x0A, 0x86, 0x0A, 0x00, 0x00, 0x03, 0x02)
+  // Set media & quality for 2.4" red/black tape (62mm)
+  commands.push(0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
   
-  // Set margin (no margin)
-  commands.push(0x1B, 0x69, 0x64, 0x00, 0x00)
+  // Set margin (0.1" = ~3mm = 35 dots at 300 DPI)
+  commands.push(0x1B, 0x69, 0x64, 0x23, 0x00)
   
   // Switch to raster mode
   commands.push(0x1B, 0x69, 0x52, 0x01)
