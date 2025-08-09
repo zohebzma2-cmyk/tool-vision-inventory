@@ -191,6 +191,13 @@ class BrotherQLPrinterService implements PrinterService {
       if (result.status === 'ok') {
         const statusData = new Uint8Array(result.data.buffer);
         console.log('Status response:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        // Decode status/error flags for diagnostics
+        const decoded = this.decodeStatus(statusData);
+        if (decoded.errors.length) {
+          console.warn('Printer errors:', decoded.errors.join(', '));
+        } else {
+          console.log(`Printer OK. Status: ${decoded.statusType}, Phase: ${decoded.phaseType}`);
+        }
         
         // Parse paper information from status response
         const paperInfo = this.parsePaperInfo(statusData);
@@ -250,6 +257,58 @@ class BrotherQLPrinterService implements PrinterService {
     };
   }
 
+  // Decode error/status flags from 32‑byte status response
+  private decodeStatus(statusData: Uint8Array) {
+    const err1 = statusData[8] ?? 0;
+    const err2 = statusData[9] ?? 0;
+    const statusType = statusData[18] ?? 0;
+    const phaseType = statusData[19] ?? 0;
+
+    const ERR1: Record<number, string> = {
+      0: 'No media when printing',
+      1: 'End of media (die-cut size only)',
+      2: 'Tape cutter jam',
+      3: 'Not used',
+      4: 'Main unit in use',
+      5: 'Printer turned off',
+      6: 'High-voltage adapter (n/u)',
+      7: 'Fan error',
+    };
+    const ERR2: Record<number, string> = {
+      0: 'Replace media error',
+      1: 'Expansion buffer full',
+      2: 'Transmission/Communication error',
+      3: 'Communication buffer full (n/u)',
+      4: 'Cover opened while printing',
+      5: 'Cancel key (n/u)',
+      6: 'Media cannot be fed',
+      7: 'System error',
+    };
+
+    const errors: string[] = [];
+    for (let bit = 0; bit < 8; bit++) {
+      if (err1 & (1 << bit)) errors.push(ERR1[bit] ?? `Err1 bit${bit}`);
+      if (err2 & (1 << bit)) errors.push(ERR2[bit] ?? `Err2 bit${bit}`);
+    }
+
+    const STATUS: Record<number, string> = {
+      0x00: 'Reply to status request',
+      0x01: 'Printing completed',
+      0x02: 'Error occurred',
+      0x05: 'Notification',
+      0x06: 'Phase change',
+    };
+    const PHASE: Record<number, string> = {
+      0x00: 'Waiting to receive',
+      0x01: 'Printing state',
+    };
+
+    return {
+      errors,
+      statusType: STATUS[statusType] ?? `Unknown (0x${statusType.toString(16)})`,
+      phaseType: PHASE[phaseType] ?? `Unknown (0x${phaseType.toString(16)})`,
+    };
+  }
   async testPrint(): Promise<boolean> {
     if (!this.device || !this.isConnected) {
       throw new Error('Brother QL printer not connected');
@@ -273,6 +332,9 @@ class BrotherQLPrinterService implements PrinterService {
       const testCommands: number[] = [
         // Initialize printer
         0x1B, 0x40,
+
+        // Enable automatic status notifications
+        0x1B, 0x69, 0x21, 0x01,
 
         // Auto cut ON (Set each mode)
         0x1B, 0x69, 0x4D, 0x40,
@@ -329,7 +391,7 @@ class BrotherQLPrinterService implements PrinterService {
       }
 
       // Print command
-      testCommands.push(0x0C);
+      testCommands.push(0x1A);
 
       // Convert to Uint8Array and send
       const uint8Data = new Uint8Array(testCommands);
@@ -356,6 +418,9 @@ class BrotherQLPrinterService implements PrinterService {
       const testCommands: number[] = [
         // Initialize
         0x1B, 0x40,
+
+        // Enable automatic status notifications
+        0x1B, 0x69, 0x21, 0x01,
 
         // Set each mode: Auto cut ON (bit 6)
         0x1B, 0x69, 0x4D, 0x40,
@@ -387,7 +452,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
       }
 
-       testCommands.push(0x0C);
+       testCommands.push(0x1A);
 
       console.log('Sending', testCommands.length, 'bytes to printer...');
       const uint8Data = new Uint8Array(testCommands);
@@ -421,6 +486,8 @@ class BrotherQLPrinterService implements PrinterService {
       const cmds: number[] = [
         // Initialize
         0x1B, 0x40,
+        // Enable automatic status notifications
+        0x1B, 0x69, 0x21, 0x01,
         // Expanded mode: enable two-color (bit0)
         0x1B, 0x69, 0x4B, 0x01,
         // Auto cut ON (Set each mode)
@@ -453,7 +520,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
       }
 
-       cmds.push(0x0C);
+       cmds.push(0x1A);
 
       const data = new Uint8Array(cmds);
       const result = await this.device.transferOut(this.outEndpoint, data.buffer);
