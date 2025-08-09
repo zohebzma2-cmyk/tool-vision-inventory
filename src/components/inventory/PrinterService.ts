@@ -151,20 +151,24 @@ class BrotherQLPrinterService implements PrinterService {
       console.log('Sending print data to Brother QL printer via WebUSB...');
       console.log('Data length:', data.length, 'bytes');
 
-      // Convert data to Uint8Array
+      // Convert data to Uint8Array  
       const uint8Data = new Uint8Array(data);
       
-      // Send data to Brother QL printer using detected endpoint
-      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
+      // Send data in chunks to avoid transfer size limits (like working implementation)
+      const CHUNK_SIZE = 16 * 1024; // 16KB chunks
       
-      if (result.status === 'ok') {
-        console.log('Print data sent successfully via WebUSB');
-        console.log('Bytes written:', result.bytesWritten);
-        return true;
-      } else {
-        console.error('Print transfer failed with status:', result.status);
-        return false;
+      for (let offset = 0; offset < uint8Data.length; offset += CHUNK_SIZE) {
+        const chunk = uint8Data.subarray(offset, Math.min(offset + CHUNK_SIZE, uint8Data.length));
+        const result = await this.device.transferOut(this.outEndpoint, chunk.buffer);
+        
+        if (result.status !== 'ok') {
+          console.error('Print transfer failed with status:', result.status);
+          return false;
+        }
       }
+      
+      console.log('Print data sent successfully via WebUSB');
+      return true;
 
     } catch (error) {
       console.error('Failed to print via WebUSB:', error);
