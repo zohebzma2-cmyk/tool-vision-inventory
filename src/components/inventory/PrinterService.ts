@@ -273,24 +273,27 @@ class BrotherQLPrinterService implements PrinterService {
       const testCommands: number[] = [
         // Initialize printer
         0x1B, 0x40,
-        
+
         // Auto cut ON (Set each mode)
         0x1B, 0x69, 0x4D, 0x40,
-        
+
         // Set margin amount to ~3mm (35 dots)
         0x1B, 0x69, 0x64, 0x23, 0x00,
+
+        // Switch to raster mode
+        0x1B, 0x69, 0x52, 0x01,
       ];
 
       // Use detected paper dimensions for test pattern
       const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
-      const bytesPerLine = Math.max(paperInfo.bytesPerLine ?? 0, 90); // Ensure at least 90 bytes for QL-800
+      const bytesPerLine = paperInfo.bytesPerLine ?? Math.ceil((paperInfo.printWidth ?? 696) / 8);
 
       console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
 
-      // Add raster data for test pattern
+      // Add raster data for test pattern (uncompressed)
       for (let line = 0; line < labelHeight; line++) {
-        // Raster line command
-        testCommands.push(0x67, 0x00, bytesPerLine);
+        // Raster line header: 0x67 (black, uncompressed), 0x00 (no compression), little-endian length
+        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         
         // Create a simple test pattern that shows the detected paper size
         for (let byte = 0; byte < bytesPerLine; byte++) {
@@ -338,17 +341,22 @@ class BrotherQLPrinterService implements PrinterService {
 
         // Set margin amount to ~3mm (35 dots)
         0x1B, 0x69, 0x64, 0x23, 0x00,
+
+        // Switch to raster mode
+        0x1B, 0x69, 0x52, 0x01,
       ];
 
-      // Send 60 raster lines, 90 bytes per line (720 dots)
+      // Send 60 raster lines, 87 bytes per line (696 dots @ 62mm)
+      const bytesPerLine = 87;
       for (let line = 0; line < 60; line++) {
-        testCommands.push(0x67, 0x00, 0x5A); // 0x5A = 90 bytes
+        // 0x67 (uncompressed), 0x00 (no compression), length LSB/MSB
+        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
 
-        for (let byte = 0; byte < 90; byte++) {
+        for (let byte = 0; byte < bytesPerLine; byte++) {
           // Visible pattern: frame + center band
           const topBottomBorder = line < 4 || line >= 56;
-          const sideBorder = byte < 2 || byte >= 88;
-          const centerBand = line >= 26 && line <= 34 && byte >= 10 && byte <= 80;
+          const sideBorder = byte < 2 || byte >= bytesPerLine - 2;
+          const centerBand = line >= 26 && line <= 34 && byte >= 10 && byte <= bytesPerLine - 7;
 
           if (topBottomBorder || sideBorder || centerBand) {
             testCommands.push(0xFF);
@@ -401,14 +409,12 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x64, 0x23, 0x00,
         // Raster mode
         0x1B, 0x69, 0x52, 0x01,
-        // No compression
-        0x1B, 0x69, 0x4D, 0x00,
       ];
 
       // Generate per-line black and red planes
       for (let y = 0; y < labelHeight; y++) {
         // Black plane: draw border rectangle
-        cmds.push(0x77, 0x01, bytesPerLine);
+        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         for (let x = 0; x < bytesPerLine; x++) {
           const topBottom = y < 3 || y >= labelHeight - 3;
           const sides = x < 2 || x >= bytesPerLine - 2;
@@ -416,7 +422,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
 
         // Red plane: draw a solid red band in the middle
-        cmds.push(0x77, 0x02, bytesPerLine);
+        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         for (let x = 0; x < bytesPerLine; x++) {
           const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
           cmds.push(inRedBand ? 0xFF : 0x00);

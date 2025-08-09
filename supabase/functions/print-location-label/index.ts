@@ -180,15 +180,15 @@ if (twoColor && redBitmap) {
 for (let line = 0; line < labelHeight; line++) {
   if (twoColor && redBitmap) {
     // Black plane first
-    commands.push(0x77, 0x01, bytesPerLine)
+    commands.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF)
     const start = line * bytesPerLine
     for (let i = 0; i < bytesPerLine; i++) commands.push(blackBitmap[start + i])
     // Red plane second
-    commands.push(0x77, 0x02, bytesPerLine)
+    commands.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF)
     for (let i = 0; i < bytesPerLine; i++) commands.push(redBitmap[start + i])
   } else {
     // Single color
-    commands.push(0x67, 0x00, bytesPerLine)
+    commands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF)
     const start = line * bytesPerLine
     for (let i = 0; i < bytesPerLine; i++) commands.push(blackBitmap[start + i])
   }
