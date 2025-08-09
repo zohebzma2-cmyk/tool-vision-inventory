@@ -284,18 +284,7 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x52, 0x01,
       ];
 
-      // Explicitly set media & quality using detected width (mm)
-      const widthByte = Math.max(0, Math.min(255, paperInfo.width ?? 62));
-      testCommands.splice(9, 0,
-        // ESC i z ... (10 bytes)
-        0x1B, 0x69, 0x7A,
-        0x4A, // n1 valid flags: KIND|WIDTH|LENGTH
-        0x0A, // n2 paper type: Continuous length tape (0x0A)
-        widthByte, // n3 width in mm (e.g., 62 => 0x3E)
-        0x00, // n4 paper length in mm (0 for continuous)
-        0x00, 0x00, 0x00, 0x00, // n5-n8 raster number (not used)
-        0x00, 0x00 // n9-n10 reserved
-      );
+      // Rely on printer's installed roll (auto media). Avoid ESC i z to prevent malformed params.
 
       // Set feed amount every label (small feed)
       testCommands.push(0x1B, 0x69, 0x41, 0x01);
