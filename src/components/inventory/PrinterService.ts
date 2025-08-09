@@ -555,7 +555,7 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x4B, 0x01,
         0x1B, 0x69, 0x4D, 0x40,
         0x1B, 0x69, 0x64, 0x23, 0x00,
-        0x1B, 0x69, 0x7A, 0x4A, 0x0A, Math.max(0, Math.min(255, paperInfo?.width ?? 62)), 0x00,
+        0x1B, 0x69, 0x7A, 0x8E, 0x0A, Math.max(0, Math.min(255, paperInfo?.width ?? 62)), 0x00,
         labelHeight & 0xFF, (labelHeight >> 8) & 0xFF, 0x00, 0x00,
         0x00, 0x00,
         0x1B, 0x69, 0x52, 0x01,
@@ -580,9 +580,13 @@ class BrotherQLPrinterService implements PrinterService {
 
       // Precompute red bitmap lines
       for (let y = 0; y < labelHeight; y++) {
-        // Black plane: blank
+        // Black plane: draw a visible border so something prints on black-only tape
         cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
-        for (let i = 0; i < bytesPerLine; i++) cmds.push(0x00);
+        for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
+          const topBottom = y < 3 || y >= labelHeight - 3;
+          const sideBorder = byteIndex < 2 || byteIndex >= bytesPerLine - 2;
+          cmds.push(topBottom || sideBorder ? 0xFF : 0x00);
+        }
 
         // Red plane
         cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
