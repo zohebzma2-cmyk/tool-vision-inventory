@@ -102,8 +102,6 @@ class BrotherQLPrinterService implements PrinterService {
           await this.device.claimInterface(interfaceNum);
           console.log(`Interface ${interfaceNum} claimed successfully`);
           
-          // Interface claimed successfully
-          
           interfaceClaimed = true;
           claimedInterface = interfaceNum;
           break;
@@ -116,38 +114,10 @@ class BrotherQLPrinterService implements PrinterService {
         throw new Error('Unable to claim any printer interface. Please close any Brother P-touch Editor or other printer software and try again.');
       }
 
-      // Test different endpoint configurations
-      let endpointFound = false;
-      const endpointConfigs = [
-        { out: 1, in: 1 },
-        { out: 2, in: 1 },
-        { out: 1, in: 2 },
-        { out: 3, in: 2 }
-      ];
-
-      for (const config of endpointConfigs) {
-        try {
-          // Test endpoint by sending a simple status request
-          const testData = new Uint8Array([0x1B, 0x69, 0x53]); // Status request command
-          const result = await this.device.transferOut(config.out, testData.buffer);
-          
-          if (result.status === 'ok') {
-            this.outEndpoint = config.out;
-            this.inEndpoint = config.in;
-            console.log(`Working endpoints found - OUT: ${this.outEndpoint}, IN: ${this.inEndpoint}`);
-            endpointFound = true;
-            break;
-          }
-        } catch (error) {
-          console.log(`Endpoint ${config.out}/${config.in} test failed:`, error);
-        }
-      }
-
-      if (!endpointFound) {
-        console.warn('Could not find working endpoints, using defaults');
-        this.outEndpoint = 1;
-        this.inEndpoint = 1;
-      }
+      // Brother QL-800 typically uses endpoint 2 for out and endpoint 1 for in
+      this.outEndpoint = 2;
+      this.inEndpoint = 1;
+      console.log(`Using OUT endpoint: ${this.outEndpoint}, IN endpoint: ${this.inEndpoint}`);
 
       // Store the claimed interface number for later use
       (this.device as any).claimedInterface = claimedInterface;
@@ -158,23 +128,12 @@ class BrotherQLPrinterService implements PrinterService {
 
     } catch (error) {
       console.error('Failed to connect to Brother QL printer:', error);
-      
-      if (error instanceof Error && error.name === 'SecurityError') {
-        console.error('SECURITY ERROR: Device access denied. This usually means:');
-        console.error('1. Brother P-touch Editor or other Brother software is running - CLOSE IT COMPLETELY');
-        console.error('2. Windows printer spooler has locked the device - try restarting the printer');
-        console.error('3. Another browser tab or application is using the printer');
-        console.error('4. The printer driver is interfering - try using "Generic USB Printer" driver');
-        console.error('');
-        console.error('SOLUTION: Close ALL Brother software, restart the printer, then try again.');
-      } else {
-        console.error('Troubleshooting steps:');
-        console.error('1. Ensure Brother QL-800 is connected via USB');
-        console.error('2. Make sure printer is powered on');
-        console.error('3. Use Chrome/Edge browser (not Firefox/Safari)');
-        console.error('4. Try disconnecting and reconnecting the USB cable');
-        console.error('5. Close any Brother P-touch Editor or other printer software');
-      }
+      console.error('Troubleshooting steps:');
+      console.error('1. Ensure Brother QL-800 is connected via USB');
+      console.error('2. Make sure printer is powered on');
+      console.error('3. Use Chrome/Edge browser (not Firefox/Safari)');
+      console.error('4. Try disconnecting and reconnecting the USB cable');
+      console.error('5. Close any Brother P-touch Editor or other printer software');
       
       this.isConnected = false;
       this.device = null;
@@ -224,12 +183,12 @@ class BrotherQLPrinterService implements PrinterService {
       await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
       
       // Add delay for printer to process
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 200));
       
       // Read status response (Brother QL returns 32 bytes)
       const result = await this.device.transferIn(this.inEndpoint, 32);
       
-      if (result.status === 'ok' && result.data.byteLength > 0) {
+      if (result.status === 'ok') {
         const statusData = new Uint8Array(result.data.buffer);
         console.log('Status response:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
         
@@ -238,11 +197,11 @@ class BrotherQLPrinterService implements PrinterService {
         console.log('Detected paper:', paperInfo);
         return paperInfo;
       } else {
-        console.warn('Empty status response, printer may be busy');
+        console.error('Failed to read status:', result.status);
         return null;
       }
     } catch (error) {
-      console.warn('Status request failed, printer may be processing:', error);
+      console.error('Failed to get printer status:', error);
       return null;
     }
   }
@@ -253,58 +212,11 @@ class BrotherQLPrinterService implements PrinterService {
     // Byte 11: Media width
     // Byte 17: Media length (for die-cut labels)
     
-    if (!statusData || statusData.length < 18) {
-      console.error('Invalid status data received:', statusData);
-      return null;
-    }
-    
-    const status0 = statusData[0];
     const mediaType = statusData[10];
     const mediaWidth = statusData[11];
     const mediaLength = statusData[17];
     
-    // Decode error status
-    const errors = [];
-    if (status0 & 0x01) errors.push('Replace media');
-    if (status0 & 0x02) errors.push('Expansion buffer full');
-    if (status0 & 0x04) errors.push('Communication error');
-    if (status0 & 0x08) errors.push('Transmission error');
-    if (status0 & 0x10) errors.push('Cover open');
-    if (status0 & 0x20) errors.push('Cancel key');
-    if (status0 & 0x40) errors.push('Media cannot be fed');
-    if (status0 & 0x80) errors.push('System error');
-    
-    if (errors.length > 0) {
-      console.error('🚨 PRINTER ERRORS:', errors.join(', '));
-      console.error('Status byte 0:', status0.toString(16));
-    }
-    
-    // Decode media width
-    const widthMappings = {
-      0x04: '6mm',
-      0x06: '9mm', 
-      0x08: '12mm',
-      0x0A: '10mm (continuous)',
-      0x0C: '12mm',
-      0x11: '17mm',
-      0x17: '23mm',
-      0x3E: '62mm'
-    };
-    
-    const widthText = widthMappings[mediaWidth] || `${mediaWidth}mm (unknown)`;
-    
-    console.log('📏 DETECTED PAPER:', {
-      'Media Type': `0x${mediaType.toString(16)} (${mediaType === 0x3E ? 'Continuous tape' : 'Unknown'})`,
-      'Width': widthText,
-      'Length': mediaLength === 0 ? 'Continuous' : `${mediaLength}mm`,
-      'Raw Width Code': `0x${mediaWidth.toString(16)}`,
-      'Errors': errors.length > 0 ? errors : 'None'
-    });
-    
-    if (mediaType === undefined || mediaWidth === undefined || mediaLength === undefined) {
-      console.error('Could not parse media info from status data');
-      return null;
-    }
+    console.log(`Media type: 0x${mediaType.toString(16)}, Width: ${mediaWidth}mm, Length: ${mediaLength}mm`);
     
     // Calculate print dimensions based on width (at 180 DPI)
     const printWidth = Math.floor((mediaWidth * 180) / 25.4); // Convert mm to pixels
@@ -316,10 +228,7 @@ class BrotherQLPrinterService implements PrinterService {
       length: mediaLength,
       printWidth,
       bytesPerLine,
-      isEndless: mediaLength === 0, // Endless tape vs die-cut labels
-      errors: errors,
-      hasErrors: errors.length > 0,
-      widthText: widthText
+      isEndless: mediaLength === 0 // Endless tape vs die-cut labels
     };
   }
 
@@ -329,10 +238,71 @@ class BrotherQLPrinterService implements PrinterService {
     }
 
     try {
-      console.log('Sending official Brother QL-800 test print...');
+      console.log('Reading paper information from printer...');
       
-      // Skip paper detection and use the official Brother command sequence
-      return this.sendSimpleTestPrint();
+      // First, get the paper info from the printer
+      const paperInfo = await this.getStatus();
+      
+      if (!paperInfo) {
+        console.log('Could not detect paper, using safe defaults...');
+        return this.sendSimpleTestPrint();
+      }
+
+      console.log('Detected paper info:', paperInfo);
+      console.log('Sending test print optimized for detected paper...');
+
+      // Create print commands based on detected paper
+      const testCommands: number[] = [
+        // Initialize printer
+        0x1B, 0x40, // ESC @ - Initialize printer
+        
+        // Switch to raster mode
+        0x1B, 0x69, 0x52, 0x01,
+        
+        // Auto cut
+        0x1B, 0x69, 0x4D, 0x40,
+        
+        // Set compression mode off
+        0x1B, 0x69, 0x4B, 0x08,
+      ];
+
+      // Use detected paper dimensions for test pattern
+      const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
+      const bytesPerLine = Math.min(paperInfo.bytesPerLine, 90); // Use detected width but cap it
+
+      console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
+
+      // Add raster data for test pattern
+      for (let line = 0; line < labelHeight; line++) {
+        // Raster line command
+        testCommands.push(0x67, 0x00, bytesPerLine);
+        
+        // Create a simple test pattern that shows the detected paper size
+        for (let byte = 0; byte < bytesPerLine; byte++) {
+          if (line < 3 || line >= labelHeight - 3 || byte < 2 || byte >= bytesPerLine - 2) {
+            testCommands.push(0xFF); // Border to show full width/height
+          } else if (line >= Math.floor(labelHeight/2) - 2 && line <= Math.floor(labelHeight/2) + 2) {
+            testCommands.push(0xFF); // Center horizontal line
+          } else {
+            testCommands.push(0x00); // White background
+          }
+        }
+      }
+
+      // Print command
+      testCommands.push(0x1A);
+
+      // Convert to Uint8Array and send
+      const uint8Data = new Uint8Array(testCommands);
+      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
+      
+      if (result.status === 'ok') {
+        console.log('Test print sent successfully');
+        return true;
+      } else {
+        console.error('Test print failed with status:', result.status);
+        return false;
+      }
 
     } catch (error) {
       console.error('Failed to send test print:', error);
@@ -342,98 +312,23 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('📄 Sending OFFICIAL Brother QL-800 command sequence (from manual)...');
+      console.log('Sending minimal safe test print...');
       
-      const commands: number[] = [];
-      
-      // OFFICIAL Brother QL sequence from the manual:
-      
-      // 1. INVALIDATE: Send 400 null bytes (OFFICIAL Brother spec)
-      console.log('📤 Adding 400-byte invalidate sequence (official Brother spec)...');
-      for (let i = 0; i < 400; i++) {
-        commands.push(0x00);
-      }
-      
-      // 2. INITIALIZE (ESC @)
-      commands.push(0x1B, 0x40);
-      
-      // 3. SWITCH DYNAMIC COMMAND MODE (ESC i a 01)
-      commands.push(0x1B, 0x69, 0x61, 0x01);
-      
-      // 4. SWITCH AUTO STATUS NOTIFICATION MODE (ESC i ! 00)
-      commands.push(0x1B, 0x69, 0x21, 0x00);
-      
-      // 5. PRINT INFORMATION COMMAND (ESC i z) for DK-2251 62mm die-cut
-      // From Brother manual table: ID 259 = 62mm die-cut
-      commands.push(
-        0x1B, 0x69, 0x7A,    // ESC i z command
-        0x8E,                // Valid flag (from manual example)
-        0x03,                // Media type: 0x03 for die-cut labels (corrected from manual)
-        0x3E,                // Width info: 0x3E = 62mm
-        0x00,                // Length info: 0x00 for die-cut
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved (8 bytes)
-      );
-      
-      // 6. VARIOUS MODE (ESC i M) - Auto cut setting
-      commands.push(0x1B, 0x69, 0x4D, 0x40);
-      
-      // 7. SPECIFY PAGE NUMBER IN CUT EACH * LABELS (ESC i A)
-      commands.push(0x1B, 0x69, 0x41, 0x01);
-      
-      // 8. EXPANDED MODE (ESC i K) - Cut at end
-      commands.push(0x1B, 0x69, 0x4B, 0x08);
-      
-      // 9. SPECIFY MARGIN AMOUNT (ESC i d) - 0 for die-cut
-      commands.push(0x1B, 0x69, 0x64, 0x00, 0x00);
-      
-      // 10. SELECT COMPRESSION MODE (ESC i L) - TIFF compression mode
-      commands.push(0x1B, 0x69, 0x4C, 0x00);
-      
-      // 11. RASTER DATA - Use EXACTLY 696 dots width for 62mm at 300dpi
-      const dotsWidth = 696; // 62mm * 300dpi / 25.4mm = 732, but Brother uses 696
-      const bytesPerLine = Math.ceil(dotsWidth / 8); // 87 bytes
-      const lineCount = 60;
-      
-      console.log(`📏 Generating raster: ${lineCount} lines × ${bytesPerLine} bytes (${dotsWidth} dots wide)`);
-      
-      for (let line = 0; line < lineCount; line++) {
-        // RASTER LINE COMMAND
-        commands.push(0x67, 0x00, bytesPerLine);
-        
-        // Generate proper test pattern
-        for (let byte = 0; byte < bytesPerLine; byte++) {
-          if (line < 3 || line >= lineCount - 3 || byte < 3 || byte >= bytesPerLine - 3) {
-            commands.push(0xFF); // Border
-          } else {
-            commands.push((line + byte) % 4 === 0 ? 0xFF : 0x00); // Checkered
-          }
-        }
-      }
-      
-      // 12. PRINT COMMAND
-      commands.push(0x1A); // Print and feed
-      
-      console.log(`📊 Generated ${commands.length} bytes with proper sequence`);
-      console.log(`🎯 Key changes: Media type 0x0B, ${bytesPerLine} bytes/line, proper invalidate`);
-      
-      const uint8Data = new Uint8Array(commands);
+      // Ultra-minimal test that should work on any Brother QL
+      const testCommands: number[] = [
+        0x1B, 0x40, // Initialize
+        0x1B, 0x69, 0x52, 0x01, // Raster mode
+        0x67, 0x00, 0x10, // 16 byte line
+        ...Array(16).fill(0xFF), // Black line
+        0x1A // Print
+      ];
+
+      const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
-      if (result.status === 'ok') {
-        console.log('✅ PROPER sequence sent successfully!');
-        console.log('⏱️ Should print a 62mm label with border and pattern...');
-        
-        // Wait longer for proper print completion
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
-        return true;
-      } else {
-        console.error('❌ Proper sequence failed:', result.status);
-        return false;
-      }
-      
+      return result.status === 'ok';
     } catch (error) {
-      console.error('💥 Proper sequence error:', error);
+      console.error('Simple test print failed:', error);
       return false;
     }
   }
@@ -496,9 +391,6 @@ export async function autoPrintLabel(
 
     onStatusUpdate?.('Sending to printer...');
     console.log('Print data received from edge function, sending to printer...');
-    console.log('Print data length:', result.printData.length, 'bytes');
-    console.log('First 20 bytes:', result.printData.slice(0, 20));
-    console.log('Last 10 bytes:', result.printData.slice(-10));
 
     // Send print commands to printer
     const printed = await printerService.print(result.printData);
