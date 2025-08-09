@@ -302,9 +302,7 @@ class BrotherQLPrinterService implements PrinterService {
 
       // Use detected paper dimensions for test pattern
       const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
-      const bytesPerLine = paperInfo.width === 62
-        ? 90
-        : (paperInfo.bytesPerLine ? paperInfo.bytesPerLine + 3 : Math.ceil(((paperInfo.printWidth ?? 696) + 24) / 8));
+      const bytesPerLine = paperInfo.bytesPerLine ?? Math.ceil((paperInfo.printWidth ?? 696) / 8);
 
       console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
 
@@ -326,7 +324,7 @@ class BrotherQLPrinterService implements PrinterService {
       }
 
       // Print command
-      testCommands.push(0x1A);
+      testCommands.push(0x0C);
 
       // Convert to Uint8Array and send
       const uint8Data = new Uint8Array(testCommands);
@@ -384,8 +382,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
       }
 
-      // Print last label with feeding
-      testCommands.push(0x1A);
+       testCommands.push(0x0C);
 
       console.log('Sending', testCommands.length, 'bytes to printer...');
       const uint8Data = new Uint8Array(testCommands);
@@ -413,7 +410,7 @@ class BrotherQLPrinterService implements PrinterService {
     try {
       console.log('Sending two-color DK-2251 raster test (62mm red/black)...');
 
-      const bytesPerLine = 90; // 62mm total width => 720 dots / 8 = 90 bytes
+      const bytesPerLine = 87; // 62mm printable width => 696 dots / 8 = 87 bytes
       const labelHeight = 80; // lines
 
       const cmds: number[] = [
@@ -451,8 +448,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
       }
 
-      // Print
-      cmds.push(0x1A);
+       cmds.push(0x0C);
 
       const data = new Uint8Array(cmds);
       const result = await this.device.transferOut(this.outEndpoint, data.buffer);
