@@ -207,38 +207,45 @@ class BrotherQLPrinterService implements PrinterService {
   }
 
   private parsePaperInfo(statusData: Uint8Array): any {
-    // Brother QL status byte layout (simplified)
-    // Byte 10: Media type
-    // Byte 11: Media width
-    // Byte 17: Media length (for die-cut labels)
+    // Brother QL status byte layout (per Command Reference)
+    // Byte 10: Media width (mm)
+    // Byte 11: Media type (0x0A: Continuous, 0x0B: Die-cut)
+    // Byte 17: Media length (mm for die-cut, 0 for continuous)
     
-    if (!statusData || statusData.length < 18) {
+    if (!statusData || statusData.length < 32) {
       console.error('Invalid status data received:', statusData);
       return null;
     }
     
-    const mediaType = statusData[10];
-    const mediaWidth = statusData[11];
-    const mediaLength = statusData[17];
+    const mediaWidthMm = statusData[10];
+    const mediaTypeVal = statusData[11];
+    const mediaLengthMm = statusData[17];
     
-    if (mediaType === undefined || mediaWidth === undefined || mediaLength === undefined) {
+    if (mediaWidthMm === undefined || mediaTypeVal === undefined || mediaLengthMm === undefined) {
       console.error('Could not parse media info from status data');
       return null;
     }
     
-    console.log(`Media type: 0x${mediaType.toString(16)}, Width: ${mediaWidth}mm, Length: ${mediaLength}mm`);
+    const mediaTypeLabel =
+      mediaTypeVal === 0x0A ? 'Continuous length tape' :
+      mediaTypeVal === 0x0B ? 'Die-cut label' :
+      `Unknown (0x${mediaTypeVal.toString(16)})`;
     
-    // Calculate print dimensions based on width (at 180 DPI)
-    const printWidth = Math.floor((mediaWidth * 180) / 25.4); // Convert mm to pixels
-    const bytesPerLine = Math.ceil(printWidth / 8); // Convert pixels to bytes
+    console.log(`Media type: ${mediaTypeLabel} (0x${mediaTypeVal.toString(16)}), Width: ${mediaWidthMm}mm, Length: ${mediaLengthMm === 0 ? 'Continuous' : mediaLengthMm + 'mm'}`);
+    
+    // For QL-800 class printers (300 dpi width), raster transfer bytes per line are 90 for tapes up to 62mm
+    const bytesPerLine = mediaWidthMm > 62 ? 162 : 90;
+    // Print area width in dots (approximate for non-62mm); 62mm known to be 696 dots
+    const printWidth =
+      mediaWidthMm === 62 ? 696 : Math.round((mediaWidthMm / 25.4) * 300);
     
     return {
-      type: mediaType,
-      width: mediaWidth,
-      length: mediaLength,
+      type: mediaTypeVal,
+      width: mediaWidthMm,
+      length: mediaLengthMm,
       printWidth,
       bytesPerLine,
-      isEndless: mediaLength === 0 // Endless tape vs die-cut labels
+      isEndless: mediaTypeVal === 0x0A
     };
   }
 
@@ -264,21 +271,18 @@ class BrotherQLPrinterService implements PrinterService {
       // Create print commands based on detected paper
       const testCommands: number[] = [
         // Initialize printer
-        0x1B, 0x40, // ESC @ - Initialize printer
+        0x1B, 0x40,
         
-        // Switch to raster mode
-        0x1B, 0x69, 0x52, 0x01,
-        
-        // Auto cut
+        // Auto cut ON (Set each mode)
         0x1B, 0x69, 0x4D, 0x40,
         
-        // Set compression mode off
-        0x1B, 0x69, 0x4B, 0x08,
+        // Set margin amount to ~3mm (35 dots)
+        0x1B, 0x69, 0x64, 0x23, 0x00,
       ];
 
       // Use detected paper dimensions for test pattern
       const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
-      const bytesPerLine = Math.min(paperInfo.bytesPerLine, 90); // Use detected width but cap it
+      const bytesPerLine = Math.max(paperInfo.bytesPerLine ?? 0, 90); // Ensure at least 90 bytes for QL-800
 
       console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
 
@@ -322,64 +326,46 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('Sending verified Brother QL-800 test print...');
+      console.log('Sending official Brother QL raster test (62mm)...');
       
-      // Verified Brother QL-800 command sequence that forces printing
       const testCommands: number[] = [
-        // 1. Initialize and reset printer
+        // Initialize
         0x1B, 0x40,
-        
-        // 2. Enter raster graphics mode
-        0x1B, 0x69, 0x52, 0x01,
-        
-        // 3. Set media type and quality (DK-2251 continuous tape)
-        0x1B, 0x69, 0x7A, 
-        0x86, 0x0A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        
-        // 4. Set various print options
-        0x1B, 0x69, 0x4D, 0x40, // Auto cut on
-        0x1B, 0x69, 0x41, 0x01, 0x00, // Set cut interval 
-        0x1B, 0x69, 0x64, 0x00, 0x00, // Set margin amount
-        
-        // 5. Set page length (force print after this many lines)
-        0x1B, 0x69, 0x41, 0x32, 0x00, // 50 lines then cut
-        
-        // 6. Start page
-        0x1B, 0x69, 0x4B, 0x08, // No compression
+
+        // Set each mode: Auto cut ON (bit 6)
+        0x1B, 0x69, 0x4D, 0x40,
+
+        // Set margin amount to ~3mm (35 dots)
+        0x1B, 0x69, 0x64, 0x23, 0x00,
       ];
 
-      // 7. Send exactly 50 lines of raster data to trigger auto-cut
-      for (let line = 0; line < 50; line++) {
-        testCommands.push(0x67, 0x00, 0x09); // Raster line: 9 bytes for DK-2251
-        
-        // Create a very visible test pattern
-        for (let byte = 0; byte < 9; byte++) {
-          if (line < 5 || line >= 45) {
-            // Top and bottom thick borders
-            testCommands.push(0xFF);
-          } else if (line >= 20 && line <= 30 && byte >= 2 && byte <= 6) {
-            // Center rectangle
-            testCommands.push(0xFF);
-          } else if (byte === 0 || byte === 8) {
-            // Side borders
+      // Send 60 raster lines, 90 bytes per line (720 dots)
+      for (let line = 0; line < 60; line++) {
+        testCommands.push(0x67, 0x00, 0x5A); // 0x5A = 90 bytes
+
+        for (let byte = 0; byte < 90; byte++) {
+          // Visible pattern: frame + center band
+          const topBottomBorder = line < 4 || line >= 56;
+          const sideBorder = byte < 2 || byte >= 88;
+          const centerBand = line >= 26 && line <= 34 && byte >= 10 && byte <= 80;
+
+          if (topBottomBorder || sideBorder || centerBand) {
             testCommands.push(0xFF);
           } else {
-            // Background
             testCommands.push(0x00);
           }
         }
       }
 
-      // 8. Force print and cut
-      testCommands.push(0x1A); // Print page
-      testCommands.push(0x1B, 0x69, 0x43); // Cut command
+      // Print last label with feeding
+      testCommands.push(0x1A);
 
       console.log('Sending', testCommands.length, 'bytes to printer...');
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('Test print commands sent successfully - printer should cut and eject label');
+        console.log('Test print commands sent successfully - printer should feed and cut (auto cut).');
         return true;
       } else {
         console.error('Failed to send test print:', result.status);
