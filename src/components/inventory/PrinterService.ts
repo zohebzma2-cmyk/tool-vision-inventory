@@ -40,6 +40,7 @@ class BrotherQLPrinterService implements PrinterService {
   private outEndpoint: number = 1; // Default, will be detected
   private inEndpoint: number = 1; // Default, will be detected
   public isConnected = false;
+  private lastPaperInfo: any = null;
 
   async connect(): Promise<boolean> {
     try {
@@ -180,82 +181,92 @@ class BrotherQLPrinterService implements PrinterService {
       console.log('Requesting printer status...');
       // Request status information
       const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
-      await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
-      
-      // Add delay for printer to process
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Read status response (Brother QL returns 32 bytes)
-      const result = await this.device.transferIn(this.inEndpoint, 32);
-      
-      if (result.status === 'ok') {
-        const statusData = new Uint8Array(result.data.buffer);
-        console.log('Status response:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+      const readOnce = async () => {
+        await this.device!.transferOut(this.outEndpoint, statusRequest.buffer);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        const res = await this.device!.transferIn(this.inEndpoint, 32);
+        const data = res.status === 'ok' && res.data?.byteLength ? new Uint8Array(res.data.buffer) : new Uint8Array();
+        return { res, data } as const;
+      };
+
+      // First read
+      let { res, data } = await readOnce();
+
+      // Retry once if empty/short
+      if (data.length < 32) {
+        console.warn('Empty/short status response; retrying...');
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        ({ res, data } = await readOnce());
+      }
+
+      if (res.status === 'ok' && data.length >= 32) {
+        console.log('Status response:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
         // Decode status/error flags for diagnostics
-        const decoded = this.decodeStatus(statusData);
+        const decoded = this.decodeStatus(data);
         if (decoded.errors.length) {
           console.warn('Printer errors:', decoded.errors.join(', '));
         } else {
           console.log(`Printer OK. Status: ${decoded.statusType}, Phase: ${decoded.phaseType}`);
         }
-        
         // Parse paper information from status response
-        const paperInfo = this.parsePaperInfo(statusData);
+        const paperInfo = this.parsePaperInfo(data);
         console.log('Detected paper:', paperInfo);
+        if (paperInfo) this.lastPaperInfo = paperInfo;
         return paperInfo;
-      } else {
-        console.error('Failed to read status:', result.status);
-        return null;
       }
+
+      console.warn('No valid status received; using last known media if available.');
+      if (this.lastPaperInfo) return this.lastPaperInfo;
+      return null;
     } catch (error) {
       console.error('Failed to get printer status:', error);
-      return null;
+      return this.lastPaperInfo ?? null;
     }
-  }
-
-  private parsePaperInfo(statusData: Uint8Array): any {
-    // Brother QL status byte layout (per Command Reference)
-    // Byte 10: Media width (mm)
-    // Byte 11: Media type (0x0A: Continuous, 0x0B: Die-cut)
-    // Byte 17: Media length (mm for die-cut, 0 for continuous)
-    
-    if (!statusData || statusData.length < 32) {
-      console.error('Invalid status data received:', statusData);
-      return null;
     }
+    private parsePaperInfo(statusData: Uint8Array): any {
+      // Brother QL status byte layout (per Command Reference)
+      // Byte 10: Media width (mm)
+      // Byte 11: Media type (0x0A: Continuous, 0x0B: Die-cut)
+      // Byte 17: Media length (mm for die-cut, 0 for continuous)
+      
+      if (!statusData || statusData.length < 32) {
+        console.error('Invalid status data received:', statusData);
+        return null;
+      }
+      
+      const mediaWidthMm = statusData[10];
+      const mediaTypeVal = statusData[11];
+      const mediaLengthMm = statusData[17];
+      
+      if (mediaWidthMm === undefined || mediaTypeVal === undefined || mediaLengthMm === undefined) {
+        console.error('Could not parse media info from status data');
+        return null;
+      }
+      
+      const mediaTypeLabel =
+        mediaTypeVal === 0x0A ? 'Continuous length tape' :
+        mediaTypeVal === 0x0B ? 'Die-cut label' :
+        `Unknown (0x${mediaTypeVal.toString(16)})`;
+      
+      console.log(`Media type: ${mediaTypeLabel} (0x${mediaTypeVal.toString(16)}), Width: ${mediaWidthMm}mm, Length: ${mediaLengthMm === 0 ? 'Continuous' : mediaLengthMm + 'mm'}`);
+      
+      // Compute print area width in dots (62mm known to be 696 dots at 300dpi)
+      const printWidth =
+        mediaWidthMm === 62 ? 696 : Math.round((mediaWidthMm / 25.4) * 300);
     
-    const mediaWidthMm = statusData[10];
-    const mediaTypeVal = statusData[11];
-    const mediaLengthMm = statusData[17];
-    
-    if (mediaWidthMm === undefined || mediaTypeVal === undefined || mediaLengthMm === undefined) {
-      console.error('Could not parse media info from status data');
-      return null;
+      // Bytes per raster line based on print width
+      const bytesPerLine = Math.ceil(printWidth / 8);
+      
+      return {
+        type: mediaTypeVal,
+        width: mediaWidthMm,
+        length: mediaLengthMm,
+        printWidth,
+        bytesPerLine,
+        isEndless: mediaTypeVal === 0x0A
+      };
     }
-    
-    const mediaTypeLabel =
-      mediaTypeVal === 0x0A ? 'Continuous length tape' :
-      mediaTypeVal === 0x0B ? 'Die-cut label' :
-      `Unknown (0x${mediaTypeVal.toString(16)})`;
-    
-    console.log(`Media type: ${mediaTypeLabel} (0x${mediaTypeVal.toString(16)}), Width: ${mediaWidthMm}mm, Length: ${mediaLengthMm === 0 ? 'Continuous' : mediaLengthMm + 'mm'}`);
-    
-    // Compute print area width in dots (62mm known to be 696 dots at 300dpi)
-    const printWidth =
-      mediaWidthMm === 62 ? 696 : Math.round((mediaWidthMm / 25.4) * 300);
-
-    // Bytes per raster line based on print width
-    const bytesPerLine = Math.ceil(printWidth / 8);
-    
-    return {
-      type: mediaTypeVal,
-      width: mediaWidthMm,
-      length: mediaLengthMm,
-      printWidth,
-      bytesPerLine,
-      isEndless: mediaTypeVal === 0x0A
-    };
-  }
 
   // Decode error/status flags from 32‑byte status response
   private decodeStatus(statusData: Uint8Array) {
