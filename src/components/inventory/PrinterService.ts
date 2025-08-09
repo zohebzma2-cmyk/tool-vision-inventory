@@ -519,21 +519,21 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x41, 0x01,
       ];
 
-      // Generate per-line black and red planes
+      // Generate per-line raster data (Python brother_ql uses red first, then black)
       for (let y = 0; y < labelHeight; y++) {
-        // Black plane: draw border rectangle
-        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        // Red plane first (0x77 0x02) - single byte length for <= 255 bytes
+        cmds.push(0x77, 0x02, bytesPerLine);
+        for (let x = 0; x < bytesPerLine; x++) {
+          const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
+          cmds.push(inRedBand ? 0xFF : 0x00);
+        }
+
+        // Black plane second (0x77 0x01) - single byte length for <= 255 bytes  
+        cmds.push(0x77, 0x01, bytesPerLine);
         for (let x = 0; x < bytesPerLine; x++) {
           const topBottom = y < 3 || y >= labelHeight - 3;
           const sides = x < 2 || x >= bytesPerLine - 2;
           cmds.push(topBottom || sides ? 0xFF : 0x00);
-        }
-
-        // Red plane: draw a solid red band in the middle
-        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
-        for (let x = 0; x < bytesPerLine; x++) {
-          const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
-          cmds.push(inRedBand ? 0xFF : 0x00);
         }
       }
 
@@ -595,18 +595,10 @@ class BrotherQLPrinterService implements PrinterService {
       const startX = Math.max(0, Math.floor((printWidthPx - textWidth) / 2));
       const startY = Math.max(0, Math.floor((labelHeight - charH) / 2));
 
-      // Precompute red bitmap lines
+      // Generate raster data for each line (red first, then black - per Python implementation)
       for (let y = 0; y < labelHeight; y++) {
-        // Black plane: draw a visible border so something prints on black-only tape
-        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
-        for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
-          const topBottom = y < 3 || y >= labelHeight - 3;
-          const sideBorder = byteIndex < 2 || byteIndex >= bytesPerLine - 2;
-          cmds.push(topBottom || sideBorder ? 0xFF : 0x00);
-        }
-
-        // Red plane
-        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        // Red plane first (0x77 0x02) - single byte length
+        cmds.push(0x77, 0x02, bytesPerLine);
         for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
           let b = 0;
           for (let bit = 0; bit < 8; bit++) {
@@ -630,6 +622,14 @@ class BrotherQLPrinterService implements PrinterService {
             if (on) b |= (1 << bit);
           }
           cmds.push(b);
+        }
+
+        // Black plane second (0x77 0x01) - single byte length for border
+        cmds.push(0x77, 0x01, bytesPerLine);
+        for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
+          const topBottom = y < 3 || y >= labelHeight - 3;
+          const sideBorder = byteIndex < 2 || byteIndex >= bytesPerLine - 2;
+          cmds.push(topBottom || sideBorder ? 0xFF : 0x00);
         }
       }
 
