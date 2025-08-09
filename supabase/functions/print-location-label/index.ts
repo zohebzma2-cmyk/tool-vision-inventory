@@ -68,126 +68,132 @@ function qrMatrixToBitmap(matrix: number[][], scale: number = 8): Uint8Array {
   return bitmap
 }
 
-// Generate Brother QL-800 print commands with auto-format support
-function generateBrotherQLLabel(location: LocationData, autoFormat: boolean = false): Uint8Array {
+// Generate Brother QL-800 print commands with options
+function generateBrotherQLLabel(location: LocationData, opts: { autoFormat?: boolean; twoColor?: boolean } = {}): Uint8Array {
+  const { autoFormat = false, twoColor = false } = opts
   const commands: number[] = []
   
   // Initialize printer
   commands.push(0x1B, 0x40) // ESC @ - Initialize
   
-  // Invalidate
-  commands.push(0x1B, 0x69, 0x4B, 0x08)
+  // Expanded mode (two-color flag if requested)
+  commands.push(0x1B, 0x69, 0x4B, twoColor ? 0x01 : 0x00)
 
   if (autoFormat) {
     // Auto format mode - let printer detect and use current media
     commands.push(
-      // Auto format mode
+      // Auto cut every label
       0x1B, 0x69, 0x41, 0x01,
-      
       // Switch to raster mode
       0x1B, 0x69, 0x52, 0x01
     )
   } else {
-    // Manual format mode with specific media settings
+    // Manual format mode with specific media settings (62mm red/black)
     commands.push(
       // Status information request
       0x1B, 0x69, 0x53,
-      
-      // Set media & quality for 2.4" red/black tape (62mm)
+      // Set media & quality for 62mm continuous; leave length 0; printer detects DK-2251
       0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      
       // Set margin (0.1" = ~3mm = 35 dots at 300 DPI)
       0x1B, 0x69, 0x64, 0x23, 0x00,
-      
       // Switch to raster mode
       0x1B, 0x69, 0x52, 0x01,
-      
-      // Print information command
-      0x1B, 0x69, 0x7A, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-      
-      // Set compression mode
+      // No compression
       0x1B, 0x69, 0x4D, 0x00,
-      
-      // Set feed amount
+      // Feed amount every label
       0x1B, 0x69, 0x41, 0x01
     )
   }
   
-  // Generate QR code bitmap
-  const qrMatrix = generateQRMatrix(location.qr_code, 25)
-  const qrBitmap = qrMatrixToBitmap(qrMatrix, 6)
-  
-  // Calculate label dimensions (62mm = 696 pixels at 300 DPI)
-  const labelWidth = 696
-  const labelHeight = 200
-  const bytesPerLine = Math.ceil(labelWidth / 8)
-  
-  // Create label bitmap
-  const labelBitmap = new Uint8Array(labelHeight * bytesPerLine)
-  
-  // Add QR code to label (position at left side)
-  const qrSize = 25 * 6 // 150 pixels
-  const qrStartX = 20
-  const qrStartY = 25
-  
-  for (let y = 0; y < Math.min(qrSize, labelHeight - qrStartY); y++) {
-    for (let x = 0; x < Math.min(qrSize, labelWidth - qrStartX); x++) {
-      const qrByteIndex = y * Math.ceil(qrSize / 8) + Math.floor(x / 8)
-      const qrBitIndex = 7 - (x % 8)
-      
-      if (qrBitmap[qrByteIndex] & (1 << qrBitIndex)) {
-        const labelY = qrStartY + y
-        const labelX = qrStartX + x
-        const labelByteIndex = labelY * bytesPerLine + Math.floor(labelX / 8)
-        const labelBitIndex = 7 - (labelX % 8)
-        labelBitmap[labelByteIndex] |= (1 << labelBitIndex)
-      }
+// Generate QR code bitmap
+const qrMatrix = generateQRMatrix(location.qr_code, 25)
+const qrBitmap = qrMatrixToBitmap(qrMatrix, 6)
+
+// Calculate label dimensions (62mm = 696 pixels at 300 DPI)
+const labelWidth = 696
+const labelHeight = 200
+const bytesPerLine = Math.ceil(labelWidth / 8) // 87
+
+// Create label bitmaps (black plane always; red plane optional)
+const blackBitmap = new Uint8Array(labelHeight * bytesPerLine)
+const redBitmap = twoColor ? new Uint8Array(labelHeight * bytesPerLine) : undefined
+
+// Add QR code to black plane (position at left side)
+const qrSize = 25 * 6 // 150 pixels
+const qrStartX = 20
+const qrStartY = 25
+
+for (let y = 0; y < Math.min(qrSize, labelHeight - qrStartY); y++) {
+  for (let x = 0; x < Math.min(qrSize, labelWidth - qrStartX); x++) {
+    const qrByteIndex = y * Math.ceil(qrSize / 8) + Math.floor(x / 8)
+    const qrBitIndex = 7 - (x % 8)
+    
+    if (qrBitmap[qrByteIndex] & (1 << qrBitIndex)) {
+      const labelY = qrStartY + y
+      const labelX = qrStartX + x
+      const byteIndex = labelY * bytesPerLine + Math.floor(labelX / 8)
+      const bitIndex = 7 - (labelX % 8)
+      blackBitmap[byteIndex] |= (1 << bitIndex)
     }
   }
-  
-  // Add text bitmap (simplified - just the location name)
-  // In production, you'd use a proper font renderer
-  const textStartX = 200
-  const textStartY = 40
-  
-  // Simple text pattern for location name (first 10 chars)
-  const name = location.name.substring(0, 10).toUpperCase()
-  for (let i = 0; i < name.length; i++) {
-    const char = name.charCodeAt(i)
-    const charX = textStartX + i * 24
-    
-    // Simple character bitmap (8x16 pattern based on ASCII)
-    for (let y = 0; y < 16; y++) {
-      for (let x = 0; x < 8; x++) {
-        if ((char + x + y) % 3 === 0) {
-          const labelY = textStartY + y
-          const labelX = charX + x
-          if (labelY < labelHeight && labelX < labelWidth) {
-            const byteIndex = labelY * bytesPerLine + Math.floor(labelX / 8)
-            const bitIndex = 7 - (labelX % 8)
-            labelBitmap[byteIndex] |= (1 << bitIndex)
-          }
+}
+
+// Simple text pattern for location name (first 10 chars) onto black plane
+const textStartX = 200
+const textStartY = 40
+const name = location.name.substring(0, 10).toUpperCase()
+for (let i = 0; i < name.length; i++) {
+  const char = name.charCodeAt(i)
+  const charX = textStartX + i * 24
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 8; x++) {
+      if ((char + x + y) % 3 === 0) {
+        const labelY = textStartY + y
+        const labelX = charX + x
+        if (labelY < labelHeight && labelX < labelWidth) {
+          const byteIndex = labelY * bytesPerLine + Math.floor(labelX / 8)
+          const bitIndex = 7 - (labelX % 8)
+          blackBitmap[byteIndex] |= (1 << bitIndex)
         }
       }
     }
   }
-  
-  // Send raster data
-  for (let line = 0; line < labelHeight; line++) {
-    // Raster line command
-    commands.push(0x67, 0x00, bytesPerLine) // 'g' command with line length
-    
-    // Add line data
-    const lineStart = line * bytesPerLine
-    for (let i = 0; i < bytesPerLine; i++) {
-      commands.push(labelBitmap[lineStart + i])
+}
+
+// If two-color, draw a red banner across the bottom
+if (twoColor && redBitmap) {
+  const bandHeight = 30
+  for (let y = labelHeight - bandHeight; y < labelHeight; y++) {
+    for (let x = 0; x < labelWidth; x++) {
+      const byteIndex = y * bytesPerLine + Math.floor(x / 8)
+      const bitIndex = 7 - (x % 8)
+      redBitmap[byteIndex] |= (1 << bitIndex)
     }
   }
-  
-  // Print command
-  commands.push(0x1A) // Print and feed
-  
-  return new Uint8Array(commands)
+}
+
+// Send raster data
+for (let line = 0; line < labelHeight; line++) {
+  if (twoColor && redBitmap) {
+    // Black plane first
+    commands.push(0x77, 0x01, bytesPerLine)
+    const start = line * bytesPerLine
+    for (let i = 0; i < bytesPerLine; i++) commands.push(blackBitmap[start + i])
+    // Red plane second
+    commands.push(0x77, 0x02, bytesPerLine)
+    for (let i = 0; i < bytesPerLine; i++) commands.push(redBitmap[start + i])
+  } else {
+    // Single color
+    commands.push(0x67, 0x00, bytesPerLine)
+    const start = line * bytesPerLine
+    for (let i = 0; i < bytesPerLine; i++) commands.push(blackBitmap[start + i])
+  }
+}
+
+// Print command
+commands.push(0x1A) // Print and feed
+
+return new Uint8Array(commands)
 }
 
 serve(async (req) => {
@@ -197,7 +203,7 @@ serve(async (req) => {
   }
 
   try {
-    const { locationId, autoFormat = false } = await req.json()
+    const { locationId, autoFormat = false, twoColor = false } = await req.json()
     
     if (!locationId) {
       return new Response(
@@ -228,7 +234,7 @@ serve(async (req) => {
     console.log('Generating print commands for location:', location.name, 'Auto-format:', autoFormat)
 
     // Generate Brother QL print commands with auto-format option
-    const printCommands = generateBrotherQLLabel(location, autoFormat)
+    const printCommands = generateBrotherQLLabel(location, { autoFormat, twoColor })
 
     console.log('Print commands generated successfully for:', location.qr_code)
     console.log('Command length:', printCommands.length, 'bytes')

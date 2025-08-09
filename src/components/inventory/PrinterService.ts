@@ -233,11 +233,12 @@ class BrotherQLPrinterService implements PrinterService {
     
     console.log(`Media type: ${mediaTypeLabel} (0x${mediaTypeVal.toString(16)}), Width: ${mediaWidthMm}mm, Length: ${mediaLengthMm === 0 ? 'Continuous' : mediaLengthMm + 'mm'}`);
     
-    // For QL-800 class printers (300 dpi width), raster transfer bytes per line are 90 for tapes up to 62mm
-    const bytesPerLine = mediaWidthMm > 62 ? 162 : 90;
-    // Print area width in dots (approximate for non-62mm); 62mm known to be 696 dots
+    // Compute print area width in dots (62mm known to be 696 dots at 300dpi)
     const printWidth =
       mediaWidthMm === 62 ? 696 : Math.round((mediaWidthMm / 25.4) * 300);
+
+    // Bytes per raster line based on print width
+    const bytesPerLine = Math.ceil(printWidth / 8);
     
     return {
       type: mediaTypeVal,
@@ -378,6 +379,68 @@ class BrotherQLPrinterService implements PrinterService {
     }
   }
 
+  async testPrintTwoColor(): Promise<boolean> {
+    if (!this.device || !this.isConnected) {
+      throw new Error('Brother QL printer not connected');
+    }
+
+    try {
+      console.log('Sending two-color DK-2251 raster test (62mm red/black)...');
+
+      const bytesPerLine = 87; // 696 dots / 8
+      const labelHeight = 80; // lines
+
+      const cmds: number[] = [
+        // Initialize
+        0x1B, 0x40,
+        // Expanded mode: enable two-color (bit0)
+        0x1B, 0x69, 0x4B, 0x01,
+        // Auto cut ON (Set each mode)
+        0x1B, 0x69, 0x4D, 0x40,
+        // Margin ~3mm
+        0x1B, 0x69, 0x64, 0x23, 0x00,
+        // Raster mode
+        0x1B, 0x69, 0x52, 0x01,
+        // No compression
+        0x1B, 0x69, 0x4D, 0x00,
+      ];
+
+      // Generate per-line black and red planes
+      for (let y = 0; y < labelHeight; y++) {
+        // Black plane: draw border rectangle
+        cmds.push(0x77, 0x01, bytesPerLine);
+        for (let x = 0; x < bytesPerLine; x++) {
+          const topBottom = y < 3 || y >= labelHeight - 3;
+          const sides = x < 2 || x >= bytesPerLine - 2;
+          cmds.push(topBottom || sides ? 0xFF : 0x00);
+        }
+
+        // Red plane: draw a solid red band in the middle
+        cmds.push(0x77, 0x02, bytesPerLine);
+        for (let x = 0; x < bytesPerLine; x++) {
+          const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
+          cmds.push(inRedBand ? 0xFF : 0x00);
+        }
+      }
+
+      // Print
+      cmds.push(0x1A);
+
+      const data = new Uint8Array(cmds);
+      const result = await this.device.transferOut(this.outEndpoint, data.buffer);
+      if (result.status === 'ok') {
+        console.log('Two-color test sent successfully');
+        return true;
+      } else {
+        console.error('Two-color test failed with status:', result.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('Two-color test print failed:', error);
+      return false;
+    }
+  }
+
   disconnect(): void {
     if (this.device) {
       try {
@@ -423,7 +486,7 @@ export async function autoPrintLabel(
     
     console.log('Requesting print data for location:', locationId);
     const { data: result, error } = await supabase.functions.invoke('print-location-label', {
-      body: { locationId, autoFormat: true } // Request auto-format mode
+      body: { locationId, autoFormat: true, twoColor: true } // Request auto-format and two-color mode
     });
 
     if (error) {
@@ -498,6 +561,26 @@ export async function testPrint(): Promise<{ success: boolean; message: string }
       success: false,
       message: `Test print failed: ${error instanceof Error ? error.message : 'Unknown error'}`
     };
+  }
+}
+
+// Two-color DK-2251 test print (red/black)
+export async function testPrintTwoColor(): Promise<{ success: boolean; message: string }> {
+  try {
+    if (!printerService.isConnected) {
+      console.log('Printer not connected, attempting to connect...');
+      const connected = await printerService.connect();
+      if (!connected) {
+        return { success: false, message: 'Failed to connect to Brother QL printer.' };
+      }
+    }
+    const ok = await (printerService as any).testPrintTwoColor();
+    if (ok) {
+      return { success: true, message: 'Two-color test sent successfully!' };
+    }
+    return { success: false, message: 'Two-color test failed to send.' };
+  } catch (e) {
+    return { success: false, message: `Two-color test failed: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 }
 
