@@ -322,72 +322,90 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('Sending verified Brother QL-800 test print...');
+      console.log('Sending Brother QL test print using official manual commands...');
       
-      // Verified Brother QL-800 command sequence that forces printing
-      const testCommands: number[] = [
-        // 1. Initialize and reset printer
-        0x1B, 0x40,
+      // Follow exact sequence from Brother QL-800 manual
+      const testCommands: number[] = [];
+      
+      // 1. Invalidate command (400 bytes of 0x00)
+      for (let i = 0; i < 400; i++) {
+        testCommands.push(0x00);
+      }
+      
+      // 2. Initialize
+      testCommands.push(0x1B, 0x40);
+      
+      // 3. Switch dynamic command mode (enter raster mode)
+      testCommands.push(0x1B, 0x69, 0x61, 0x01);
+      
+      // 4. Switch automatic status notification mode
+      testCommands.push(0x1B, 0x69, 0x21, 0x00);
+      
+      // 5. Print information command for 12mm continuous tape
+      testCommands.push(
+        0x1B, 0x69, 0x7A,     // Print info command
+        0x86,                 // Valid flag (media type + width + length + quality)
+        0x0A,                 // Media type: continuous tape (0x0A)
+        0x0C,                 // Media width: 12mm
+        0x00,                 // Media length: 0 (continuous)
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved bytes
+      );
+      
+      // 6. Various mode (auto cut on)
+      testCommands.push(0x1B, 0x69, 0x4D, 0x40);
+      
+      // 7. Specify page number for auto cut (cut each 1 label)
+      testCommands.push(0x1B, 0x69, 0x41, 0x01);
+      
+      // 8. Expanded mode (cut at end)
+      testCommands.push(0x1B, 0x69, 0x4B, 0x08);
+      
+      // 9. Specify margin amount (3mm = 35 dots)
+      testCommands.push(0x1B, 0x69, 0x64, 0x23, 0x00);
+      
+      // 10. Select compression mode (no compression)
+      testCommands.push(0x4D, 0x00);
+      
+      // 11. Send raster data (create 30 lines for a small test label)
+      for (let line = 0; line < 30; line++) {
+        // Raster graphics transfer command
+        testCommands.push(0x67, 0x00, 0x5A); // 90 bytes per line (720 pins / 8)
         
-        // 2. Enter raster graphics mode
-        0x1B, 0x69, 0x52, 0x01,
-        
-        // 3. Set media type and quality (DK-2251 continuous tape)
-        0x1B, 0x69, 0x7A, 
-        0x86, 0x0A, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        
-        // 4. Set various print options
-        0x1B, 0x69, 0x4D, 0x40, // Auto cut on
-        0x1B, 0x69, 0x41, 0x01, 0x00, // Set cut interval 
-        0x1B, 0x69, 0x64, 0x00, 0x00, // Set margin amount
-        
-        // 5. Set page length (force print after this many lines)
-        0x1B, 0x69, 0x41, 0x32, 0x00, // 50 lines then cut
-        
-        // 6. Start page
-        0x1B, 0x69, 0x4B, 0x08, // No compression
-      ];
-
-      // 7. Send exactly 50 lines of raster data to trigger auto-cut
-      for (let line = 0; line < 50; line++) {
-        testCommands.push(0x67, 0x00, 0x09); // Raster line: 9 bytes for DK-2251
-        
-        // Create a very visible test pattern
-        for (let byte = 0; byte < 9; byte++) {
-          if (line < 5 || line >= 45) {
-            // Top and bottom thick borders
+        // Create test pattern - simple border with "TEST" pattern
+        for (let byte = 0; byte < 90; byte++) {
+          if (line < 2 || line >= 28) {
+            // Top/bottom border
             testCommands.push(0xFF);
-          } else if (line >= 20 && line <= 30 && byte >= 2 && byte <= 6) {
-            // Center rectangle
+          } else if (byte < 2 || byte >= 88) {
+            // Left/right border  
             testCommands.push(0xFF);
-          } else if (byte === 0 || byte === 8) {
-            // Side borders
-            testCommands.push(0xFF);
+          } else if (line >= 10 && line <= 20 && byte >= 30 && byte <= 60) {
+            // Center "TEST" block
+            testCommands.push(line % 2 === 0 ? 0xAA : 0x55);
           } else {
             // Background
             testCommands.push(0x00);
           }
         }
       }
+      
+      // 12. Print command with feeding (end of page)
+      testCommands.push(0x1A);
 
-      // 8. Force print and cut
-      testCommands.push(0x1A); // Print page
-      testCommands.push(0x1B, 0x69, 0x43); // Cut command
-
-      console.log('Sending', testCommands.length, 'bytes to printer...');
+      console.log('Sending', testCommands.length, 'bytes following official Brother manual...');
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('Test print commands sent successfully - printer should cut and eject label');
+        console.log('Official Brother QL commands sent - should print and cut automatically');
         return true;
       } else {
-        console.error('Failed to send test print:', result.status);
+        console.error('Failed to send official commands:', result.status);
         return false;
       }
       
     } catch (error) {
-      console.error('Test print failed:', error);
+      console.error('Official Brother QL test print failed:', error);
       return false;
     }
   }
