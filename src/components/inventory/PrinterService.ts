@@ -114,9 +114,18 @@ class BrotherQLPrinterService implements PrinterService {
         throw new Error('Unable to claim any printer interface. Please close any Brother P-touch Editor or other printer software and try again.');
       }
 
-      // Brother QL-800 typically uses endpoint 2 for out and endpoint 1 for in
-      this.outEndpoint = 2;
-      this.inEndpoint = 1;
+      // Try different endpoint configurations based on the claimed interface
+      // Brother QL-800 typically uses endpoint 1 for interface 0, or endpoint 2 for other interfaces
+      if (claimedInterface === 0) {
+        this.outEndpoint = 1;
+        this.inEndpoint = 1;
+        console.log('Interface 0 claimed');
+      } else {
+        this.outEndpoint = 2;
+        this.inEndpoint = 1;
+        console.log(`Interface ${claimedInterface} claimed`);
+      }
+      
       console.log(`Using OUT endpoint: ${this.outEndpoint}, IN endpoint: ${this.inEndpoint}`);
 
       // Store the claimed interface number for later use
