@@ -84,8 +84,12 @@ function generateBrotherQLLabel(location: LocationData, opts: { autoFormat?: boo
     commands.push(
       // Auto cut every label
       0x1B, 0x69, 0x41, 0x01,
+      // Set margin (~3mm)
+      0x1B, 0x69, 0x64, 0x23, 0x00,
       // Switch to raster mode
-      0x1B, 0x69, 0x52, 0x01
+      0x1B, 0x69, 0x52, 0x01,
+      // Auto cut ON (Set each mode bit 6)
+      0x1B, 0x69, 0x4D, 0x40
     )
   } else {
     // Manual format mode with specific media settings (62mm red/black)
@@ -98,8 +102,8 @@ function generateBrotherQLLabel(location: LocationData, opts: { autoFormat?: boo
       0x1B, 0x69, 0x64, 0x23, 0x00,
       // Switch to raster mode
       0x1B, 0x69, 0x52, 0x01,
-      // No compression
-      0x1B, 0x69, 0x4D, 0x00,
+      // Auto cut ON (Set each mode bit 6)
+      0x1B, 0x69, 0x4D, 0x40,
       // Feed amount every label
       0x1B, 0x69, 0x41, 0x01
     )
