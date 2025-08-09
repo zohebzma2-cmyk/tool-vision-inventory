@@ -403,51 +403,52 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('🔧 Sending PROPER Brother QL command sequence...');
+      console.log('📄 Sending OFFICIAL Brother QL-800 command sequence (from manual)...');
       
       const commands: number[] = [];
       
-      // PROPER Brother QL sequence based on working library:
+      // OFFICIAL Brother QL sequence from the manual:
       
-      // 1. INVALIDATE: Send 200 null bytes (not 400)
-      console.log('📤 Adding invalidate sequence...');
-      for (let i = 0; i < 200; i++) {
+      // 1. INVALIDATE: Send 400 null bytes (OFFICIAL Brother spec)
+      console.log('📤 Adding 400-byte invalidate sequence (official Brother spec)...');
+      for (let i = 0; i < 400; i++) {
         commands.push(0x00);
       }
       
-      // 2. INITIALIZE 
-      commands.push(0x1B, 0x40); // ESC @
+      // 2. INITIALIZE (ESC @)
+      commands.push(0x1B, 0x40);
       
-      // 3. ENTER DYNAMIC COMMAND MODE
+      // 3. SWITCH DYNAMIC COMMAND MODE (ESC i a 01)
       commands.push(0x1B, 0x69, 0x61, 0x01);
       
-      // 4. SET AUTO STATUS NOTIFICATION 
+      // 4. SWITCH AUTO STATUS NOTIFICATION MODE (ESC i ! 00)
       commands.push(0x1B, 0x69, 0x21, 0x00);
       
-      // 5. MEDIA & QUALITY INFO for DK-2251 (CRITICAL - this was wrong!)
+      // 5. PRINT INFORMATION COMMAND (ESC i z) for DK-2251 62mm die-cut
+      // From Brother manual table: ID 259 = 62mm die-cut
       commands.push(
-        0x1B, 0x69, 0x7A,    // Command
-        0x8E,                // Valid flags: type + width + length + priority (NOT 0x8F!)
-        0x0B,                // Media type: 0x0B for die-cut (NOT 0x0A for continuous!)
-        0x3E,                // Width: 62mm
-        0x00,                // Length: 0 for continuous
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved
+        0x1B, 0x69, 0x7A,    // ESC i z command
+        0x8E,                // Valid flag (from manual example)
+        0x03,                // Media type: 0x03 for die-cut labels (corrected from manual)
+        0x3E,                // Width info: 0x3E = 62mm
+        0x00,                // Length info: 0x00 for die-cut
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved (8 bytes)
       );
       
-      // 6. AUTO CUT MODE
+      // 6. VARIOUS MODE (ESC i M) - Auto cut setting
       commands.push(0x1B, 0x69, 0x4D, 0x40);
       
-      // 7. CUT SETTINGS
-      commands.push(0x1B, 0x69, 0x41, 0x01); // Cut each label
+      // 7. SPECIFY PAGE NUMBER IN CUT EACH * LABELS (ESC i A)
+      commands.push(0x1B, 0x69, 0x41, 0x01);
       
-      // 8. EXPANDED MODE 
+      // 8. EXPANDED MODE (ESC i K) - Cut at end
       commands.push(0x1B, 0x69, 0x4B, 0x08);
       
-      // 9. MARGINS (proper format)
-      commands.push(0x1B, 0x69, 0x64, 0x00, 0x00); // Zero margins
+      // 9. SPECIFY MARGIN AMOUNT (ESC i d) - 0 for die-cut
+      commands.push(0x1B, 0x69, 0x64, 0x00, 0x00);
       
-      // 10. COMPRESSION OFF
-      commands.push(0x4D, 0x00);
+      // 10. SELECT COMPRESSION MODE (ESC i L) - TIFF compression mode
+      commands.push(0x1B, 0x69, 0x4C, 0x00);
       
       // 11. RASTER DATA - Use EXACTLY 696 dots width for 62mm at 300dpi
       const dotsWidth = 696; // 62mm * 300dpi / 25.4mm = 732, but Brother uses 696
