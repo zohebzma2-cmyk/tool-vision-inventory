@@ -284,6 +284,21 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x52, 0x01,
       ];
 
+      // Explicitly set media & quality using detected width (mm)
+      const widthByte = Math.max(0, Math.min(255, paperInfo.width ?? 62));
+      testCommands.splice(9, 0,
+        // ESC i z ... (13 bytes)
+        0x1B, 0x69, 0x7A,
+        0x8F, // mode bits (safe default)
+        0x00, // reserved
+        widthByte, // width in mm (e.g., 62 => 0x3E)
+        0x00, 0x00, 0x00, 0x00, // length etc. (continuous)
+        0x00, 0x00, 0x00, 0x00
+      );
+
+      // Set feed amount every label (small feed)
+      testCommands.push(0x1B, 0x69, 0x41, 0x01);
+
       // Use detected paper dimensions for test pattern
       const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
       const bytesPerLine = paperInfo.bytesPerLine ?? Math.ceil((paperInfo.printWidth ?? 696) / 8);
@@ -407,8 +422,12 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x4D, 0x40,
         // Margin ~3mm
         0x1B, 0x69, 0x64, 0x23, 0x00,
+        // Set media & quality for 62mm continuous (DK-2251)
+        0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         // Raster mode
         0x1B, 0x69, 0x52, 0x01,
+        // Feed amount per label
+        0x1B, 0x69, 0x41, 0x01,
       ];
 
       // Generate per-line black and red planes
