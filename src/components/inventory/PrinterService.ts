@@ -363,90 +363,76 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('Sending Brother QL test print using official manual commands...');
+      console.log('Attempting to wake up Brother QL printer...');
       
-      // Follow exact sequence from Brother QL-800 manual
+      // First, try to wake up the printer with a simple status request
+      try {
+        const wakeupCommand = new Uint8Array([0x1B, 0x69, 0x53]); // Status request
+        await this.device.transferOut(this.outEndpoint, wakeupCommand.buffer);
+        console.log('Wakeup command sent');
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.log('Wakeup failed, continuing anyway:', error);
+      }
+
+      console.log('Sending ultra-simple Brother QL test...');
+      
+      // Ultra simple approach - minimal commands
       const testCommands: number[] = [];
       
-      // 1. Invalidate command (400 bytes of 0x00)
-      for (let i = 0; i < 400; i++) {
-        testCommands.push(0x00);
-      }
+      // Just initialize and send a tiny pattern
+      testCommands.push(0x1B, 0x40); // Initialize
+      testCommands.push(0x1B, 0x69, 0x61, 0x01); // Dynamic command mode
       
-      // 2. Initialize
-      testCommands.push(0x1B, 0x40);
-      
-      // 3. Switch dynamic command mode (enter raster mode)
-      testCommands.push(0x1B, 0x69, 0x61, 0x01);
-      
-      // 4. Switch automatic status notification mode
-      testCommands.push(0x1B, 0x69, 0x21, 0x00);
-      
-      // 5. Print information command for 12mm continuous tape
-      testCommands.push(
-        0x1B, 0x69, 0x7A,     // Print info command
-        0x86,                 // Valid flag (media type + width + length + quality)
-        0x0A,                 // Media type: continuous tape (0x0A)
-        0x0C,                 // Media width: 12mm
-        0x00,                 // Media length: 0 (continuous)
-        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved bytes
-      );
-      
-      // 6. Various mode (auto cut on)
-      testCommands.push(0x1B, 0x69, 0x4D, 0x40);
-      
-      // 7. Specify page number for auto cut (cut each 1 label)
-      testCommands.push(0x1B, 0x69, 0x41, 0x01);
-      
-      // 8. Expanded mode (cut at end)
-      testCommands.push(0x1B, 0x69, 0x4B, 0x08);
-      
-      // 9. Specify margin amount (3mm = 35 dots)
-      testCommands.push(0x1B, 0x69, 0x64, 0x23, 0x00);
-      
-      // 10. Select compression mode (no compression)
-      testCommands.push(0x4D, 0x00);
-      
-      // 11. Send raster data (create 30 lines for a small test label)
-      for (let line = 0; line < 30; line++) {
-        // Raster graphics transfer command
-        testCommands.push(0x67, 0x00, 0x5A); // 90 bytes per line (720 pins / 8)
+      // Send just 10 lines of simple pattern
+      for (let line = 0; line < 10; line++) {
+        testCommands.push(0x67, 0x00, 0x0A); // Raster line, 10 bytes
         
-        // Create test pattern - simple border with "TEST" pattern
-        for (let byte = 0; byte < 90; byte++) {
-          if (line < 2 || line >= 28) {
-            // Top/bottom border
-            testCommands.push(0xFF);
-          } else if (byte < 2 || byte >= 88) {
-            // Left/right border  
-            testCommands.push(0xFF);
-          } else if (line >= 10 && line <= 20 && byte >= 30 && byte <= 60) {
-            // Center "TEST" block
-            testCommands.push(line % 2 === 0 ? 0xAA : 0x55);
-          } else {
-            // Background
-            testCommands.push(0x00);
-          }
+        // Simple alternating pattern
+        for (let byte = 0; byte < 10; byte++) {
+          testCommands.push(line % 2 === 0 ? 0xFF : 0x00);
         }
       }
       
-      // 12. Print command with feeding (end of page)
+      // Print
       testCommands.push(0x1A);
 
-      console.log('Sending', testCommands.length, 'bytes following official Brother manual...');
+      console.log('Sending ultra-simple test:', testCommands.length, 'bytes');
+      console.log('Test pattern:', testCommands.slice(0, 20), '...');
+      
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('Official Brother QL commands sent - should print and cut automatically');
+        console.log('Ultra-simple test sent - bytes written:', result.bytesWritten);
+        
+        // Wait a moment then try to get status
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        try {
+          const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
+          await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const statusResult = await this.device.transferIn(this.inEndpoint, 32);
+          if (statusResult.status === 'ok' && statusResult.data.byteLength > 0) {
+            const statusData = new Uint8Array(statusResult.data.buffer);
+            console.log('Post-print status:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+          } else {
+            console.log('No status response after print');
+          }
+        } catch (statusError) {
+          console.log('Status check failed:', statusError);
+        }
+        
         return true;
       } else {
-        console.error('Failed to send official commands:', result.status);
+        console.error('Ultra-simple test failed with status:', result.status);
         return false;
       }
       
     } catch (error) {
-      console.error('Official Brother QL test print failed:', error);
+      console.error('Ultra-simple test print failed:', error);
       return false;
     }
   }
