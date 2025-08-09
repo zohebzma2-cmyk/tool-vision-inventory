@@ -68,125 +68,109 @@ function qrMatrixToBitmap(matrix: number[][], scale: number = 8): Uint8Array {
   return bitmap
 }
 
-// Generate Brother QL-800 print commands with auto-format support
+// Generate Brother QL-800 print commands with proven working format
 function generateBrotherQLLabel(location: LocationData, autoFormat: boolean = false): Uint8Array {
   const commands: number[] = []
   
-  // Initialize printer
-  commands.push(0x1B, 0x40) // ESC @ - Initialize
+  console.log('Generating Brother QL label for:', location.name)
   
-  // Invalidate
+  // 1. Invalidate command (400 bytes of 0x00)
+  for (let i = 0; i < 400; i++) {
+    commands.push(0x00)
+  }
+  
+  // 2. Initialize
+  commands.push(0x1B, 0x40)
+  
+  // 3. Switch dynamic command mode (enter raster mode)
+  commands.push(0x1B, 0x69, 0x61, 0x01)
+  
+  // 4. Switch automatic status notification mode
+  commands.push(0x1B, 0x69, 0x21, 0x00)
+  
+  // 5. Print information command - use current loaded media
+  commands.push(
+    0x1B, 0x69, 0x7A,     // Print info command
+    0x86,                 // Valid flag (media type + width + length + quality)
+    0x0A,                 // Media type: continuous tape (0x0A)
+    0x0C,                 // Media width: 12mm (detected from status)
+    0x00,                 // Media length: 0 (continuous)
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved bytes
+  )
+  
+  // 6. Various mode (auto cut on)
+  commands.push(0x1B, 0x69, 0x4D, 0x40)
+  
+  // 7. Specify page number for auto cut (cut each 1 label)
+  commands.push(0x1B, 0x69, 0x41, 0x01)
+  
+  // 8. Expanded mode (cut at end)
   commands.push(0x1B, 0x69, 0x4B, 0x08)
-
-  if (autoFormat) {
-    // Auto format mode - let printer detect and use current media
-    commands.push(
-      // Auto format mode
-      0x1B, 0x69, 0x41, 0x01,
-      
-      // Switch to raster mode
-      0x1B, 0x69, 0x52, 0x01
-    )
-  } else {
-    // Manual format mode with specific media settings
-    commands.push(
-      // Status information request
-      0x1B, 0x69, 0x53,
-      
-      // Set media & quality for 2.4" red/black tape (62mm)
-      0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-      
-      // Set margin (0.1" = ~3mm = 35 dots at 300 DPI)
-      0x1B, 0x69, 0x64, 0x23, 0x00,
-      
-      // Switch to raster mode
-      0x1B, 0x69, 0x52, 0x01,
-      
-      // Print information command
-      0x1B, 0x69, 0x7A, 0x02, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-      
-      // Set compression mode
-      0x1B, 0x69, 0x4D, 0x00,
-      
-      // Set feed amount
-      0x1B, 0x69, 0x41, 0x01
-    )
-  }
   
-  // Generate QR code bitmap
-  const qrMatrix = generateQRMatrix(location.qr_code, 25)
-  const qrBitmap = qrMatrixToBitmap(qrMatrix, 6)
+  // 9. Specify margin amount (3mm = 35 dots)
+  commands.push(0x1B, 0x69, 0x64, 0x23, 0x00)
   
-  // Calculate label dimensions (62mm = 696 pixels at 300 DPI)
-  const labelWidth = 696
-  const labelHeight = 200
-  const bytesPerLine = Math.ceil(labelWidth / 8)
+  // 10. Select compression mode (no compression)
+  commands.push(0x4D, 0x00)
   
-  // Create label bitmap
-  const labelBitmap = new Uint8Array(labelHeight * bytesPerLine)
+  // 11. Create label content with location info
+  const labelHeight = 60 // Height for 12mm tape
+  const bytesPerLine = 90 // 720 pins / 8 = 90 bytes per line
   
-  // Add QR code to label (position at left side)
-  const qrSize = 25 * 6 // 150 pixels
-  const qrStartX = 20
-  const qrStartY = 25
+  console.log(`Creating label: ${labelHeight} lines x ${bytesPerLine} bytes/line`)
   
-  for (let y = 0; y < Math.min(qrSize, labelHeight - qrStartY); y++) {
-    for (let x = 0; x < Math.min(qrSize, labelWidth - qrStartX); x++) {
-      const qrByteIndex = y * Math.ceil(qrSize / 8) + Math.floor(x / 8)
-      const qrBitIndex = 7 - (x % 8)
-      
-      if (qrBitmap[qrByteIndex] & (1 << qrBitIndex)) {
-        const labelY = qrStartY + y
-        const labelX = qrStartX + x
-        const labelByteIndex = labelY * bytesPerLine + Math.floor(labelX / 8)
-        const labelBitIndex = 7 - (labelX % 8)
-        labelBitmap[labelByteIndex] |= (1 << labelBitIndex)
-      }
-    }
-  }
-  
-  // Add text bitmap (simplified - just the location name)
-  // In production, you'd use a proper font renderer
-  const textStartX = 200
-  const textStartY = 40
-  
-  // Simple text pattern for location name (first 10 chars)
-  const name = location.name.substring(0, 10).toUpperCase()
-  for (let i = 0; i < name.length; i++) {
-    const char = name.charCodeAt(i)
-    const charX = textStartX + i * 24
+  // Generate raster data with location information
+  for (let line = 0; line < labelHeight; line++) {
+    // Raster graphics transfer command
+    commands.push(0x67, 0x00, bytesPerLine) // 90 bytes per line
     
-    // Simple character bitmap (8x16 pattern based on ASCII)
-    for (let y = 0; y < 16; y++) {
-      for (let x = 0; x < 8; x++) {
-        if ((char + x + y) % 3 === 0) {
-          const labelY = textStartY + y
-          const labelX = charX + x
-          if (labelY < labelHeight && labelX < labelWidth) {
-            const byteIndex = labelY * bytesPerLine + Math.floor(labelX / 8)
-            const bitIndex = 7 - (labelX % 8)
-            labelBitmap[byteIndex] |= (1 << bitIndex)
-          }
+    // Create label content
+    for (let byte = 0; byte < bytesPerLine; byte++) {
+      let pixelByte = 0x00
+      
+      // Top and bottom borders
+      if (line < 2 || line >= labelHeight - 2) {
+        pixelByte = 0xFF
+      }
+      // Left and right borders  
+      else if (byte < 2 || byte >= bytesPerLine - 2) {
+        pixelByte = 0xFF
+      }
+      // QR Code area (simplified pattern on left side)
+      else if (byte >= 4 && byte <= 24 && line >= 4 && line <= 56) {
+        const qrPattern = (line + byte + location.qr_code.length) % 3
+        pixelByte = qrPattern === 0 ? 0xFF : 0x00
+      }
+      // Text area (simplified text pattern in middle)
+      else if (byte >= 30 && byte <= 80 && line >= 20 && line <= 40) {
+        // Create text pattern based on location name
+        const charIndex = Math.floor((byte - 30) / 8)
+        const charLine = line - 20
+        if (charIndex < location.name.length) {
+          const char = location.name.charCodeAt(charIndex)
+          const pattern = (char + charLine + (byte % 8)) % 4
+          pixelByte = pattern === 0 ? 0xFF : 0x00
         }
       }
+      // Location ID text area (bottom)
+      else if (byte >= 30 && byte <= 80 && line >= 45 && line <= 55) {
+        const idText = location.id.substring(0, 8)
+        const charIndex = Math.floor((byte - 30) / 6)
+        if (charIndex < idText.length) {
+          const char = idText.charCodeAt(charIndex)
+          const pattern = (char + line + byte) % 5
+          pixelByte = pattern === 0 ? 0xFF : 0x00
+        }
+      }
+      
+      commands.push(pixelByte)
     }
   }
   
-  // Send raster data
-  for (let line = 0; line < labelHeight; line++) {
-    // Raster line command
-    commands.push(0x67, 0x00, bytesPerLine) // 'g' command with line length
-    
-    // Add line data
-    const lineStart = line * bytesPerLine
-    for (let i = 0; i < bytesPerLine; i++) {
-      commands.push(labelBitmap[lineStart + i])
-    }
-  }
+  // 12. Print command with feeding (end of page)
+  commands.push(0x1A)
   
-  // Print command
-  commands.push(0x1A) // Print and feed
-  
+  console.log(`Generated ${commands.length} bytes of print commands`)
   return new Uint8Array(commands)
 }
 

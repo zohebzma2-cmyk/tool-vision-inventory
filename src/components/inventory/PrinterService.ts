@@ -509,6 +509,9 @@ export async function autoPrintLabel(
 
     onStatusUpdate?.('Sending to printer...');
     console.log('Print data received from edge function, sending to printer...');
+    console.log('Print data length:', result.printData.length, 'bytes');
+    console.log('First 20 bytes:', result.printData.slice(0, 20));
+    console.log('Last 10 bytes:', result.printData.slice(-10));
 
     // Send print commands to printer
     const printed = await printerService.print(result.printData);
