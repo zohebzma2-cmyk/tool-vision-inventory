@@ -102,6 +102,8 @@ class BrotherQLPrinterService implements PrinterService {
           await this.device.claimInterface(interfaceNum);
           console.log(`Interface ${interfaceNum} claimed successfully`);
           
+          // Interface claimed successfully
+          
           interfaceClaimed = true;
           claimedInterface = interfaceNum;
           break;
@@ -114,19 +116,38 @@ class BrotherQLPrinterService implements PrinterService {
         throw new Error('Unable to claim any printer interface. Please close any Brother P-touch Editor or other printer software and try again.');
       }
 
-      // Try different endpoint configurations based on the claimed interface
-      // Brother QL-800 typically uses endpoint 1 for interface 0, or endpoint 2 for other interfaces
-      if (claimedInterface === 0) {
+      // Test different endpoint configurations
+      let endpointFound = false;
+      const endpointConfigs = [
+        { out: 1, in: 1 },
+        { out: 2, in: 1 },
+        { out: 1, in: 2 },
+        { out: 3, in: 2 }
+      ];
+
+      for (const config of endpointConfigs) {
+        try {
+          // Test endpoint by sending a simple status request
+          const testData = new Uint8Array([0x1B, 0x69, 0x53]); // Status request command
+          const result = await this.device.transferOut(config.out, testData.buffer);
+          
+          if (result.status === 'ok') {
+            this.outEndpoint = config.out;
+            this.inEndpoint = config.in;
+            console.log(`Working endpoints found - OUT: ${this.outEndpoint}, IN: ${this.inEndpoint}`);
+            endpointFound = true;
+            break;
+          }
+        } catch (error) {
+          console.log(`Endpoint ${config.out}/${config.in} test failed:`, error);
+        }
+      }
+
+      if (!endpointFound) {
+        console.warn('Could not find working endpoints, using defaults');
         this.outEndpoint = 1;
         this.inEndpoint = 1;
-        console.log('Interface 0 claimed');
-      } else {
-        this.outEndpoint = 2;
-        this.inEndpoint = 1;
-        console.log(`Interface ${claimedInterface} claimed`);
       }
-      
-      console.log(`Using OUT endpoint: ${this.outEndpoint}, IN endpoint: ${this.inEndpoint}`);
 
       // Store the claimed interface number for later use
       (this.device as any).claimedInterface = claimedInterface;
