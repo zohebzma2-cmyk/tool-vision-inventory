@@ -35,7 +35,7 @@ interface PrinterService {
   disconnect: () => void;
 }
 
-import { createBrotherQLPrintJob, BrotherQLRaster } from '../utils/brotherQL';
+import { createBrotherQLPrintJob, BrotherQLRaster } from '../../utils/brotherQL';
 
 class BrotherQLPrinterService implements PrinterService {
   private device: USBDevice | null = null;
