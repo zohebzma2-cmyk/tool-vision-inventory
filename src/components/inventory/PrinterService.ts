@@ -35,10 +35,12 @@ interface PrinterService {
   disconnect: () => void;
 }
 
+import { createBrotherQLPrintJob, BrotherQLRaster } from '../utils/brotherQL';
+
 class BrotherQLPrinterService implements PrinterService {
   private device: USBDevice | null = null;
-  private outEndpoint: number = 1; // Default, will be detected
-  private inEndpoint: number = 1; // Default, will be detected
+  private outEndpoint: number = 2;
+  private inEndpoint: number = 1;
   public isConnected = false;
   private lastPaperInfo: any = null;
 
@@ -330,90 +332,25 @@ class BrotherQLPrinterService implements PrinterService {
     }
 
     try {
-      console.log('Reading paper information from printer...');
+      console.log('Creating test print using Brother QL library...');
       
-      // First, get the paper info from the printer
-      const paperInfo = await this.getStatus();
+      // Use the new Brother QL library to create print commands
+      const printCommands = createBrotherQLPrintJob({
+        text: 'TEST',
+        labelSize: '62red',
+        twoColor: true,
+        fontSize: 70,
+        width: 696,
+        height: 100
+      });
+
+      console.log('Generated', printCommands.length, 'bytes using Brother QL library');
       
-      if (!paperInfo) {
-        console.log('Could not detect paper, using safe defaults...');
-        return this.sendSimpleTestPrint();
-      }
-
-      console.log('Detected paper info:', paperInfo);
-      console.log('Sending test print optimized for detected paper...');
-
-      // Create print commands based on detected paper
-      const testCommands: number[] = [
-        // Initialize printer
-        0x1B, 0x40,
-
-        // Enable automatic status notifications
-        0x1B, 0x69, 0x21, 0x01,
-
-        // Auto cut ON (Set each mode)
-        0x1B, 0x69, 0x4D, 0x40,
-
-        // Set margin amount to ~3mm (35 dots)
-        0x1B, 0x69, 0x64, 0x23, 0x00,
-
-        // Ensure black-only (disable two-color)
-        0x1B, 0x69, 0x4B, 0x00,
-      ];
-
-      // Rely on printer's installed roll (auto media). Avoid ESC i z to prevent malformed params.
-
-      // Set feed amount every label (small feed)
-      testCommands.push(0x1B, 0x69, 0x41, 0x01);
-
-      // Use detected paper dimensions for test pattern
-      const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
-      const bytesPerLine = paperInfo.bytesPerLine ?? Math.ceil((paperInfo.printWidth ?? 696) / 8);
-
-      // Provide explicit print information (media + raster lines) then switch to raster mode
-      const widthByte = Math.max(0, Math.min(255, paperInfo.width ?? 62));
-      const rasterLines = labelHeight;
-      testCommands.push(
-        0x1B, 0x69, 0x7A, // ESC i z
-        0x4A,             // n1 flags
-        0x0A,             // n2 media type: continuous
-        widthByte,        // n3 width in mm
-        0x00,             // n4 length mm (0 for continuous)
-        rasterLines & 0xFF, (rasterLines >> 8) & 0xFF, 0x00, 0x00, // n5-n8 raster lines (LE)
-        0x00, 0x00        // n9-n10 reserved
-      );
-
-      // Switch to raster mode
-      testCommands.push(0x1B, 0x69, 0x52, 0x01);
-
-      console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
-
-      // Add raster data for test pattern (uncompressed)
-      for (let line = 0; line < labelHeight; line++) {
-        // Raster line header: 0x67 (black, uncompressed), 0x00 (no compression), 2-byte length
-        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
-        
-        // Create a simple test pattern that shows the detected paper size
-        for (let byte = 0; byte < bytesPerLine; byte++) {
-          if (line < 3 || line >= labelHeight - 3 || byte < 2 || byte >= bytesPerLine - 2) {
-            testCommands.push(0xFF); // Border to show full width/height
-          } else if (line >= Math.floor(labelHeight/2) - 2 && line <= Math.floor(labelHeight/2) + 2) {
-            testCommands.push(0xFF); // Center horizontal line
-          } else {
-            testCommands.push(0x00); // White background
-          }
-        }
-      }
-
-      // Print command
-      testCommands.push(0x1A);
-
-      // Convert to Uint8Array and send
-      const uint8Data = new Uint8Array(testCommands);
+      const uint8Data = new Uint8Array(printCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('Test print sent successfully');
+        console.log('Brother QL test print sent successfully');
         return true;
       } else {
         console.error('Test print failed with status:', result.status);
@@ -421,68 +358,7 @@ class BrotherQLPrinterService implements PrinterService {
       }
 
     } catch (error) {
-      console.error('Failed to send test print:', error);
-      return false;
-    }
-  }
-
-  private async sendSimpleTestPrint(): Promise<boolean> {
-    try {
-      console.log('Sending official Brother QL raster test (62mm)...');
-      
-      const testCommands: number[] = [
-        // Initialize
-        0x1B, 0x40,
-
-        // Enable automatic status notifications
-        0x1B, 0x69, 0x21, 0x01,
-
-        // Set each mode: Auto cut ON (bit 6)
-        0x1B, 0x69, 0x4D, 0x40,
-
-        // Set margin amount to ~3mm (35 dots)
-        0x1B, 0x69, 0x64, 0x23, 0x00,
-
-        // Switch to raster mode
-        0x1B, 0x69, 0x52, 0x01,
-      ];
-
-      // Send 60 raster lines, 87 bytes per line (696 dots @ 62mm)
-      const bytesPerLine = 87;
-      for (let line = 0; line < 60; line++) {
-        // 0x67 (uncompressed), 0x00 (no compression), 2-byte length
-        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
-
-        for (let byte = 0; byte < bytesPerLine; byte++) {
-          // Visible pattern: frame + center band
-          const topBottomBorder = line < 4 || line >= 56;
-          const sideBorder = byte < 2 || byte >= bytesPerLine - 2;
-          const centerBand = line >= 26 && line <= 34 && byte >= 10 && byte <= bytesPerLine - 7;
-
-          if (topBottomBorder || sideBorder || centerBand) {
-            testCommands.push(0xFF);
-          } else {
-            testCommands.push(0x00);
-          }
-        }
-      }
-
-       testCommands.push(0x1A);
-
-      console.log('Sending', testCommands.length, 'bytes to printer...');
-      const uint8Data = new Uint8Array(testCommands);
-      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
-      
-      if (result.status === 'ok') {
-        console.log('Test print commands sent successfully - printer should feed and cut (auto cut).');
-        return true;
-      } else {
-        console.error('Failed to send test print:', result.status);
-        return false;
-      }
-      
-    } catch (error) {
-      console.error('Test print failed:', error);
+      console.error('Failed to send Brother QL test print:', error);
       return false;
     }
   }
@@ -493,159 +369,67 @@ class BrotherQLPrinterService implements PrinterService {
     }
 
     try {
-      console.log('Sending two-color DK-2251 raster test (62mm red/black)...');
+      console.log('Creating two-color test using Brother QL library...');
 
-      const bytesPerLine = 87; // 62mm printable width => 696 dots / 8 = 87 bytes
-      const labelHeight = 80; // lines
+      // Create a more sophisticated two-color test
+      const qlr = new BrotherQLRaster('QL-800');
+      const printCommands = qlr.createTextLabel('DEMO', {
+        labelSize: '62red',
+        fontSize: 80,
+        twoColor: true,
+        width: 696,
+        height: 120
+      });
 
-      const cmds: number[] = [
-        // Initialize
-        0x1B, 0x40,
-        // Enable automatic status notifications
-        0x1B, 0x69, 0x21, 0x01,
-        // Expanded mode: enable two-color (bit0)
-        0x1B, 0x69, 0x4B, 0x01,
-        // Auto cut ON (Set each mode)
-        0x1B, 0x69, 0x4D, 0x40,
-        // Margin ~3mm
-        0x1B, 0x69, 0x64, 0x23, 0x00,
-        // Set media & quality for 62mm continuous (DK-2251)
-        0x1B, 0x69, 0x7A, 0x8F, 0x0A, 0x3E, 0x00,
-        labelHeight & 0xFF, (labelHeight >> 8) & 0xFF, 0x00, 0x00,
-        0x00, 0x00,
-        // Raster mode
-        0x1B, 0x69, 0x52, 0x01,
-        // Feed amount per label
-        0x1B, 0x69, 0x41, 0x01,
-      ];
+      console.log('Generated', printCommands.length, 'bytes for two-color test');
 
-      // Generate per-line raster data (Python brother_ql uses red first, then black)
-      for (let y = 0; y < labelHeight; y++) {
-        // Red plane first (0x77 0x02) - single byte length for <= 255 bytes
-        cmds.push(0x77, 0x02, bytesPerLine);
-        for (let x = 0; x < bytesPerLine; x++) {
-          const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
-          cmds.push(inRedBand ? 0xFF : 0x00);
-        }
-
-        // Black plane second (0x77 0x01) - single byte length for <= 255 bytes  
-        cmds.push(0x77, 0x01, bytesPerLine);
-        for (let x = 0; x < bytesPerLine; x++) {
-          const topBottom = y < 3 || y >= labelHeight - 3;
-          const sides = x < 2 || x >= bytesPerLine - 2;
-          cmds.push(topBottom || sides ? 0xFF : 0x00);
-        }
-      }
-
-       cmds.push(0x1A);
-
-      const data = new Uint8Array(cmds);
+      const data = new Uint8Array(printCommands);
       const result = await this.device.transferOut(this.outEndpoint, data.buffer);
+      
       if (result.status === 'ok') {
-        console.log('Two-color test sent successfully');
+        console.log('Brother QL two-color test sent successfully');
         return true;
       } else {
         console.error('Two-color test failed with status:', result.status);
         return false;
       }
     } catch (error) {
-      console.error('Two-color test print failed:', error);
+      console.error('Brother QL two-color test failed:', error);
       return false;
     }
   }
 
-  // Print a specific word in red on DK-2251 two-color tape
   async testPrintWordRed(word: string = 'TEST'): Promise<boolean> {
     if (!this.device || !this.isConnected) {
       throw new Error('Brother QL printer not connected');
     }
 
     try {
-      const paperInfo = await this.getStatus();
-      const bytesPerLine = paperInfo?.bytesPerLine ?? 87;
-      const printWidthPx = bytesPerLine * 8;
-      const labelHeight = 96; // lines
+      console.log(`Creating red "${word}" print using Brother QL library...`);
 
-      const cmds: number[] = [
-        0x1B, 0x40,
-        0x1B, 0x69, 0x21, 0x01,
-        0x1B, 0x69, 0x4B, 0x01,
-        0x1B, 0x69, 0x4D, 0x40,
-        0x1B, 0x69, 0x64, 0x23, 0x00,
-        0x1B, 0x69, 0x7A, 0x8F, 0x0A, Math.max(0, Math.min(255, paperInfo?.width ?? 62)), 0x00,
-        labelHeight & 0xFF, (labelHeight >> 8) & 0xFF, 0x00, 0x00,
-        0x00, 0x00,
-        0x1B, 0x69, 0x52, 0x01,
-        0x1B, 0x69, 0x41, 0x01,
-      ];
+      const printCommands = createBrotherQLPrintJob({
+        text: word,
+        labelSize: '62red', 
+        twoColor: true,
+        fontSize: 70,
+        width: 696,
+        height: 96
+      });
 
-      // Simple 5x7 uppercase font for T,E,S
-      const font: Record<string, number[]> = {
-        'T': [0b11111,0b00100,0b00100,0b00100,0b00100,0b00100,0b00100],
-        'E': [0b11111,0b10000,0b10000,0b11110,0b10000,0b10000,0b11111],
-        'S': [0b01111,0b10000,0b10000,0b01110,0b00001,0b00001,0b11110],
-      };
+      console.log('Generated', printCommands.length, 'bytes for red word print');
 
-      const scale = 8; // enlarge 5x7 -> 40x56 px per char
-      const charW = 5 * scale;
-      const charH = 7 * scale;
-      const space = 1 * scale;
-      const letters = word.toUpperCase().split('');
-      const textWidth = letters.length * charW + Math.max(0, letters.length - 1) * space;
-      const startX = Math.max(0, Math.floor((printWidthPx - textWidth) / 2));
-      const startY = Math.max(0, Math.floor((labelHeight - charH) / 2));
-
-      // Generate raster data for each line (red first, then black - per Python implementation)
-      for (let y = 0; y < labelHeight; y++) {
-        // Red plane first (0x77 0x02) - single byte length
-        cmds.push(0x77, 0x02, bytesPerLine);
-        for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
-          let b = 0;
-          for (let bit = 0; bit < 8; bit++) {
-            const x = byteIndex * 8 + (7 - bit); // MSB left
-            let on = false;
-            if (y >= startY && y < startY + charH && x >= startX && x < startX + textWidth) {
-              const relX = x - startX;
-              const relY = y - startY;
-              const charIndex = Math.floor(relX / (charW + space));
-              const withinCharX = relX - charIndex * (charW + space);
-              if (charIndex >= 0 && charIndex < letters.length && withinCharX < charW) {
-                const glyph = font[letters[charIndex]];
-                if (glyph) {
-                  const gx = Math.floor(withinCharX / scale);
-                  const gy = Math.floor(relY / scale);
-                  const colMask = 1 << (4 - gx); // 5 columns, MSB on left
-                  on = (glyph[gy] & colMask) !== 0;
-                }
-              }
-            }
-            if (on) b |= (1 << bit);
-          }
-          cmds.push(b);
-        }
-
-        // Black plane second (0x77 0x01) - single byte length for border
-        cmds.push(0x77, 0x01, bytesPerLine);
-        for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
-          const topBottom = y < 3 || y >= labelHeight - 3;
-          const sideBorder = byteIndex < 2 || byteIndex >= bytesPerLine - 2;
-          cmds.push(topBottom || sideBorder ? 0xFF : 0x00);
-        }
-      }
-
-      cmds.push(0x1A);
-
-      const data = new Uint8Array(cmds);
+      const data = new Uint8Array(printCommands);
       const result = await this.device.transferOut(this.outEndpoint, data.buffer);
+      
       if (result.status === 'ok') {
-        console.log('Red word test sent successfully');
+        console.log('Brother QL red word print sent successfully');
         return true;
       } else {
-        console.error('Red word test failed with status:', result.status);
+        console.error('Red word print failed with status:', result.status);
         return false;
       }
     } catch (error) {
-      console.error('Red word test print failed:', error);
+      console.error('Brother QL red word print failed:', error);
       return false;
     }
   }
