@@ -194,12 +194,12 @@ class BrotherQLPrinterService implements PrinterService {
       await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
       
       // Add delay for printer to process
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       // Read status response (Brother QL returns 32 bytes)
       const result = await this.device.transferIn(this.inEndpoint, 32);
       
-      if (result.status === 'ok') {
+      if (result.status === 'ok' && result.data.byteLength > 0) {
         const statusData = new Uint8Array(result.data.buffer);
         console.log('Status response:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
         
@@ -208,11 +208,11 @@ class BrotherQLPrinterService implements PrinterService {
         console.log('Detected paper:', paperInfo);
         return paperInfo;
       } else {
-        console.error('Failed to read status:', result.status);
+        console.warn('Empty status response, printer may be busy');
         return null;
       }
     } catch (error) {
-      console.error('Failed to get printer status:', error);
+      console.warn('Status request failed, printer may be processing:', error);
       return null;
     }
   }
