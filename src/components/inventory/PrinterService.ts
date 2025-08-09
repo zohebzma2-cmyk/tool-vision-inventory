@@ -287,13 +287,14 @@ class BrotherQLPrinterService implements PrinterService {
       // Explicitly set media & quality using detected width (mm)
       const widthByte = Math.max(0, Math.min(255, paperInfo.width ?? 62));
       testCommands.splice(9, 0,
-        // ESC i z ... (13 bytes)
+        // ESC i z ... (10 bytes)
         0x1B, 0x69, 0x7A,
-        0x8F, // mode bits (safe default)
-        0x00, // reserved
-        widthByte, // width in mm (e.g., 62 => 0x3E)
-        0x00, 0x00, 0x00, 0x00, // length etc. (continuous)
-        0x00, 0x00, 0x00, 0x00
+        0x4A, // n1 valid flags: KIND|WIDTH|LENGTH
+        0x0A, // n2 paper type: Continuous length tape (0x0A)
+        widthByte, // n3 width in mm (e.g., 62 => 0x3E)
+        0x00, // n4 paper length in mm (0 for continuous)
+        0x00, 0x00, 0x00, 0x00, // n5-n8 raster number (not used)
+        0x00, 0x00 // n9-n10 reserved
       );
 
       // Set feed amount every label (small feed)
@@ -301,7 +302,9 @@ class BrotherQLPrinterService implements PrinterService {
 
       // Use detected paper dimensions for test pattern
       const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
-      const bytesPerLine = paperInfo.bytesPerLine ?? Math.ceil((paperInfo.printWidth ?? 696) / 8);
+      const bytesPerLine = paperInfo.width === 62
+        ? 90
+        : (paperInfo.bytesPerLine ? paperInfo.bytesPerLine + 3 : Math.ceil(((paperInfo.printWidth ?? 696) + 24) / 8));
 
       console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
 
@@ -410,7 +413,7 @@ class BrotherQLPrinterService implements PrinterService {
     try {
       console.log('Sending two-color DK-2251 raster test (62mm red/black)...');
 
-      const bytesPerLine = 87; // 696 dots / 8
+      const bytesPerLine = 90; // 62mm total width => 720 dots / 8 = 90 bytes
       const labelHeight = 80; // lines
 
       const cmds: number[] = [
@@ -423,7 +426,7 @@ class BrotherQLPrinterService implements PrinterService {
         // Margin ~3mm
         0x1B, 0x69, 0x64, 0x23, 0x00,
         // Set media & quality for 62mm continuous (DK-2251)
-        0x1B, 0x69, 0x7A, 0x8F, 0x00, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x1B, 0x69, 0x7A, 0x4A, 0x0A, 0x3E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         // Raster mode
         0x1B, 0x69, 0x52, 0x01,
         // Feed amount per label
