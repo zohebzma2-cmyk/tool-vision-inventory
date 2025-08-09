@@ -128,12 +128,23 @@ class BrotherQLPrinterService implements PrinterService {
 
     } catch (error) {
       console.error('Failed to connect to Brother QL printer:', error);
-      console.error('Troubleshooting steps:');
-      console.error('1. Ensure Brother QL-800 is connected via USB');
-      console.error('2. Make sure printer is powered on');
-      console.error('3. Use Chrome/Edge browser (not Firefox/Safari)');
-      console.error('4. Try disconnecting and reconnecting the USB cable');
-      console.error('5. Close any Brother P-touch Editor or other printer software');
+      
+      if (error instanceof Error && error.name === 'SecurityError') {
+        console.error('SECURITY ERROR: Device access denied. This usually means:');
+        console.error('1. Brother P-touch Editor or other Brother software is running - CLOSE IT COMPLETELY');
+        console.error('2. Windows printer spooler has locked the device - try restarting the printer');
+        console.error('3. Another browser tab or application is using the printer');
+        console.error('4. The printer driver is interfering - try using "Generic USB Printer" driver');
+        console.error('');
+        console.error('SOLUTION: Close ALL Brother software, restart the printer, then try again.');
+      } else {
+        console.error('Troubleshooting steps:');
+        console.error('1. Ensure Brother QL-800 is connected via USB');
+        console.error('2. Make sure printer is powered on');
+        console.error('3. Use Chrome/Edge browser (not Firefox/Safari)');
+        console.error('4. Try disconnecting and reconnecting the USB cable');
+        console.error('5. Close any Brother P-touch Editor or other printer software');
+      }
       
       this.isConnected = false;
       this.device = null;
