@@ -537,6 +537,98 @@ class BrotherQLPrinterService implements PrinterService {
     }
   }
 
+  // Print a specific word in red on DK-2251 two-color tape
+  async testPrintWordRed(word: string = 'TEST'): Promise<boolean> {
+    if (!this.device || !this.isConnected) {
+      throw new Error('Brother QL printer not connected');
+    }
+
+    try {
+      const paperInfo = await this.getStatus();
+      const bytesPerLine = paperInfo?.bytesPerLine ?? 87;
+      const printWidthPx = bytesPerLine * 8;
+      const labelHeight = 96; // lines
+
+      const cmds: number[] = [
+        0x1B, 0x40,
+        0x1B, 0x69, 0x21, 0x01,
+        0x1B, 0x69, 0x4B, 0x01,
+        0x1B, 0x69, 0x4D, 0x40,
+        0x1B, 0x69, 0x64, 0x23, 0x00,
+        0x1B, 0x69, 0x7A, 0x4A, 0x0A, Math.max(0, Math.min(255, paperInfo?.width ?? 62)), 0x00,
+        labelHeight & 0xFF, (labelHeight >> 8) & 0xFF, 0x00, 0x00,
+        0x00, 0x00,
+        0x1B, 0x69, 0x52, 0x01,
+        0x1B, 0x69, 0x41, 0x01,
+      ];
+
+      // Simple 5x7 uppercase font for T,E,S
+      const font: Record<string, number[]> = {
+        'T': [0b11111,0b00100,0b00100,0b00100,0b00100,0b00100,0b00100],
+        'E': [0b11111,0b10000,0b10000,0b11110,0b10000,0b10000,0b11111],
+        'S': [0b01111,0b10000,0b10000,0b01110,0b00001,0b00001,0b11110],
+      };
+
+      const scale = 8; // enlarge 5x7 -> 40x56 px per char
+      const charW = 5 * scale;
+      const charH = 7 * scale;
+      const space = 1 * scale;
+      const letters = word.toUpperCase().split('');
+      const textWidth = letters.length * charW + Math.max(0, letters.length - 1) * space;
+      const startX = Math.max(0, Math.floor((printWidthPx - textWidth) / 2));
+      const startY = Math.max(0, Math.floor((labelHeight - charH) / 2));
+
+      // Precompute red bitmap lines
+      for (let y = 0; y < labelHeight; y++) {
+        // Black plane: blank
+        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        for (let i = 0; i < bytesPerLine; i++) cmds.push(0x00);
+
+        // Red plane
+        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
+          let b = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const x = byteIndex * 8 + (7 - bit); // MSB left
+            let on = false;
+            if (y >= startY && y < startY + charH && x >= startX && x < startX + textWidth) {
+              const relX = x - startX;
+              const relY = y - startY;
+              const charIndex = Math.floor(relX / (charW + space));
+              const withinCharX = relX - charIndex * (charW + space);
+              if (charIndex >= 0 && charIndex < letters.length && withinCharX < charW) {
+                const glyph = font[letters[charIndex]];
+                if (glyph) {
+                  const gx = Math.floor(withinCharX / scale);
+                  const gy = Math.floor(relY / scale);
+                  const colMask = 1 << (4 - gx); // 5 columns, MSB on left
+                  on = (glyph[gy] & colMask) !== 0;
+                }
+              }
+            }
+            if (on) b |= (1 << bit);
+          }
+          cmds.push(b);
+        }
+      }
+
+      cmds.push(0x1A);
+
+      const data = new Uint8Array(cmds);
+      const result = await this.device.transferOut(this.outEndpoint, data.buffer);
+      if (result.status === 'ok') {
+        console.log('Red word test sent successfully');
+        return true;
+      } else {
+        console.error('Red word test failed with status:', result.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('Red word test print failed:', error);
+      return false;
+    }
+  }
+
   disconnect(): void {
     if (this.device) {
       try {
@@ -638,8 +730,8 @@ export async function testPrint(): Promise<{ success: boolean; message: string }
       }
     }
 
-    console.log('Sending test print...');
-    const printed = await printerService.testPrint();
+    console.log('Sending red "TEST" print...');
+    const printed = await (printerService as any).testPrintWordRed('TEST');
     
     if (printed) {
       return {
