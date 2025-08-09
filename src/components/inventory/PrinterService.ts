@@ -375,8 +375,8 @@ class BrotherQLPrinterService implements PrinterService {
 
       // Add raster data for test pattern (uncompressed)
       for (let line = 0; line < labelHeight; line++) {
-        // Raster line header: 0x67 (black, uncompressed), 0x00 (no compression), little-endian length
-        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        // Raster line header: 0x67 (black, uncompressed), 0x00 (no compression), 1-byte length
+        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF);
         
         // Create a simple test pattern that shows the detected paper size
         for (let byte = 0; byte < bytesPerLine; byte++) {
@@ -435,8 +435,8 @@ class BrotherQLPrinterService implements PrinterService {
       // Send 60 raster lines, 87 bytes per line (696 dots @ 62mm)
       const bytesPerLine = 87;
       for (let line = 0; line < 60; line++) {
-        // 0x67 (uncompressed), 0x00 (no compression), length LSB/MSB
-        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        // 0x67 (uncompressed), 0x00 (no compression), 1-byte length
+        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF);
 
         for (let byte = 0; byte < bytesPerLine; byte++) {
           // Visible pattern: frame + center band
@@ -505,7 +505,7 @@ class BrotherQLPrinterService implements PrinterService {
       // Generate per-line black and red planes
       for (let y = 0; y < labelHeight; y++) {
         // Black plane: draw border rectangle
-        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        cmds.push(0x77, 0x01, bytesPerLine & 0xFF);
         for (let x = 0; x < bytesPerLine; x++) {
           const topBottom = y < 3 || y >= labelHeight - 3;
           const sides = x < 2 || x >= bytesPerLine - 2;
@@ -513,7 +513,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
 
         // Red plane: draw a solid red band in the middle
-        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        cmds.push(0x77, 0x02, bytesPerLine & 0xFF);
         for (let x = 0; x < bytesPerLine; x++) {
           const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
           cmds.push(inRedBand ? 0xFF : 0x00);
@@ -581,7 +581,7 @@ class BrotherQLPrinterService implements PrinterService {
       // Precompute red bitmap lines
       for (let y = 0; y < labelHeight; y++) {
         // Black plane: draw a visible border so something prints on black-only tape
-        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        cmds.push(0x77, 0x01, bytesPerLine & 0xFF);
         for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
           const topBottom = y < 3 || y >= labelHeight - 3;
           const sideBorder = byteIndex < 2 || byteIndex >= bytesPerLine - 2;
@@ -589,7 +589,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
 
         // Red plane
-        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
+        cmds.push(0x77, 0x02, bytesPerLine & 0xFF);
         for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
           let b = 0;
           for (let bit = 0; bit < 8; bit++) {
