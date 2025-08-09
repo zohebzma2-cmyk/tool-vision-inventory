@@ -403,124 +403,113 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('Attempting comprehensive Brother QL printer reset and test...');
-      
-      // First, try to clear any error states
-      try {
-        console.log('Sending error clear commands...');
-        
-        // Clear errors and reset printer
-        const clearCommands = new Uint8Array([
-          0x1B, 0x40, // Initialize - clear all settings
-          0x1B, 0x69, 0x21, 0x00, // Clear status notification
-          0x1B, 0x69, 0x4B, 0x08, // Clear expanded mode
-        ]);
-        await this.device.transferOut(this.outEndpoint, clearCommands.buffer);
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Request status to see current state
-        const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
-        await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        const statusResult = await this.device.transferIn(this.inEndpoint, 32);
-        if (statusResult.status === 'ok' && statusResult.data.byteLength > 0) {
-          const statusData = new Uint8Array(statusResult.data.buffer);
-          console.log('Current printer status:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
-          
-          // Decode status byte 0 for errors
-          const status0 = statusData[0];
-          const errors = [];
-          if (status0 & 0x01) errors.push('Replace media');
-          if (status0 & 0x02) errors.push('Expansion buffer full');
-          if (status0 & 0x04) errors.push('Communication error');
-          if (status0 & 0x08) errors.push('Transmission error');
-          if (status0 & 0x10) errors.push('Cover open');
-          if (status0 & 0x20) errors.push('Cancel key');
-          if (status0 & 0x40) errors.push('Media cannot be fed');
-          if (status0 & 0x80) errors.push('System error');
-          
-          if (errors.length > 0) {
-            console.log('PRINTER ERRORS DETECTED:', errors.join(', '));
-            console.log('STATUS BYTE 0:', status0.toString(16));
-          } else {
-            console.log('No errors detected in status');
-          }
-          
-          // Check if we have the exact paper info
-          const mediaWidth = statusData[11];
-          console.log('Detected media width:', mediaWidth, 'mm');
-        }
-        
-      } catch (error) {
-        console.log('Status check failed, continuing:', error);
-      }
-
-      console.log('Sending minimal test with proper media settings...');
+      console.log('🎯 Sending DK-2251 optimized test print for Brother QL-800...');
       
       const testCommands: number[] = [];
       
-      // 1. Initialize
-      testCommands.push(0x1B, 0x40);
+      // 1. Initialize printer
+      testCommands.push(0x1B, 0x40); // ESC @ - Initialize
       
-      // 2. Clear any error states
-      testCommands.push(0x1B, 0x69, 0x21, 0x00); // Clear notifications
+      // 2. Switch to raster mode  
+      testCommands.push(0x1B, 0x69, 0x61, 0x01); // Dynamic command mode
       
-      // 3. Enter raster mode
-      testCommands.push(0x1B, 0x69, 0x61, 0x01);
+      // 3. Clear status notifications
+      testCommands.push(0x1B, 0x69, 0x21, 0x00);
       
-      // 4. Set media info for 10mm continuous tape (from detected status)
+      // 4. Set media info specifically for DK-2251 (62mm black/red continuous tape)
       testCommands.push(
         0x1B, 0x69, 0x7A,  // Print info command
-        0x8F,              // All flags valid
-        0x0A,              // Continuous tape
-        0x0A,              // 10mm width (detected from status)
-        0x00,              // Length 0 (continuous)
-        0x00, 0x00, 0x00, 0x00 // Additional bytes
+        0x8F,              // All flags valid (0x80 + 0x08 + 0x04 + 0x02 + 0x01)
+        0x0A,              // Media type: continuous tape
+        0x3E,              // Media width: 62mm (0x3E = 62 decimal)
+        0x00,              // Media length: 0 (continuous)
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved
       );
       
-      // 5. Set auto cut mode
+      // 5. Auto cut on
       testCommands.push(0x1B, 0x69, 0x4D, 0x40);
       
-      // 6. Set print quality and other modes
-      testCommands.push(0x1B, 0x69, 0x4B, 0x08); // Expanded mode
+      // 6. Cut every label
+      testCommands.push(0x1B, 0x69, 0x41, 0x01);
       
-      // 7. Set margin (minimal)
-      testCommands.push(0x1B, 0x69, 0x64, 0x00, 0x00); // No margin
+      // 7. Expanded mode (cut at end)
+      testCommands.push(0x1B, 0x69, 0x4B, 0x08);
       
-      // 8. Send minimal raster data for 10mm tape (approximately 8 bytes per line)
-      for (let line = 0; line < 5; line++) {
-        testCommands.push(0x67, 0x00, 0x08); // Raster line, 8 bytes
+      // 8. Set margins (small)
+      testCommands.push(0x1B, 0x69, 0x64, 0x0F, 0x00); // 15 dots margin
+      
+      // 9. No compression
+      testCommands.push(0x4D, 0x00);
+      
+      // 10. Send raster data for 62mm tape (720 dots wide = 90 bytes per line)
+      const lineHeight = 60; // Small test label
+      const bytesPerLine = 90; // 720 dots / 8 = 90 bytes for 62mm
+      
+      console.log(`📏 Generating test for DK-2251: ${lineHeight} lines × ${bytesPerLine} bytes/line`);
+      
+      for (let line = 0; line < lineHeight; line++) {
+        // Raster command
+        testCommands.push(0x67, 0x00, bytesPerLine);
         
-        // Simple test pattern
-        for (let byte = 0; byte < 8; byte++) {
-          testCommands.push(0xFF); // All black dots
+        // Create test pattern for 62mm width
+        for (let byte = 0; byte < bytesPerLine; byte++) {
+          let pixel = 0x00;
+          
+          // Border pattern
+          if (line < 3 || line >= lineHeight - 3) {
+            pixel = 0xFF; // Top/bottom border
+          } else if (byte < 3 || byte >= bytesPerLine - 3) {
+            pixel = 0xFF; // Left/right border
+          }
+          // Center pattern
+          else if (line >= 20 && line <= 40 && byte >= 20 && byte <= 70) {
+            pixel = (line + byte) % 4 === 0 ? 0xFF : 0x00; // Checkered pattern
+          }
+          
+          testCommands.push(pixel);
         }
       }
       
-      // 9. Print and cut
+      // 11. Print command
       testCommands.push(0x1A);
-
-      console.log('Sending optimized test for 10mm tape:', testCommands.length, 'bytes');
+      
+      console.log(`💾 Sending ${testCommands.length} bytes of DK-2251 optimized commands...`);
+      console.log('📋 Command preview:', testCommands.slice(0, 30).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
       
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('Optimized test sent successfully - bytes written:', result.bytesWritten);
-        console.log('Check printer for a small black rectangle label...');
+        console.log('✅ DK-2251 test print sent successfully!');
+        console.log('📏 Expected: 62mm wide label with border and checkered pattern');
+        console.log('⏱️ Should print and auto-cut in ~5-10 seconds...');
         
         // Wait for print to complete
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Try to get status after print
+        try {
+          const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
+          await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          const statusResult = await this.device.transferIn(this.inEndpoint, 32);
+          if (statusResult.status === 'ok' && statusResult.data.byteLength > 0) {
+            const statusData = new Uint8Array(statusResult.data.buffer);
+            console.log('📊 Post-print status:', Array.from(statusData, b => b.toString(16).padStart(2, '0')).join(' '));
+          }
+        } catch (statusError) {
+          console.log('ℹ️ Status check after print failed (normal):', statusError.message);
+        }
         
         return true;
       } else {
-        console.error('Optimized test failed with status:', result.status);
+        console.error('❌ DK-2251 test failed with status:', result.status);
         return false;
       }
       
     } catch (error) {
-      console.error('Comprehensive test failed:', error);
+      console.error('💥 DK-2251 test print failed:', error);
       return false;
     }
   }
