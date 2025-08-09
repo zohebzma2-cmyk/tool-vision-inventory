@@ -363,76 +363,124 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('Attempting to wake up Brother QL printer...');
+      console.log('Attempting comprehensive Brother QL printer reset and test...');
       
-      // First, try to wake up the printer with a simple status request
+      // First, try to clear any error states
       try {
-        const wakeupCommand = new Uint8Array([0x1B, 0x69, 0x53]); // Status request
-        await this.device.transferOut(this.outEndpoint, wakeupCommand.buffer);
-        console.log('Wakeup command sent');
+        console.log('Sending error clear commands...');
+        
+        // Clear errors and reset printer
+        const clearCommands = new Uint8Array([
+          0x1B, 0x40, // Initialize - clear all settings
+          0x1B, 0x69, 0x21, 0x00, // Clear status notification
+          0x1B, 0x69, 0x4B, 0x08, // Clear expanded mode
+        ]);
+        await this.device.transferOut(this.outEndpoint, clearCommands.buffer);
         await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Request status to see current state
+        const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
+        await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        const statusResult = await this.device.transferIn(this.inEndpoint, 32);
+        if (statusResult.status === 'ok' && statusResult.data.byteLength > 0) {
+          const statusData = new Uint8Array(statusResult.data.buffer);
+          console.log('Current printer status:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
+          
+          // Decode status byte 0 for errors
+          const status0 = statusData[0];
+          const errors = [];
+          if (status0 & 0x01) errors.push('Replace media');
+          if (status0 & 0x02) errors.push('Expansion buffer full');
+          if (status0 & 0x04) errors.push('Communication error');
+          if (status0 & 0x08) errors.push('Transmission error');
+          if (status0 & 0x10) errors.push('Cover open');
+          if (status0 & 0x20) errors.push('Cancel key');
+          if (status0 & 0x40) errors.push('Media cannot be fed');
+          if (status0 & 0x80) errors.push('System error');
+          
+          if (errors.length > 0) {
+            console.log('PRINTER ERRORS DETECTED:', errors.join(', '));
+            console.log('STATUS BYTE 0:', status0.toString(16));
+          } else {
+            console.log('No errors detected in status');
+          }
+          
+          // Check if we have the exact paper info
+          const mediaWidth = statusData[11];
+          console.log('Detected media width:', mediaWidth, 'mm');
+        }
+        
       } catch (error) {
-        console.log('Wakeup failed, continuing anyway:', error);
+        console.log('Status check failed, continuing:', error);
       }
 
-      console.log('Sending ultra-simple Brother QL test...');
+      console.log('Sending minimal test with proper media settings...');
       
-      // Ultra simple approach - minimal commands
       const testCommands: number[] = [];
       
-      // Just initialize and send a tiny pattern
-      testCommands.push(0x1B, 0x40); // Initialize
-      testCommands.push(0x1B, 0x69, 0x61, 0x01); // Dynamic command mode
+      // 1. Initialize
+      testCommands.push(0x1B, 0x40);
       
-      // Send just 10 lines of simple pattern
-      for (let line = 0; line < 10; line++) {
-        testCommands.push(0x67, 0x00, 0x0A); // Raster line, 10 bytes
+      // 2. Clear any error states
+      testCommands.push(0x1B, 0x69, 0x21, 0x00); // Clear notifications
+      
+      // 3. Enter raster mode
+      testCommands.push(0x1B, 0x69, 0x61, 0x01);
+      
+      // 4. Set media info for 10mm continuous tape (from detected status)
+      testCommands.push(
+        0x1B, 0x69, 0x7A,  // Print info command
+        0x8F,              // All flags valid
+        0x0A,              // Continuous tape
+        0x0A,              // 10mm width (detected from status)
+        0x00,              // Length 0 (continuous)
+        0x00, 0x00, 0x00, 0x00 // Additional bytes
+      );
+      
+      // 5. Set auto cut mode
+      testCommands.push(0x1B, 0x69, 0x4D, 0x40);
+      
+      // 6. Set print quality and other modes
+      testCommands.push(0x1B, 0x69, 0x4B, 0x08); // Expanded mode
+      
+      // 7. Set margin (minimal)
+      testCommands.push(0x1B, 0x69, 0x64, 0x00, 0x00); // No margin
+      
+      // 8. Send minimal raster data for 10mm tape (approximately 8 bytes per line)
+      for (let line = 0; line < 5; line++) {
+        testCommands.push(0x67, 0x00, 0x08); // Raster line, 8 bytes
         
-        // Simple alternating pattern
-        for (let byte = 0; byte < 10; byte++) {
-          testCommands.push(line % 2 === 0 ? 0xFF : 0x00);
+        // Simple test pattern
+        for (let byte = 0; byte < 8; byte++) {
+          testCommands.push(0xFF); // All black dots
         }
       }
       
-      // Print
+      // 9. Print and cut
       testCommands.push(0x1A);
 
-      console.log('Sending ultra-simple test:', testCommands.length, 'bytes');
-      console.log('Test pattern:', testCommands.slice(0, 20), '...');
+      console.log('Sending optimized test for 10mm tape:', testCommands.length, 'bytes');
       
       const uint8Data = new Uint8Array(testCommands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('Ultra-simple test sent - bytes written:', result.bytesWritten);
+        console.log('Optimized test sent successfully - bytes written:', result.bytesWritten);
+        console.log('Check printer for a small black rectangle label...');
         
-        // Wait a moment then try to get status
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        try {
-          const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
-          await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          const statusResult = await this.device.transferIn(this.inEndpoint, 32);
-          if (statusResult.status === 'ok' && statusResult.data.byteLength > 0) {
-            const statusData = new Uint8Array(statusResult.data.buffer);
-            console.log('Post-print status:', Array.from(statusData).map(b => b.toString(16).padStart(2, '0')).join(' '));
-          } else {
-            console.log('No status response after print');
-          }
-        } catch (statusError) {
-          console.log('Status check failed:', statusError);
-        }
+        // Wait for print to complete
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
         return true;
       } else {
-        console.error('Ultra-simple test failed with status:', result.status);
+        console.error('Optimized test failed with status:', result.status);
         return false;
       }
       
     } catch (error) {
-      console.error('Ultra-simple test print failed:', error);
+      console.error('Comprehensive test failed:', error);
       return false;
     }
   }
