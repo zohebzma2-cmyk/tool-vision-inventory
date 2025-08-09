@@ -280,8 +280,8 @@ class BrotherQLPrinterService implements PrinterService {
         // Set margin amount to ~3mm (35 dots)
         0x1B, 0x69, 0x64, 0x23, 0x00,
 
-        // Switch to raster mode
-        0x1B, 0x69, 0x52, 0x01,
+        // Ensure black-only (disable two-color)
+        0x1B, 0x69, 0x4B, 0x00,
       ];
 
       // Rely on printer's installed roll (auto media). Avoid ESC i z to prevent malformed params.
@@ -292,6 +292,22 @@ class BrotherQLPrinterService implements PrinterService {
       // Use detected paper dimensions for test pattern
       const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
       const bytesPerLine = paperInfo.bytesPerLine ?? Math.ceil((paperInfo.printWidth ?? 696) / 8);
+
+      // Provide explicit print information (media + raster lines) then switch to raster mode
+      const widthByte = Math.max(0, Math.min(255, paperInfo.width ?? 62));
+      const rasterLines = labelHeight;
+      testCommands.push(
+        0x1B, 0x69, 0x7A, // ESC i z
+        0x4A,             // n1 flags
+        0x0A,             // n2 media type: continuous
+        widthByte,        // n3 width in mm
+        0x00,             // n4 length mm (0 for continuous)
+        rasterLines & 0xFF, (rasterLines >> 8) & 0xFF, 0x00, 0x00, // n5-n8 raster lines (LE)
+        0x00, 0x00        // n9-n10 reserved
+      );
+
+      // Switch to raster mode
+      testCommands.push(0x1B, 0x69, 0x52, 0x01);
 
       console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
 
@@ -457,7 +473,9 @@ class BrotherQLPrinterService implements PrinterService {
   disconnect(): void {
     if (this.device) {
       try {
-        this.device.releaseInterface(0);
+        const iface = (this.device as any).claimedInterface ?? 0;
+        // Release the claimed interface if possible
+        (this.device as any).releaseInterface?.(iface);
         this.device.close();
         console.log('Brother QL printer disconnected');
       } catch (error) {
