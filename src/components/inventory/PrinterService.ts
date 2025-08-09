@@ -329,71 +329,10 @@ class BrotherQLPrinterService implements PrinterService {
     }
 
     try {
-      console.log('Reading paper information from printer...');
+      console.log('Sending official Brother QL-800 test print...');
       
-      // First, get the paper info from the printer
-      const paperInfo = await this.getStatus();
-      
-      if (!paperInfo) {
-        console.log('Could not detect paper, using safe defaults...');
-        return this.sendSimpleTestPrint();
-      }
-
-      console.log('Detected paper info:', paperInfo);
-      console.log('Sending test print optimized for detected paper...');
-
-      // Create print commands based on detected paper
-      const testCommands: number[] = [
-        // Initialize printer
-        0x1B, 0x40, // ESC @ - Initialize printer
-        
-        // Switch to raster mode
-        0x1B, 0x69, 0x52, 0x01,
-        
-        // Auto cut
-        0x1B, 0x69, 0x4D, 0x40,
-        
-        // Set compression mode off
-        0x1B, 0x69, 0x4B, 0x08,
-      ];
-
-      // Use detected paper dimensions for test pattern
-      const labelHeight = paperInfo.isEndless ? 100 : Math.min(100, paperInfo.length * 7); // Conservative height
-      const bytesPerLine = Math.min(paperInfo.bytesPerLine, 90); // Use detected width but cap it
-
-      console.log(`Creating test pattern: ${labelHeight} lines x ${bytesPerLine} bytes per line`);
-
-      // Add raster data for test pattern
-      for (let line = 0; line < labelHeight; line++) {
-        // Raster line command
-        testCommands.push(0x67, 0x00, bytesPerLine);
-        
-        // Create a simple test pattern that shows the detected paper size
-        for (let byte = 0; byte < bytesPerLine; byte++) {
-          if (line < 3 || line >= labelHeight - 3 || byte < 2 || byte >= bytesPerLine - 2) {
-            testCommands.push(0xFF); // Border to show full width/height
-          } else if (line >= Math.floor(labelHeight/2) - 2 && line <= Math.floor(labelHeight/2) + 2) {
-            testCommands.push(0xFF); // Center horizontal line
-          } else {
-            testCommands.push(0x00); // White background
-          }
-        }
-      }
-
-      // Print command
-      testCommands.push(0x1A);
-
-      // Convert to Uint8Array and send
-      const uint8Data = new Uint8Array(testCommands);
-      const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
-      
-      if (result.status === 'ok') {
-        console.log('Test print sent successfully');
-        return true;
-      } else {
-        console.error('Test print failed with status:', result.status);
-        return false;
-      }
+      // Skip paper detection and use the official Brother command sequence
+      return this.sendSimpleTestPrint();
 
     } catch (error) {
       console.error('Failed to send test print:', error);
