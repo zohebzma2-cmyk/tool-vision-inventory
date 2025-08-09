@@ -375,8 +375,8 @@ class BrotherQLPrinterService implements PrinterService {
 
       // Add raster data for test pattern (uncompressed)
       for (let line = 0; line < labelHeight; line++) {
-        // Raster line header: 0x67 (black, uncompressed), 0x00 (no compression), 1-byte length
-        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF);
+        // Raster line header: 0x67 (black, uncompressed), 0x00 (no compression), 2-byte length
+        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         
         // Create a simple test pattern that shows the detected paper size
         for (let byte = 0; byte < bytesPerLine; byte++) {
@@ -435,8 +435,8 @@ class BrotherQLPrinterService implements PrinterService {
       // Send 60 raster lines, 87 bytes per line (696 dots @ 62mm)
       const bytesPerLine = 87;
       for (let line = 0; line < 60; line++) {
-        // 0x67 (uncompressed), 0x00 (no compression), 1-byte length
-        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF);
+        // 0x67 (uncompressed), 0x00 (no compression), 2-byte length
+        testCommands.push(0x67, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
 
         for (let byte = 0; byte < bytesPerLine; byte++) {
           // Visible pattern: frame + center band
@@ -495,7 +495,7 @@ class BrotherQLPrinterService implements PrinterService {
         // Margin ~3mm
         0x1B, 0x69, 0x64, 0x23, 0x00,
         // Set media & quality for 62mm continuous (DK-2251)
-        0x1B, 0x69, 0x7A, 0x8E, 0x0A, 0x3E, 0x00,
+        0x1B, 0x69, 0x7A, 0x8F, 0x0A, 0x3E, 0x00,
         labelHeight & 0xFF, (labelHeight >> 8) & 0xFF, 0x00, 0x00,
         0x00, 0x00,
         // Raster mode
@@ -507,7 +507,7 @@ class BrotherQLPrinterService implements PrinterService {
       // Generate per-line black and red planes
       for (let y = 0; y < labelHeight; y++) {
         // Black plane: draw border rectangle
-        cmds.push(0x77, 0x01, bytesPerLine & 0xFF);
+        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         for (let x = 0; x < bytesPerLine; x++) {
           const topBottom = y < 3 || y >= labelHeight - 3;
           const sides = x < 2 || x >= bytesPerLine - 2;
@@ -515,7 +515,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
 
         // Red plane: draw a solid red band in the middle
-        cmds.push(0x77, 0x02, bytesPerLine & 0xFF);
+        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         for (let x = 0; x < bytesPerLine; x++) {
           const inRedBand = y >= Math.floor(labelHeight / 2) - 8 && y <= Math.floor(labelHeight / 2) + 8;
           cmds.push(inRedBand ? 0xFF : 0x00);
@@ -557,7 +557,7 @@ class BrotherQLPrinterService implements PrinterService {
         0x1B, 0x69, 0x4B, 0x01,
         0x1B, 0x69, 0x4D, 0x40,
         0x1B, 0x69, 0x64, 0x23, 0x00,
-        0x1B, 0x69, 0x7A, 0x8E, 0x0A, Math.max(0, Math.min(255, paperInfo?.width ?? 62)), 0x00,
+        0x1B, 0x69, 0x7A, 0x8F, 0x0A, Math.max(0, Math.min(255, paperInfo?.width ?? 62)), 0x00,
         labelHeight & 0xFF, (labelHeight >> 8) & 0xFF, 0x00, 0x00,
         0x00, 0x00,
         0x1B, 0x69, 0x52, 0x01,
@@ -583,7 +583,7 @@ class BrotherQLPrinterService implements PrinterService {
       // Precompute red bitmap lines
       for (let y = 0; y < labelHeight; y++) {
         // Black plane: draw a visible border so something prints on black-only tape
-        cmds.push(0x77, 0x01, bytesPerLine & 0xFF);
+        cmds.push(0x77, 0x01, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
           const topBottom = y < 3 || y >= labelHeight - 3;
           const sideBorder = byteIndex < 2 || byteIndex >= bytesPerLine - 2;
@@ -591,7 +591,7 @@ class BrotherQLPrinterService implements PrinterService {
         }
 
         // Red plane
-        cmds.push(0x77, 0x02, bytesPerLine & 0xFF);
+        cmds.push(0x77, 0x02, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF);
         for (let byteIndex = 0; byteIndex < bytesPerLine; byteIndex++) {
           let b = 0;
           for (let bit = 0; bit < 8; bit++) {
