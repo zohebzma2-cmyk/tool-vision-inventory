@@ -403,113 +403,97 @@ class BrotherQLPrinterService implements PrinterService {
 
   private async sendSimpleTestPrint(): Promise<boolean> {
     try {
-      console.log('🎯 Sending DK-2251 optimized test print for Brother QL-800...');
+      console.log('🔧 Sending PROPER Brother QL command sequence...');
       
-      const testCommands: number[] = [];
+      const commands: number[] = [];
       
-      // 1. Initialize printer
-      testCommands.push(0x1B, 0x40); // ESC @ - Initialize
+      // PROPER Brother QL sequence based on working library:
       
-      // 2. Switch to raster mode  
-      testCommands.push(0x1B, 0x69, 0x61, 0x01); // Dynamic command mode
+      // 1. INVALIDATE: Send 200 null bytes (not 400)
+      console.log('📤 Adding invalidate sequence...');
+      for (let i = 0; i < 200; i++) {
+        commands.push(0x00);
+      }
       
-      // 3. Clear status notifications
-      testCommands.push(0x1B, 0x69, 0x21, 0x00);
+      // 2. INITIALIZE 
+      commands.push(0x1B, 0x40); // ESC @
       
-      // 4. Set media info specifically for DK-2251 (62mm black/red continuous tape)
-      testCommands.push(
-        0x1B, 0x69, 0x7A,  // Print info command
-        0x8F,              // All flags valid (0x80 + 0x08 + 0x04 + 0x02 + 0x01)
-        0x0A,              // Media type: continuous tape
-        0x3E,              // Media width: 62mm (0x3E = 62 decimal)
-        0x00,              // Media length: 0 (continuous)
+      // 3. ENTER DYNAMIC COMMAND MODE
+      commands.push(0x1B, 0x69, 0x61, 0x01);
+      
+      // 4. SET AUTO STATUS NOTIFICATION 
+      commands.push(0x1B, 0x69, 0x21, 0x00);
+      
+      // 5. MEDIA & QUALITY INFO for DK-2251 (CRITICAL - this was wrong!)
+      commands.push(
+        0x1B, 0x69, 0x7A,    // Command
+        0x8E,                // Valid flags: type + width + length + priority (NOT 0x8F!)
+        0x0B,                // Media type: 0x0B for die-cut (NOT 0x0A for continuous!)
+        0x3E,                // Width: 62mm
+        0x00,                // Length: 0 for continuous
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00  // Reserved
       );
       
-      // 5. Auto cut on
-      testCommands.push(0x1B, 0x69, 0x4D, 0x40);
+      // 6. AUTO CUT MODE
+      commands.push(0x1B, 0x69, 0x4D, 0x40);
       
-      // 6. Cut every label
-      testCommands.push(0x1B, 0x69, 0x41, 0x01);
+      // 7. CUT SETTINGS
+      commands.push(0x1B, 0x69, 0x41, 0x01); // Cut each label
       
-      // 7. Expanded mode (cut at end)
-      testCommands.push(0x1B, 0x69, 0x4B, 0x08);
+      // 8. EXPANDED MODE 
+      commands.push(0x1B, 0x69, 0x4B, 0x08);
       
-      // 8. Set margins (small)
-      testCommands.push(0x1B, 0x69, 0x64, 0x0F, 0x00); // 15 dots margin
+      // 9. MARGINS (proper format)
+      commands.push(0x1B, 0x69, 0x64, 0x00, 0x00); // Zero margins
       
-      // 9. No compression
-      testCommands.push(0x4D, 0x00);
+      // 10. COMPRESSION OFF
+      commands.push(0x4D, 0x00);
       
-      // 10. Send raster data for 62mm tape (720 dots wide = 90 bytes per line)
-      const lineHeight = 60; // Small test label
-      const bytesPerLine = 90; // 720 dots / 8 = 90 bytes for 62mm
+      // 11. RASTER DATA - Use EXACTLY 696 dots width for 62mm at 300dpi
+      const dotsWidth = 696; // 62mm * 300dpi / 25.4mm = 732, but Brother uses 696
+      const bytesPerLine = Math.ceil(dotsWidth / 8); // 87 bytes
+      const lineCount = 60;
       
-      console.log(`📏 Generating test for DK-2251: ${lineHeight} lines × ${bytesPerLine} bytes/line`);
+      console.log(`📏 Generating raster: ${lineCount} lines × ${bytesPerLine} bytes (${dotsWidth} dots wide)`);
       
-      for (let line = 0; line < lineHeight; line++) {
-        // Raster command
-        testCommands.push(0x67, 0x00, bytesPerLine);
+      for (let line = 0; line < lineCount; line++) {
+        // RASTER LINE COMMAND
+        commands.push(0x67, 0x00, bytesPerLine);
         
-        // Create test pattern for 62mm width
+        // Generate proper test pattern
         for (let byte = 0; byte < bytesPerLine; byte++) {
-          let pixel = 0x00;
-          
-          // Border pattern
-          if (line < 3 || line >= lineHeight - 3) {
-            pixel = 0xFF; // Top/bottom border
-          } else if (byte < 3 || byte >= bytesPerLine - 3) {
-            pixel = 0xFF; // Left/right border
+          if (line < 3 || line >= lineCount - 3 || byte < 3 || byte >= bytesPerLine - 3) {
+            commands.push(0xFF); // Border
+          } else {
+            commands.push((line + byte) % 4 === 0 ? 0xFF : 0x00); // Checkered
           }
-          // Center pattern
-          else if (line >= 20 && line <= 40 && byte >= 20 && byte <= 70) {
-            pixel = (line + byte) % 4 === 0 ? 0xFF : 0x00; // Checkered pattern
-          }
-          
-          testCommands.push(pixel);
         }
       }
       
-      // 11. Print command
-      testCommands.push(0x1A);
+      // 12. PRINT COMMAND
+      commands.push(0x1A); // Print and feed
       
-      console.log(`💾 Sending ${testCommands.length} bytes of DK-2251 optimized commands...`);
-      console.log('📋 Command preview:', testCommands.slice(0, 30).map(b => `0x${b.toString(16).padStart(2, '0')}`).join(' '));
+      console.log(`📊 Generated ${commands.length} bytes with proper sequence`);
+      console.log(`🎯 Key changes: Media type 0x0B, ${bytesPerLine} bytes/line, proper invalidate`);
       
-      const uint8Data = new Uint8Array(testCommands);
+      const uint8Data = new Uint8Array(commands);
       const result = await this.device.transferOut(this.outEndpoint, uint8Data.buffer);
       
       if (result.status === 'ok') {
-        console.log('✅ DK-2251 test print sent successfully!');
-        console.log('📏 Expected: 62mm wide label with border and checkered pattern');
-        console.log('⏱️ Should print and auto-cut in ~5-10 seconds...');
+        console.log('✅ PROPER sequence sent successfully!');
+        console.log('⏱️ Should print a 62mm label with border and pattern...');
         
-        // Wait for print to complete
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        
-        // Try to get status after print
-        try {
-          const statusRequest = new Uint8Array([0x1B, 0x69, 0x53]);
-          await this.device.transferOut(this.outEndpoint, statusRequest.buffer);
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          const statusResult = await this.device.transferIn(this.inEndpoint, 32);
-          if (statusResult.status === 'ok' && statusResult.data.byteLength > 0) {
-            const statusData = new Uint8Array(statusResult.data.buffer);
-            console.log('📊 Post-print status:', Array.from(statusData, b => b.toString(16).padStart(2, '0')).join(' '));
-          }
-        } catch (statusError) {
-          console.log('ℹ️ Status check after print failed (normal):', statusError.message);
-        }
+        // Wait longer for proper print completion
+        await new Promise(resolve => setTimeout(resolve, 5000));
         
         return true;
       } else {
-        console.error('❌ DK-2251 test failed with status:', result.status);
+        console.error('❌ Proper sequence failed:', result.status);
         return false;
       }
       
     } catch (error) {
-      console.error('💥 DK-2251 test print failed:', error);
+      console.error('💥 Proper sequence error:', error);
       return false;
     }
   }
