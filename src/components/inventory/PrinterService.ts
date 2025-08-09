@@ -258,16 +258,53 @@ class BrotherQLPrinterService implements PrinterService {
       return null;
     }
     
+    const status0 = statusData[0];
     const mediaType = statusData[10];
     const mediaWidth = statusData[11];
     const mediaLength = statusData[17];
+    
+    // Decode error status
+    const errors = [];
+    if (status0 & 0x01) errors.push('Replace media');
+    if (status0 & 0x02) errors.push('Expansion buffer full');
+    if (status0 & 0x04) errors.push('Communication error');
+    if (status0 & 0x08) errors.push('Transmission error');
+    if (status0 & 0x10) errors.push('Cover open');
+    if (status0 & 0x20) errors.push('Cancel key');
+    if (status0 & 0x40) errors.push('Media cannot be fed');
+    if (status0 & 0x80) errors.push('System error');
+    
+    if (errors.length > 0) {
+      console.error('🚨 PRINTER ERRORS:', errors.join(', '));
+      console.error('Status byte 0:', status0.toString(16));
+    }
+    
+    // Decode media width
+    const widthMappings = {
+      0x04: '6mm',
+      0x06: '9mm', 
+      0x08: '12mm',
+      0x0A: '10mm (continuous)',
+      0x0C: '12mm',
+      0x11: '17mm',
+      0x17: '23mm',
+      0x3E: '62mm'
+    };
+    
+    const widthText = widthMappings[mediaWidth] || `${mediaWidth}mm (unknown)`;
+    
+    console.log('📏 DETECTED PAPER:', {
+      'Media Type': `0x${mediaType.toString(16)} (${mediaType === 0x3E ? 'Continuous tape' : 'Unknown'})`,
+      'Width': widthText,
+      'Length': mediaLength === 0 ? 'Continuous' : `${mediaLength}mm`,
+      'Raw Width Code': `0x${mediaWidth.toString(16)}`,
+      'Errors': errors.length > 0 ? errors : 'None'
+    });
     
     if (mediaType === undefined || mediaWidth === undefined || mediaLength === undefined) {
       console.error('Could not parse media info from status data');
       return null;
     }
-    
-    console.log(`Media type: 0x${mediaType.toString(16)}, Width: ${mediaWidth}mm, Length: ${mediaLength}mm`);
     
     // Calculate print dimensions based on width (at 180 DPI)
     const printWidth = Math.floor((mediaWidth * 180) / 25.4); // Convert mm to pixels
@@ -279,7 +316,10 @@ class BrotherQLPrinterService implements PrinterService {
       length: mediaLength,
       printWidth,
       bytesPerLine,
-      isEndless: mediaLength === 0 // Endless tape vs die-cut labels
+      isEndless: mediaLength === 0, // Endless tape vs die-cut labels
+      errors: errors,
+      hasErrors: errors.length > 0,
+      widthText: widthText
     };
   }
 
