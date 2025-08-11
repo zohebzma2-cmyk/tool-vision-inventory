@@ -123,9 +123,14 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
         onToolIdentified?.({ name: top.label, category: top.category, confidence: top.score! });
       }
       setClassifierReady(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Classification error:', error);
-      toast({ title: 'Recognition Failed', description: 'Failed to classify the image.', variant: 'destructive' });
+      const rawMsg = error?.message || '';
+      const needsBilling = /billing|BILLING_DISABLED|PERMISSION_DENIED/i.test(rawMsg);
+      const description = needsBilling
+        ? 'Google Cloud Vision billing is not enabled. Please enable billing for your GCP project and retry.'
+        : (rawMsg || 'Failed to classify the image. Please try again.');
+      toast({ title: 'Recognition Failed', description, variant: 'destructive' });
     } finally {
       setIsProcessing(false);
     }
@@ -142,9 +147,14 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
       setResults({ type: 'ocr', results: [{ label: 'Extracted Text', text: extractedText }] });
       onTextExtracted?.(extractedText);
       setOcrReady(true);
-    } catch (error) {
+    } catch (error: any) {
       console.error('OCR error:', error);
-      toast({ title: 'Text Recognition Failed', description: 'Failed to extract text from the image.', variant: 'destructive' });
+      const rawMsg = error?.message || '';
+      const needsBilling = /billing|BILLING_DISABLED|PERMISSION_DENIED/i.test(rawMsg);
+      const description = needsBilling
+        ? 'Google Cloud Vision billing is not enabled. Please enable billing for your GCP project and retry.'
+        : (rawMsg || 'Failed to extract text from the image. Please try again.');
+      toast({ title: 'Text Recognition Failed', description, variant: 'destructive' });
     } finally {
       setIsProcessing(false);
     }
