@@ -302,11 +302,13 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                   ref={fileInputRef}
                   type="file"
                   accept="image/*"
+                  aria-label="Upload image file"
+                  onClick={() => console.log('Upload input clicked')}
                   onChange={(e) => {
                     console.log('File input changed, files:', e.target.files);
                     e.target.files?.[0] && handleImageSelect(e.target.files[0]);
                   }}
-                  className="absolute inset-0 z-10 opacity-0 cursor-pointer"
+                  className="absolute inset-0 z-50 h-full w-full opacity-0 cursor-pointer block"
                 />
               </div>
 
@@ -324,11 +326,13 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                   type="file"
                   accept="image/*"
                   capture="environment"
+                  aria-label="Take a photo"
+                  onClick={() => console.log('Camera input clicked')}
                   onChange={(e) => {
                     console.log('Camera input changed, files:', e.target.files);
                     e.target.files?.[0] && handleImageSelect(e.target.files[0]);
                   }}
-                  className="absolute inset-0 z-10 opacity-0 cursor-pointer"
+                  className="absolute inset-0 z-50 h-full w-full opacity-0 cursor-pointer block"
                 />
               </div>
             </div>
