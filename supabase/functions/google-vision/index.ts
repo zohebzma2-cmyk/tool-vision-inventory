@@ -46,9 +46,19 @@ serve(async (req) => {
       });
     }
 
-    const features = mode === "labels"
-      ? [{ type: "LABEL_DETECTION", maxResults: 10 }]
-      : [{ type: "TEXT_DETECTION" }];
+    let features: Array<Record<string, unknown>>;
+    if (mode === "labels") {
+      features = [{ type: "LABEL_DETECTION", maxResults: 10 }];
+    } else if (mode === "identify") {
+      features = [
+        { type: "LABEL_DETECTION", maxResults: 10 },
+        { type: "WEB_DETECTION" },
+        { type: "OBJECT_LOCALIZATION" },
+        { type: "TEXT_DETECTION" },
+      ];
+    } else {
+      features = [{ type: "TEXT_DETECTION" }];
+    }
 
     const payload = {
       requests: [
@@ -79,7 +89,23 @@ serve(async (req) => {
 
     const resp = visionData.responses?.[0] ?? {};
 
-    if (mode === "labels") {
+    if (mode === "identify") {
+      const web = resp.webDetection ?? {};
+      const bestGuess = (web.bestGuessLabels?.[0]?.label || "").trim();
+      const webEntities = (web.webEntities ?? []).map((w: any) => ({ description: w.description, score: w.score }));
+      const labels = (resp.labelAnnotations ?? []).map((l: any) => ({ description: l.description, score: l.score }));
+      const objects = (resp.localizedObjectAnnotations ?? []).map((o: any) => ({ name: o.name, score: o.score }));
+      const text = resp.fullTextAnnotation?.text || "";
+
+      // Choose a specific name preference order
+      const specificName = bestGuess || objects?.[0]?.name || labels?.[0]?.description || "Unknown item";
+      const confidence = objects?.[0]?.score || labels?.[0]?.score || webEntities?.[0]?.score || 0;
+
+      return new Response(
+        JSON.stringify({ specificName, confidence, webEntities, labels, objects, text }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    } else if (mode === "labels") {
       const labels = resp.labelAnnotations ?? [];
       return new Response(
         JSON.stringify({ labels: labels.map((l: any) => ({ description: l.description, score: l.score })) }),

@@ -593,3 +593,23 @@ export async function setupPrinter(): Promise<boolean> {
 
   return await printerService.connect();
 }
+
+// Print arbitrary text label (uses two-color red/black if available)
+export async function printTextLabel(text: string): Promise<{ success: boolean; message: string }> {
+  try {
+    if (!isPrintingSupported()) {
+      return { success: false, message: 'Printing not supported in this browser. Use Chrome/Edge.' };
+    }
+    if (!printerService.isConnected) {
+      console.log('Printer not connected, attempting to connect...');
+      const connected = await printerService.connect();
+      if (!connected) return { success: false, message: 'Could not connect to Brother QL printer.' };
+    }
+    const ok = await (printerService as any).testPrintWordRed(text);
+    if (ok) return { success: true, message: `Printed label: ${text}` };
+    return { success: false, message: 'Failed to send data to printer.' };
+  } catch (e) {
+    return { success: false, message: `Print failed: ${e instanceof Error ? e.message : 'Unknown error'}` };
+  }
+}
+

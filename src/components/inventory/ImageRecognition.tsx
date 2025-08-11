@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { printTextLabel, isPrintingSupported, setupPrinter } from "@/components/inventory/PrinterService";
 
 
 interface RecognitionResult {
@@ -108,15 +109,18 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
     try {
       setIsProcessing(true);
       const { data, error } = await supabase.functions.invoke('google-vision', {
-        body: { imageDataUrl: imageUrl, mode: 'labels' }
+        body: { imageDataUrl: imageUrl, mode: 'identify' }
       });
       if (error) throw error;
-      const labels = (data?.labels ?? []).slice(0, 5);
-      const toolResults = labels.map((l: any) => ({
-        label: l.description,
-        score: l.score,
-        category: mapToToolCategory(l.description)
-      }));
+      const specific = data?.specificName as string | undefined;
+      const confidence = (data?.confidence as number | undefined) ?? 0;
+      const labels = (data?.labels ?? []).slice(0, 3);
+
+      const toolResults = [
+        ...(specific ? [{ label: specific, score: confidence, category: mapToToolCategory(specific) }] : []),
+        ...labels.map((l: any) => ({ label: l.description, score: l.score, category: mapToToolCategory(l.description) })),
+      ];
+
       setResults({ type: 'classification', results: toolResults });
       const top = toolResults[0];
       if (top && (top.score ?? 0) > 0.3) {
@@ -202,6 +206,24 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
     } else {
       console.log('Starting OCR mode');
       await processImageOCR(imagePreview);
+    }
+  };
+
+  const handlePrintTop = async () => {
+    try {
+      if (results?.type !== 'classification' || !results.results[0]?.label) return;
+      const topLabel = results.results[0]!.label;
+      if (!isPrintingSupported()) {
+        toast({ title: 'Printing not supported', description: 'Use Chrome/Edge on desktop to print labels.', variant: 'destructive' });
+        return;
+      }
+      setIsProcessing(true);
+      const { success, message } = await printTextLabel(topLabel);
+      toast({ title: success ? 'Label sent to printer' : 'Print failed', description: message, variant: success ? undefined : 'destructive' });
+    } catch (e) {
+      toast({ title: 'Print failed', description: e instanceof Error ? e.message : 'Unknown error', variant: 'destructive' });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -373,50 +395,60 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
 
             {/* Results Display */}
             {results && (
-              <Card className="bg-success/5 border-success/20">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
+              <>
+                <Card className="bg-success/5 border-success/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      {results.type === 'classification' ? (
+                        <>
+                          <Eye className="h-4 w-4 text-success" />
+                          Recognition Results
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="h-4 w-4 text-success" />
+                          Extracted Text
+                        </>
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
                     {results.type === 'classification' ? (
-                      <>
-                        <Eye className="h-4 w-4 text-success" />
-                        Recognition Results
-                      </>
-                    ) : (
-                      <>
-                        <FileText className="h-4 w-4 text-success" />
-                        Extracted Text
-                      </>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  {results.type === 'classification' ? (
-                    <div className="space-y-2">
-                      {results.results.map((result, index) => (
-                        <div key={index} className="flex items-center justify-between p-2 bg-white/50 rounded-md">
-                          <div className="flex-1">
-                            <div className="font-medium text-sm capitalize">{result.label}</div>
-                            <div className="text-xs text-muted-foreground">
-                              Category: {(result as any).category}
+                      <div className="space-y-2">
+                        {results.results.map((result, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-white/50 rounded-md">
+                            <div className="flex-1">
+                              <div className="font-medium text-sm capitalize">{result.label}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Category: {(result as any).category}
+                              </div>
                             </div>
+                            {result.score && (
+                              <Badge variant="outline" className="text-xs">
+                                {Math.round(result.score * 100)}%
+                              </Badge>
+                            )}
                           </div>
-                          {result.score && (
-                            <Badge variant="outline" className="text-xs">
-                              {Math.round(result.score * 100)}%
-                            </Badge>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-3 bg-white/50 rounded-md">
-                      <div className="text-sm font-mono whitespace-pre-wrap">
-                        {results.results[0]?.text || 'No text found'}
+                        ))}
                       </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    ) : (
+                      <div className="p-3 bg-white/50 rounded-md">
+                        <div className="text-sm font-mono whitespace-pre-wrap">
+                          {results.results[0]?.text || 'No text found'}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {results.type === 'classification' && (
+                  <div className="flex justify-end pt-2">
+                    <Button size="sm" onClick={handlePrintTop} disabled={isProcessing}>
+                      Print Top Result
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
 
             {/* Status Indicators */}
