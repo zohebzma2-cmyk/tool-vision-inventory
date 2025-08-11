@@ -40,11 +40,13 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   const { toast } = useToast();
 
   const handleImageSelect = (file: File) => {
+    console.log('handleImageSelect called with file:', file);
     setSelectedImage(file);
     setResults(null);
     
     const reader = new FileReader();
     reader.onload = (e) => {
+      console.log('FileReader loaded, setting preview');
       setImagePreview(e.target?.result as string);
     };
     reader.readAsDataURL(file);
@@ -284,7 +286,10 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
             <div className="grid grid-cols-2 gap-3">
               <Button
                 variant="outline"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  console.log('Upload button clicked, triggering file input');
+                  fileInputRef.current?.click();
+                }}
                 className="h-24 flex flex-col gap-2"
               >
                 <Upload className="h-6 w-6" />
@@ -293,7 +298,10 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
               
               <Button
                 variant="outline"
-                onClick={() => cameraInputRef.current?.click()}
+                onClick={() => {
+                  console.log('Camera button clicked, triggering camera input');
+                  cameraInputRef.current?.click();
+                }}
                 className="h-24 flex flex-col gap-2"
               >
                 <Camera className="h-6 w-6" />
@@ -305,7 +313,10 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              onChange={(e) => e.target.files?.[0] && handleImageSelect(e.target.files[0])}
+              onChange={(e) => {
+                console.log('File input changed, files:', e.target.files);
+                e.target.files?.[0] && handleImageSelect(e.target.files[0]);
+              }}
               className="hidden"
             />
             
@@ -314,7 +325,10 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
               type="file"
               accept="image/*"
               capture="environment"
-              onChange={(e) => e.target.files?.[0] && handleImageSelect(e.target.files[0])}
+              onChange={(e) => {
+                console.log('Camera input changed, files:', e.target.files);
+                e.target.files?.[0] && handleImageSelect(e.target.files[0]);
+              }}
               className="hidden"
             />
 
