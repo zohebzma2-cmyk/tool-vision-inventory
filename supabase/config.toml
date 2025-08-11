@@ -2,3 +2,6 @@ project_id = "uyewoueovyjbljrsmmnu"
 
 [functions.google-vision]
 verify_jwt = false
+
+[functions.openai-vision]
+verify_jwt = false

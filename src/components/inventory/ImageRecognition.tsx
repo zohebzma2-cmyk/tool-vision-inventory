@@ -119,7 +119,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
     console.log('Starting image classification via Google Vision');
     try {
       setIsProcessing(true);
-      const { data, error } = await supabase.functions.invoke('google-vision', {
+      const { data, error } = await supabase.functions.invoke('openai-vision', {
         body: { imageDataUrl: imageUrl, mode: 'identify' }
       });
       if (error) throw error;
@@ -211,7 +211,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
   const processImageOCR = async (imageUrl: string) => {
     try {
       setIsProcessing(true);
-      const { data, error } = await supabase.functions.invoke('google-vision', {
+      const { data, error } = await supabase.functions.invoke('openai-vision', {
         body: { imageDataUrl: imageUrl, mode: 'ocr' }
       });
       if (error) throw error;
@@ -545,7 +545,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
                 <div className="text-sm text-info">
                   <div className="font-medium mb-1">AI Processing Notes:</div>
                   <ul className="text-xs space-y-1 list-disc list-inside">
-                    <li>High-accuracy detection powered by Google Cloud Vision</li>
+                    <li>High-accuracy detection powered by OpenAI GPT-4o-mini (vision)</li>
                     <li>Works best with clear, well-lit images of tools</li>
                     <li>Text extraction works best with printed text and labels</li>
                     <li>Processing runs via a secure Supabase Edge Function</li>
