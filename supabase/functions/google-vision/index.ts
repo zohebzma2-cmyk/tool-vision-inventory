@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -28,6 +29,7 @@ serve(async (req) => {
       });
     }
 
+    // Convert input to base64 content supported by Vision API
     let base64Content = "";
     if (typeof imageDataUrl === "string" && imageDataUrl.startsWith("data:")) {
       const splitIdx = imageDataUrl.indexOf("base64,");
@@ -46,6 +48,7 @@ serve(async (req) => {
       });
     }
 
+    // Choose Vision features
     let features: Array<Record<string, unknown>>;
     if (mode === "labels") {
       features = [{ type: "LABEL_DETECTION", maxResults: 10 }];
@@ -92,17 +95,38 @@ serve(async (req) => {
     if (mode === "identify") {
       const web = resp.webDetection ?? {};
       const bestGuess = (web.bestGuessLabels?.[0]?.label || "").trim();
-      const webEntities = (web.webEntities ?? []).map((w: any) => ({ description: w.description, score: w.score }));
+      const webEntitiesRaw = Array.isArray(web.webEntities) ? web.webEntities : [];
+      const webEntities = webEntitiesRaw
+        .filter((w: any) => w?.description)
+        .map((w: any) => ({ description: String(w.description), score: Number(w.score || 0), entityId: w.entityId }))
+        .sort((a: any, b: any) => (b.score || 0) - (a.score || 0));
+
       const labels = (resp.labelAnnotations ?? []).map((l: any) => ({ description: l.description, score: l.score }));
       const objects = (resp.localizedObjectAnnotations ?? []).map((o: any) => ({ name: o.name, score: o.score }));
       const text = resp.fullTextAnnotation?.text || "";
 
-      // Choose a specific name preference order
-      const specificName = bestGuess || objects?.[0]?.name || labels?.[0]?.description || "Unknown item";
-      const confidence = objects?.[0]?.score || labels?.[0]?.score || webEntities?.[0]?.score || 0;
+      // Build ranked candidates, preferring Lens-like best guess, then strong web entities, then objects/labels
+      const candidates: Array<{ name: string; score: number; source: string }> = [];
+      if (bestGuess) candidates.push({ name: bestGuess, score: (webEntities[0]?.score ?? 0.7) + 0.05, source: 'bestGuess' });
+      if (webEntities[0]?.description) candidates.push({ name: webEntities[0].description, score: webEntities[0].score, source: 'webEntity' });
+      if (objects[0]?.name) candidates.push({ name: objects[0].name, score: objects[0].score || 0, source: 'object' });
+      if (labels[0]?.description) candidates.push({ name: labels[0].description, score: labels[0].score || 0, source: 'label' });
+
+      // Deduplicate by lowercase name
+      const seen = new Set<string>();
+      const unique = candidates.filter(c => {
+        const key = c.name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
+      const top = unique.sort((a, b) => b.score - a.score)[0] || { name: 'Unknown item', score: 0 };
+      const specificName = top.name;
+      const confidence = Math.max(0, Math.min(1, Number(top.score || 0)));
 
       return new Response(
-        JSON.stringify({ specificName, confidence, webEntities, labels, objects, text }),
+        JSON.stringify({ specificName, confidence, webEntities, labels, objects, text, bestGuess }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     } else if (mode === "labels") {

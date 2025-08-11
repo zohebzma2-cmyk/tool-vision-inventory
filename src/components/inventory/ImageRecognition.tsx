@@ -179,6 +179,21 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
         purchase_date: purchase_date || undefined,
       });
 
+      // Auto-print top result to streamline workflow
+      try {
+        const topLabel = name || toolResults[0]?.label;
+        if (topLabel) {
+          if (isPrintingSupported()) {
+            const { success, message } = await printTextLabel(topLabel);
+            toast({ title: success ? 'Label printed' : 'Print failed', description: message, variant: success ? undefined : 'destructive' });
+          } else {
+            toast({ title: 'Printing not supported', description: 'Use Chrome/Edge on desktop to print labels.' });
+          }
+        }
+      } catch (e) {
+        toast({ title: 'Auto-print failed', description: e instanceof Error ? e.message : 'Unknown error', variant: 'destructive' });
+      }
+
       setClassifierReady(true);
     } catch (error: any) {
       console.error('Classification error:', error);
