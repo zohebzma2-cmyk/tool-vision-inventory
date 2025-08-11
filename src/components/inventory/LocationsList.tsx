@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
+import { PaperTypeConfig } from "./PaperTypeConfig";
 
 interface Location {
   id: string;
@@ -279,6 +280,15 @@ export function LocationsList() {
             </Button>
           </div>
         </div>
+
+        {/* Paper Configuration Section */}
+        {isPrintingSupported() && (
+          <div className="mb-6">
+            <PaperTypeConfig onPaperTypeChange={(paperType) => {
+              console.log('Paper type changed to:', paperType);
+            }} />
+          </div>
+        )}
 
         {locations.length === 0 ? (
           <div className="text-center py-12">
