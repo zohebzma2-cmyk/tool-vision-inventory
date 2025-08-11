@@ -51,23 +51,28 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   };
 
   const processImageClassification = async (imageUrl: string) => {
+    console.log('Starting image classification process with URL:', imageUrl);
     try {
       setIsProcessing(true);
+      console.log('Set processing to true');
       
       // Load the image classification model with fallback
       let classifier;
+      console.log('Attempting to load classifier with WebGPU...');
       try {
         classifier = await pipeline(
           'image-classification',
           'microsoft/resnet-50',
           { device: 'webgpu' }
         );
+        console.log('WebGPU classifier loaded successfully');
       } catch (webgpuError) {
         console.log('WebGPU not available, falling back to CPU:', webgpuError);
         classifier = await pipeline(
           'image-classification',
           'microsoft/resnet-50'
         );
+        console.log('CPU classifier loaded successfully');
       }
       
       setClassifierReady(true);
@@ -194,11 +199,17 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   };
 
   const processImage = async () => {
-    if (!selectedImage || !imagePreview) return;
+    console.log('processImage called with:', { selectedImage, imagePreview, recognitionMode });
+    if (!selectedImage || !imagePreview) {
+      console.log('Missing selectedImage or imagePreview, aborting');
+      return;
+    }
 
     if (recognitionMode === 'classify') {
+      console.log('Starting classification mode');
       await processImageClassification(imagePreview);
     } else {
+      console.log('Starting OCR mode');
       await processImageOCR(imagePreview);
     }
   };
@@ -223,6 +234,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 variant="outline" 
                 size="sm" 
                 onClick={() => {
+                  console.log('Identify Tool button clicked');
                   setRecognitionMode('classify');
                   setShowDialog(true);
                 }}
