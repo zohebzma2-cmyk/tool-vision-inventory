@@ -77,6 +77,28 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     return categoryMap[aiCategory] || 'Other';
   };
 
+  const normalizeDate = (v: string): string | null => {
+    if (!v) return null;
+    // ISO yyyy-mm-dd
+    const iso = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+      const [_, y, m, d] = iso;
+      const dt = new Date(`${y}-${m}-${d}T00:00:00Z`);
+      if (!isNaN(dt.getTime())) return `${y}-${m}-${d}`;
+      return null;
+    }
+    // Try mm/dd/yyyy or mm-dd-yyyy
+    const mdy = v.match(/^(\d{1,2})[\/\.-](\d{1,2})[\/\.-](\d{2,4})$/);
+    if (mdy) {
+      let [_, mm, dd, yy] = mdy;
+      if (yy.length === 2) yy = String(2000 + Number(yy));
+      const m = String(Number(mm)).padStart(2, '0');
+      const d = String(Number(dd)).padStart(2, '0');
+      const dt = new Date(`${yy}-${m}-${d}T00:00:00Z`);
+      if (!isNaN(dt.getTime())) return `${yy}-${m}-${d}`;
+    }
+    return null;
+  };
   const handleAutoFill = (fields: any) => {
     setFormData(prev => ({
       ...prev,
@@ -142,12 +164,16 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     setIsLoading(true);
 
     try {
+      const finalCategory = formData.category || 'Other';
+      const safePurchaseDate = normalizeDate(formData.purchase_date) || null;
+
       const { data: item, error } = await supabase
         .from('items')
         .insert([{
           ...formData,
+          category: finalCategory,
           purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
-          purchase_date: formData.purchase_date || null
+          purchase_date: safePurchaseDate
         }])
         .select()
         .single();
@@ -161,7 +187,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           .from('locations')
           .select('id,name,type');
         if (!locErr && Array.isArray(locations) && locations.length) {
-          const categoryKey = (formData.category || '').toLowerCase();
+          const categoryKey = (finalCategory || '').toLowerCase();
           const norm = (s?: string) => (s || '').toLowerCase();
           const scoreLocation = (loc: any) => {
             const name = norm(loc.name);
