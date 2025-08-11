@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { ImageRecognition } from "./ImageRecognition";
 
 interface AddItemDialogProps {
   open: boolean;
@@ -41,6 +42,37 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     "Power Tools", "Hand Tools", "Fasteners", "Hardware", "Safety Equipment",
     "Electrical", "Plumbing", "Cutting Tools", "Measuring Tools", "Other"
   ];
+
+  const handleToolIdentified = (toolInfo: { name: string; category: string; confidence: number }) => {
+    setFormData(prev => ({
+      ...prev,
+      name: toolInfo.name,
+      category: mapCategoryToFormCategory(toolInfo.category),
+      description: `Identified tool: ${toolInfo.name} (${Math.round(toolInfo.confidence * 100)}% confidence)`
+    }));
+  };
+
+  const handleTextExtracted = (text: string) => {
+    setFormData(prev => ({
+      ...prev,
+      notes: prev.notes ? `${prev.notes}\n\nExtracted text: ${text}` : `Extracted text: ${text}`
+    }));
+  };
+
+  const mapCategoryToFormCategory = (aiCategory: string): string => {
+    const categoryMap: Record<string, string> = {
+      'hand tools': 'Hand Tools',
+      'power tools': 'Power Tools',
+      'cutting tools': 'Cutting Tools',
+      'measuring tools': 'Measuring Tools',
+      'fasteners': 'Fasteners',
+      'equipment': 'Hardware',
+      'machinery': 'Power Tools',
+      'general tools': 'Hand Tools',
+      'miscellaneous': 'Other'
+    };
+    return categoryMap[aiCategory] || 'Other';
+  };
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -205,6 +237,12 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
               </Button>
             )}
           </div>
+
+          {/* Image Recognition Section */}
+          <ImageRecognition 
+            onToolIdentified={handleToolIdentified}
+            onTextExtracted={handleTextExtracted}
+          />
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
