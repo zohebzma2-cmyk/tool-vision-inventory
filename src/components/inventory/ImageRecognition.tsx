@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useId } from "react";
 import { Camera, Upload, Eye, FileText, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +37,8 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const uploadInputId = useId();
+  const cameraInputId = useId();
   const { toast } = useToast();
 
   const handleImageSelect = (file: File) => {
@@ -286,30 +288,29 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
             <div className="grid grid-cols-2 gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  console.log('Upload button clicked, triggering file input');
-                  fileInputRef.current?.click();
-                }}
+                asChild
                 className="h-24 flex flex-col gap-2"
               >
-                <Upload className="h-6 w-6" />
-                <span className="text-sm">Upload Image</span>
+                <label htmlFor={uploadInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                  <Upload className="h-6 w-6" />
+                  <span className="text-sm">Upload Image</span>
+                </label>
               </Button>
               
               <Button
                 variant="outline"
-                onClick={() => {
-                  console.log('Camera button clicked, triggering camera input');
-                  cameraInputRef.current?.click();
-                }}
+                asChild
                 className="h-24 flex flex-col gap-2"
               >
-                <Camera className="h-6 w-6" />
-                <span className="text-sm">Take Photo</span>
+                <label htmlFor={cameraInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                  <Camera className="h-6 w-6" />
+                  <span className="text-sm">Take Photo</span>
+                </label>
               </Button>
             </div>
 
             <input
+              id={uploadInputId}
               ref={fileInputRef}
               type="file"
               accept="image/*"
@@ -317,10 +318,11 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 console.log('File input changed, files:', e.target.files);
                 e.target.files?.[0] && handleImageSelect(e.target.files[0]);
               }}
-              className="hidden"
+              className="sr-only"
             />
             
             <input
+              id={cameraInputId}
               ref={cameraInputRef}
               type="file"
               accept="image/*"
@@ -329,7 +331,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 console.log('Camera input changed, files:', e.target.files);
                 e.target.files?.[0] && handleImageSelect(e.target.files[0]);
               }}
-              className="hidden"
+              className="sr-only"
             />
 
             {/* Image Preview */}
