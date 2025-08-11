@@ -126,16 +126,18 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
       const specific = data?.specificName as string | undefined;
       const confidence = (data?.confidence as number | undefined) ?? 0;
       const labels = (data?.labels ?? []).slice(0, 3);
+      const categoryFromAI: string | undefined = (data?.category as string | undefined) || undefined;
 
       const toolResults = [
-        ...(specific ? [{ label: specific, score: confidence, category: mapToToolCategory(specific) }] : []),
+        ...(specific ? [{ label: specific, score: confidence, category: categoryFromAI || mapToToolCategory(specific) }] : []),
         ...labels.map((l: any) => ({ label: l.description, score: l.score, category: mapToToolCategory(l.description) })),
       ];
 
       setResults({ type: 'classification', results: toolResults });
       const top = toolResults[0];
       if (top && (top.score ?? 0) > 0.3) {
-        onToolIdentified?.({ name: top.label, category: top.category, confidence: top.score! });
+        const topCategory = categoryFromAI || top.category;
+        onToolIdentified?.({ name: top.label, category: topCategory, confidence: top.score! });
       }
 
       // Build auto-fill suggestions using Vision web/entities/text
@@ -170,7 +172,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
 
       onAutoFill?.({
         name,
-        category: name ? mapToToolCategory(name) : undefined,
+        category: categoryFromAI || (name ? mapToToolCategory(name) : undefined),
         description: name ? `${name} — ${toolResults.slice(0,2).map(r => r.label).join(', ')}` : undefined,
         brand: brandCandidate || undefined,
         model: modelMatch?.[0] || undefined,

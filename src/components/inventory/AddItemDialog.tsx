@@ -69,7 +69,10 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
       'equipment': 'Hardware',
       'machinery': 'Power Tools',
       'general tools': 'Hand Tools',
-      'miscellaneous': 'Other'
+      'miscellaneous': 'Other',
+      'electrical': 'Electrical',
+      'plumbing': 'Plumbing',
+      'other': 'Other'
     };
     return categoryMap[aiCategory] || 'Other';
   };
@@ -78,6 +81,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     setFormData(prev => ({
       ...prev,
       ...fields,
+      category: fields?.category ? mapCategoryToFormCategory(String(fields.category).toLowerCase()) : prev.category,
     }));
   };
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {

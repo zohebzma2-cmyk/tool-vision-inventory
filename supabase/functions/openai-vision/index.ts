@@ -56,11 +56,14 @@ serve(async (req) => {
     const baseUserInstructionIdentify = `
 You will be given an image. Identify the main item with a short, precise, human-readable name (prefer consumer/common product names). If brand/model are visible, include them in the name. Also estimate a confidence 0..1.
 Additionally, provide up to 8 general labels, up to 5 web-like entities (keywords or entity names), up to 3 object names that appear in the image (no boxes), and extract all readable text.
+Also assign exactly ONE category from this allowed set (lowercase):
+["hand tools","power tools","electrical","plumbing","cutting tools","measuring tools","other"]
 Return strict JSON with this schema:
 {
   "specificName": string,          // short precise name, include brand/model if visible
   "confidence": number,            // 0..1
   "bestGuess": string,             // same as specificName or your best guess
+  "category": string,              // one of the allowed set above, lowercase
   "webEntities": [ { "description": string, "score": number } ],
   "labels": [ { "description": string, "score": number } ],
   "objects": [ { "name": string, "score": number } ],
@@ -150,9 +153,12 @@ You will be given an image. Extract all readable text and return strict JSON onl
         ? parsed.webEntities.map((w: any) => ({ description: String(w.description || ""), score: clamp01(w.score) }))
         : [];
       const text: string = typeof parsed.text === "string" ? parsed.text : "";
+      const rawCategory = typeof parsed.category === "string" ? parsed.category.toLowerCase().trim() : "";
+      const allowed = new Set(["hand tools","power tools","electrical","plumbing","cutting tools","measuring tools","other"]);
+      const category = allowed.has(rawCategory) ? rawCategory : "";
 
       return new Response(
-        JSON.stringify({ specificName, confidence, labels, objects, webEntities, text, bestGuess }),
+        JSON.stringify({ specificName, confidence, labels, objects, webEntities, text, bestGuess, category }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     } else if (mode === "labels") {
