@@ -39,6 +39,13 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const uploadInputId = useId();
   const cameraInputId = useId();
+  
+  // Camera capture mode state/refs
+  const [isCameraMode, setIsCameraMode] = useState(false);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
   const { toast } = useToast();
 
   const handleImageSelect = (file: File) => {
@@ -52,6 +59,51 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
       setImagePreview(e.target?.result as string);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Camera controls
+  const startCamera = async () => {
+    console.log('startCamera called');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setIsCameraActive(true);
+    } catch (err) {
+      console.error('getUserMedia error:', err);
+      toast({
+        title: 'Camera Error',
+        description: 'Could not access camera. Check browser permissions.',
+        variant: 'destructive'
+      });
+      setIsCameraMode(false);
+    }
+  };
+
+  const stopCamera = () => {
+    const stream = videoRef.current?.srcObject as MediaStream | undefined;
+    stream?.getTracks().forEach((t) => t.stop());
+    setIsCameraActive(false);
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current ?? document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx?.drawImage(video, 0, 0);
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], 'camera.jpg', { type: 'image/jpeg' });
+        handleImageSelect(file);
+        setIsCameraMode(false);
+        stopCamera();
+      }
+    }, 'image/jpeg', 0.9);
   };
 
   const processImageClassification = async (imageUrl: string) => {
@@ -265,7 +317,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
         </CardContent>
       </Card>
 
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+      <Dialog open={showDialog} onOpenChange={(open) => { if (!open) { stopCamera(); setIsCameraMode(false); } setShowDialog(open); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -315,28 +367,37 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
               <div className="relative">
                 <Button
                   variant="outline"
-                  className="h-24 w-full flex flex-col gap-2 pointer-events-none"
+                  className="h-24 w-full flex flex-col gap-2"
+                  onClick={() => {
+                    console.log('Take Photo clicked');
+                    setIsCameraMode(true);
+                    startCamera();
+                  }}
                 >
                   <Camera className="h-6 w-6" />
                   <span className="text-sm">Take Photo</span>
                 </Button>
-                <input
-                  id={cameraInputId}
-                  ref={cameraInputRef}
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  aria-label="Take a photo"
-                  onClick={() => console.log('Camera input clicked')}
-                  onChange={(e) => {
-                    console.log('Camera input changed, files:', e.target.files);
-                    e.target.files?.[0] && handleImageSelect(e.target.files[0]);
-                  }}
-                  className="absolute inset-0 z-50 h-full w-full opacity-0 cursor-pointer block"
-                />
               </div>
             </div>
 
+            {isCameraMode && (
+              <div className="space-y-2">
+                <div className="rounded-md overflow-hidden border">
+                  <video
+                    ref={videoRef}
+                    className="w-full max-h-64 bg-muted"
+                    autoPlay
+                    playsInline
+                    muted
+                  />
+                  <canvas ref={canvasRef} className="hidden" />
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" onClick={capturePhoto} disabled={!isCameraActive}>Capture</Button>
+                  <Button type="button" variant="outline" onClick={() => { stopCamera(); setIsCameraMode(false); }}>Cancel</Button>
+                </div>
+              </div>
+            )}
 
             {/* Image Preview */}
             {imagePreview && (
