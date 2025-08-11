@@ -142,7 +142,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     setIsLoading(true);
 
     try {
-      const { data, error } = await supabase
+      const { data: item, error } = await supabase
         .from('items')
         .insert([{
           ...formData,
@@ -154,9 +154,45 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
       if (error) throw error;
 
+      // Try to auto-assign a location/bin based on category/name
+      let assignedLocationName: string | null = null;
+      try {
+        const { data: locations, error: locErr } = await supabase
+          .from('locations')
+          .select('id,name,type');
+        if (!locErr && Array.isArray(locations) && locations.length) {
+          const categoryKey = (formData.category || '').toLowerCase();
+          const norm = (s?: string) => (s || '').toLowerCase();
+          const scoreLocation = (loc: any) => {
+            const name = norm(loc.name);
+            const type = norm(loc.type);
+            let score = 0;
+            if (type.includes('bin') || name.includes('bin')) score += 2;
+            if (categoryKey && name.includes(categoryKey.split(' ')[0])) score += 3;
+            if (categoryKey === 'Electrical'.toLowerCase() && /electr(ic|ical)/.test(name)) score += 3;
+            if (categoryKey === 'Plumbing'.toLowerCase() && /(plumb|pipe)/.test(name)) score += 3;
+            if (categoryKey.includes('hand') && /(hand|tool)/.test(name)) score += 2;
+            if (categoryKey.includes('power') && /(power|battery|cord)/.test(name)) score += 2;
+            if (categoryKey.includes('cutting') && /(cut|saw|blade)/.test(name)) score += 2;
+            if (categoryKey.includes('measuring') && /(measure|level|ruler)/.test(name)) score += 2;
+            return score;
+          };
+          const sorted = [...locations].sort((a, b) => scoreLocation(b) - scoreLocation(a));
+          const chosen = sorted[0];
+          if (chosen) {
+            const { error: ilErr } = await supabase.from('item_locations').insert([
+              { item_id: item.id, location_id: chosen.id, quantity: formData.quantity }
+            ]);
+            if (!ilErr) assignedLocationName = chosen.name;
+          }
+        }
+      } catch (assignErr) {
+        console.error('Auto-assign location failed:', assignErr);
+      }
+
       toast({
         title: "Success",
-        description: "Item added successfully!"
+        description: `Item added successfully${assignedLocationName ? ` and placed in ${assignedLocationName}` : ''}!`
       });
 
       // Reset form
