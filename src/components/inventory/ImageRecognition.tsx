@@ -2,7 +2,7 @@ import { useState, useRef, useId } from "react";
 import { Camera, Upload, Eye, FileText, Loader2, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { pipeline, env } from '@huggingface/transformers';
@@ -281,6 +281,9 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 </>
               )}
             </DialogTitle>
+            <DialogDescription>
+              Choose or capture an image, then click the button below to {recognitionMode === 'classify' ? 'identify the tool' : 'extract text'}.
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4">
@@ -291,7 +294,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 asChild
                 className="h-24 flex flex-col gap-2"
               >
-                <label htmlFor={uploadInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                <label htmlFor={uploadInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer" onClick={() => { console.log('Upload label clicked'); fileInputRef.current?.click(); }}>
                   <Upload className="h-6 w-6" />
                   <span className="text-sm">Upload Image</span>
                 </label>
@@ -302,7 +305,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 asChild
                 className="h-24 flex flex-col gap-2"
               >
-                <label htmlFor={cameraInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer">
+                <label htmlFor={cameraInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer" onClick={() => { console.log('Camera label clicked'); cameraInputRef.current?.click(); }}>
                   <Camera className="h-6 w-6" />
                   <span className="text-sm">Take Photo</span>
                 </label>
