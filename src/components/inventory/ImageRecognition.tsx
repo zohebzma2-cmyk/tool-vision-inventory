@@ -118,7 +118,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
       try {
         classifier = await pipeline(
           'image-classification',
-          'microsoft/resnet-50',
+          'onnx-community/mobilenetv4_conv_small.e2400_r224_in1k',
           { device: 'webgpu' }
         );
         console.log('WebGPU classifier loaded successfully');
@@ -126,7 +126,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
         console.log('WebGPU not available, falling back to CPU:', webgpuError);
         classifier = await pipeline(
           'image-classification',
-          'microsoft/resnet-50'
+          'onnx-community/mobilenetv4_conv_small.e2400_r224_in1k'
         );
         console.log('CPU classifier loaded successfully');
       }
