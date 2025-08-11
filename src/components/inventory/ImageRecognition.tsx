@@ -54,12 +54,21 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
     try {
       setIsProcessing(true);
       
-      // Load the image classification model
-      const classifier = await pipeline(
-        'image-classification',
-        'microsoft/resnet-50',
-        { device: 'webgpu' }
-      );
+      // Load the image classification model with fallback
+      let classifier;
+      try {
+        classifier = await pipeline(
+          'image-classification',
+          'microsoft/resnet-50',
+          { device: 'webgpu' }
+        );
+      } catch (webgpuError) {
+        console.log('WebGPU not available, falling back to CPU:', webgpuError);
+        classifier = await pipeline(
+          'image-classification',
+          'microsoft/resnet-50'
+        );
+      }
       
       setClassifierReady(true);
       
@@ -103,12 +112,21 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
     try {
       setIsProcessing(true);
       
-      // Load the OCR model
-      const ocr = await pipeline(
-        'image-to-text',
-        'Xenova/trocr-base-printed',
-        { device: 'webgpu' }
-      );
+      // Load the OCR model with fallback
+      let ocr;
+      try {
+        ocr = await pipeline(
+          'image-to-text',
+          'Xenova/trocr-base-printed',
+          { device: 'webgpu' }
+        );
+      } catch (webgpuError) {
+        console.log('WebGPU not available, falling back to CPU:', webgpuError);
+        ocr = await pipeline(
+          'image-to-text',
+          'Xenova/trocr-base-printed'
+        );
+      }
       
       setOcrReady(true);
       
