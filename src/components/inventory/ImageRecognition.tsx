@@ -21,9 +21,20 @@ interface RecognitionResult {
 interface ImageRecognitionProps {
   onToolIdentified?: (toolInfo: { name: string; category: string; confidence: number }) => void;
   onTextExtracted?: (text: string) => void;
+  onAutoFill?: (fields: Partial<{
+    name: string;
+    description: string;
+    category: string;
+    brand: string;
+    model: string;
+    size_specs: string;
+    purchase_date: string;
+    purchase_price: string;
+    notes: string;
+  }>) => void;
 }
 
-export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRecognitionProps) {
+export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill }: ImageRecognitionProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -126,6 +137,48 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
       if (top && (top.score ?? 0) > 0.3) {
         onToolIdentified?.({ name: top.label, category: top.category, confidence: top.score! });
       }
+
+      // Build auto-fill suggestions using Vision web/entities/text
+      const rawText: string = (data?.text as string) || '';
+      const webEntities: Array<any> = (data?.webEntities as any[]) || [];
+      const bestLabel: string = labels?.[0]?.description || '';
+      const name: string = specific || bestLabel;
+
+      const brandCandidate = (webEntities.find((w: any) => typeof w.description === 'string' && /[A-Za-z]/.test(w.description) && w.description.length <= 20)?.description) || '';
+      const modelMatch = rawText.match(/[A-Z]{1,3}[- ]?\d{2,6}[A-Z0-9-]*/);
+      const sizeMatches = rawText.match(/\b\d+(?:\.\d+)?\s?(?:mm|cm|m|in|"|inch|inches|ft|g|kg|lb|oz|AWG|gauge|V|W|A)\b/gi);
+      const priceMatch = rawText.match(/(?:USD\s*)?\$\s?(\d{1,4}(?:\.\d{2})?)/i) || rawText.match(/\b(\d{1,4}\.\d{2})\b/);
+      const dateMatch = rawText.match(/\b(\d{4}[-\/.]\d{1,2}[-\/.]\d{1,2}|\d{1,2}[-\/.]\d{1,2}[-\/.]\d{2,4})\b/);
+
+      let purchase_date = '';
+      if (dateMatch?.[1]) {
+        const d = dateMatch[1].replace(/[.]/g, '-');
+        if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(d)) {
+          purchase_date = d;
+        } else {
+          const parts = d.split(/[\/\-]/);
+          if (parts.length === 3) {
+            const [p1, p2, p3] = parts; // assume MM/DD/YYYY
+            if (p3.length === 4) {
+              const mm = p1.padStart(2, '0');
+              const dd = p2.padStart(2, '0');
+              purchase_date = `${p3}-${mm}-${dd}`;
+            }
+          }
+        }
+      }
+
+      onAutoFill?.({
+        name,
+        category: name ? mapToToolCategory(name) : undefined,
+        description: name ? `${name} — ${toolResults.slice(0,2).map(r => r.label).join(', ')}` : undefined,
+        brand: brandCandidate || undefined,
+        model: modelMatch?.[0] || undefined,
+        size_specs: sizeMatches ? Array.from(new Set(sizeMatches)).slice(0,3).join(', ') : undefined,
+        purchase_price: priceMatch?.[1] || undefined,
+        purchase_date: purchase_date || undefined,
+      });
+
       setClassifierReady(true);
     } catch (error: any) {
       console.error('Classification error:', error);

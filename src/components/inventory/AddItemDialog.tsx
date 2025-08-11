@@ -74,6 +74,12 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     return categoryMap[aiCategory] || 'Other';
   };
 
+  const handleAutoFill = (fields: any) => {
+    setFormData(prev => ({
+      ...prev,
+      ...fields,
+    }));
+  };
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -245,6 +251,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           <ImageRecognition 
             onToolIdentified={handleToolIdentified}
             onTextExtracted={handleTextExtracted}
+            onAutoFill={handleAutoFill}
           />
 
           <div className="grid grid-cols-2 gap-4">
