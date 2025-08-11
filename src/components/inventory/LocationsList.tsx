@@ -12,6 +12,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
 import { PaperTypeConfig } from "./PaperTypeConfig";
+import { ImageRecognition } from "./ImageRecognition";
 
 interface Location {
   id: string;
@@ -281,14 +282,31 @@ export function LocationsList() {
           </div>
         </div>
 
-        {/* Paper Configuration Section */}
-        {isPrintingSupported() && (
-          <div className="mb-6">
+        {/* Configuration and Tools Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {isPrintingSupported() && (
             <PaperTypeConfig onPaperTypeChange={(paperType) => {
               console.log('Paper type changed to:', paperType);
             }} />
-          </div>
-        )}
+          )}
+          
+          <ImageRecognition 
+            onToolIdentified={(toolInfo) => {
+              console.log('Tool identified:', toolInfo);
+              toast({
+                title: "Tool Identified",
+                description: `Found: ${toolInfo.name} (${Math.round(toolInfo.confidence * 100)}% confidence)`,
+              });
+            }}
+            onTextExtracted={(text) => {
+              console.log('Text extracted:', text);
+              toast({
+                title: "Text Extracted",
+                description: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+              });
+            }}
+          />
+        </div>
 
         {locations.length === 0 ? (
           <div className="text-center py-12">
