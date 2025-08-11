@@ -289,53 +289,50 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
           <div className="space-y-4">
             {/* Image Upload Section */}
             <div className="grid grid-cols-2 gap-3">
-              <Button
-                variant="outline"
-                asChild
-                className="h-24 flex flex-col gap-2"
-              >
-                <label htmlFor={uploadInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer" onClick={() => { console.log('Upload label clicked'); fileInputRef.current?.click(); }}>
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  className="h-24 w-full flex flex-col gap-2 pointer-events-none"
+                >
                   <Upload className="h-6 w-6" />
                   <span className="text-sm">Upload Image</span>
-                </label>
-              </Button>
-              
-              <Button
-                variant="outline"
-                asChild
-                className="h-24 flex flex-col gap-2"
-              >
-                <label htmlFor={cameraInputId} className="w-full h-full flex flex-col items-center justify-center cursor-pointer" onClick={() => { console.log('Camera label clicked'); cameraInputRef.current?.click(); }}>
+                </Button>
+                <input
+                  id={uploadInputId}
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    console.log('File input changed, files:', e.target.files);
+                    e.target.files?.[0] && handleImageSelect(e.target.files[0]);
+                  }}
+                  className="absolute inset-0 z-10 opacity-0 cursor-pointer"
+                />
+              </div>
+
+              <div className="relative">
+                <Button
+                  variant="outline"
+                  className="h-24 w-full flex flex-col gap-2 pointer-events-none"
+                >
                   <Camera className="h-6 w-6" />
                   <span className="text-sm">Take Photo</span>
-                </label>
-              </Button>
+                </Button>
+                <input
+                  id={cameraInputId}
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => {
+                    console.log('Camera input changed, files:', e.target.files);
+                    e.target.files?.[0] && handleImageSelect(e.target.files[0]);
+                  }}
+                  className="absolute inset-0 z-10 opacity-0 cursor-pointer"
+                />
+              </div>
             </div>
 
-            <input
-              id={uploadInputId}
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                console.log('File input changed, files:', e.target.files);
-                e.target.files?.[0] && handleImageSelect(e.target.files[0]);
-              }}
-              className="sr-only"
-            />
-            
-            <input
-              id={cameraInputId}
-              ref={cameraInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => {
-                console.log('Camera input changed, files:', e.target.files);
-                e.target.files?.[0] && handleImageSelect(e.target.files[0]);
-              }}
-              className="sr-only"
-            />
 
             {/* Image Preview */}
             {imagePreview && (
