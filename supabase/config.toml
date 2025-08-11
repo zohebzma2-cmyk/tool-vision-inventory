@@ -1,1 +1,4 @@
 project_id = "uyewoueovyjbljrsmmnu"
+
+[functions.google-vision]
+verify_jwt = false

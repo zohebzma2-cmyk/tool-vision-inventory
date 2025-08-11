@@ -5,11 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { pipeline, env } from '@huggingface/transformers';
+import { supabase } from "@/integrations/supabase/client";
 
-// Configure transformers.js
-env.allowLocalModels = false;
-env.useBrowserCache = true;
 
 interface RecognitionResult {
   type: 'classification' | 'ocr';
@@ -107,63 +104,28 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   };
 
   const processImageClassification = async (imageUrl: string) => {
-    console.log('Starting image classification process with URL:', imageUrl);
+    console.log('Starting image classification via Google Vision');
     try {
       setIsProcessing(true);
-      console.log('Set processing to true');
-      
-      // Load the image classification model with fallback
-      let classifier;
-      console.log('Attempting to load classifier with WebGPU...');
-      try {
-        classifier = await pipeline(
-          'image-classification',
-          'onnx-community/mobilenetv4_conv_small.e2400_r224_in1k',
-          { device: 'webgpu' }
-        );
-        console.log('WebGPU classifier loaded successfully');
-      } catch (webgpuError) {
-        console.log('WebGPU not available, falling back to CPU:', webgpuError);
-        classifier = await pipeline(
-          'image-classification',
-          'onnx-community/mobilenetv4_conv_small.e2400_r224_in1k'
-        );
-        console.log('CPU classifier loaded successfully');
-      }
-      
-      setClassifierReady(true);
-      
-      const results = await classifier(imageUrl);
-      
-      // Filter and map results to tool categories
-      const toolResults = results.slice(0, 5).map((result: any) => ({
-        label: result.label,
-        score: result.score,
-        category: mapToToolCategory(result.label)
-      }));
-
-      setResults({
-        type: 'classification',
-        results: toolResults
+      const { data, error } = await supabase.functions.invoke('google-vision', {
+        body: { imageDataUrl: imageUrl, mode: 'labels' }
       });
-
-      // Notify parent component of the top result if it's tool-related
-      const topResult = toolResults[0];
-      if (topResult && topResult.score > 0.3) {
-        onToolIdentified?.({
-          name: topResult.label,
-          category: topResult.category,
-          confidence: topResult.score
-        });
+      if (error) throw error;
+      const labels = (data?.labels ?? []).slice(0, 5);
+      const toolResults = labels.map((l: any) => ({
+        label: l.description,
+        score: l.score,
+        category: mapToToolCategory(l.description)
+      }));
+      setResults({ type: 'classification', results: toolResults });
+      const top = toolResults[0];
+      if (top && (top.score ?? 0) > 0.3) {
+        onToolIdentified?.({ name: top.label, category: top.category, confidence: top.score! });
       }
-
+      setClassifierReady(true);
     } catch (error) {
       console.error('Classification error:', error);
-      toast({
-        title: "Recognition Failed",
-        description: "Failed to classify the image. Please try again.",
-        variant: "destructive"
-      });
+      toast({ title: 'Recognition Failed', description: 'Failed to classify the image.', variant: 'destructive' });
     } finally {
       setIsProcessing(false);
     }
@@ -172,54 +134,17 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
   const processImageOCR = async (imageUrl: string) => {
     try {
       setIsProcessing(true);
-      
-      // Load the OCR model with fallback
-      let ocr;
-      try {
-        ocr = await pipeline(
-          'image-to-text',
-          'Xenova/trocr-base-printed',
-          { device: 'webgpu' }
-        );
-      } catch (webgpuError) {
-        console.log('WebGPU not available, falling back to CPU:', webgpuError);
-        ocr = await pipeline(
-          'image-to-text',
-          'Xenova/trocr-base-printed'
-        );
-      }
-      
-      setOcrReady(true);
-      
-      const result = await ocr(imageUrl);
-      
-      // Handle different result types from the OCR model
-      let extractedText = 'No text found';
-      if (Array.isArray(result) && result.length > 0) {
-        if (typeof result[0] === 'string') {
-          extractedText = result[0];
-        } else if (result[0] && typeof result[0] === 'object') {
-          // Handle object with generated_text property
-          extractedText = (result[0] as any).generated_text || result[0].toString();
-        }
-      } else if (typeof result === 'string') {
-        extractedText = result;
-      }
-      
-      setResults({
-        type: 'ocr',
-        results: [{ label: 'Extracted Text', text: extractedText }]
+      const { data, error } = await supabase.functions.invoke('google-vision', {
+        body: { imageDataUrl: imageUrl, mode: 'ocr' }
       });
-
+      if (error) throw error;
+      const extractedText = data?.text || 'No text found';
+      setResults({ type: 'ocr', results: [{ label: 'Extracted Text', text: extractedText }] });
       onTextExtracted?.(extractedText);
-
+      setOcrReady(true);
     } catch (error) {
       console.error('OCR error:', error);
-      toast({
-        title: "Text Recognition Failed",
-        description: "Failed to extract text from the image. Please try again.",
-        variant: "destructive"
-      });
+      toast({ title: 'Text Recognition Failed', description: 'Failed to extract text from the image.', variant: 'destructive' });
     } finally {
       setIsProcessing(false);
     }
@@ -510,10 +435,11 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted }: ImageRec
                 <div className="text-sm text-info">
                   <div className="font-medium mb-1">AI Processing Notes:</div>
                   <ul className="text-xs space-y-1 list-disc list-inside">
-                    <li>Models are loaded on first use - initial processing may take longer</li>
+                    <li>High-accuracy detection powered by Google Cloud Vision</li>
                     <li>Works best with clear, well-lit images of tools</li>
                     <li>Text extraction works best with printed text and labels</li>
-                    <li>Processing happens locally in your browser for privacy</li>
+                    <li>Processing runs via a secure Supabase Edge Function</li>
+
                   </ul>
                 </div>
               </div>
