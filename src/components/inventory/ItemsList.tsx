@@ -28,6 +28,7 @@ interface Item {
   notes?: string;
   date_added: string;
   last_seen?: string;
+  qr_code?: string;
 }
 
 export function ItemsList() {
@@ -292,6 +293,11 @@ export function ItemsList() {
                 >
                   {item.category}
                 </Badge>
+                
+                <div className="text-[11px] text-muted-foreground font-mono mb-2 space-x-3 truncate">
+                  {item.qr_code && <span className="truncate">QR: {item.qr_code}</span>}
+                  <span className="truncate">ID: {item.id}</span>
+                </div>
                 
                 {item.description && (
                   <p className="text-sm text-muted-foreground mb-3 line-clamp-2 leading-relaxed">
