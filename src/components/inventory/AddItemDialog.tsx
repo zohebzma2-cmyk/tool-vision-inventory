@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ImageRecognition } from "./ImageRecognition";
 import { isPrintingSupported, autoPrintLabel, printTextLabel } from "./PrinterService";
+import { LabelPreview } from "./LabelPreview";
 
 interface AddItemDialogProps {
   open: boolean;
@@ -35,6 +36,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   });
   
   const [aiPlacement, setAiPlacement] = useState<string | null>(null);
+  const [previewItemQr, setPreviewItemQr] = useState<string | null>(null);
+  const [previewLocation, setPreviewLocation] = useState<any | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -161,6 +164,80 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           stream?.getTracks().forEach(track => track.stop());
         }
       }, 'image/jpeg', 0.8);
+    }
+  };
+
+  const handlePreviewLabels = async () => {
+    try {
+      const finalCategory = formData.category || 'Other';
+      if (!previewItemQr) setPreviewItemQr(generateItemQrCode());
+
+      const norm = (s?: string) => (s || '').toLowerCase();
+      const text = `${formData.name} ${formData.description} ${formData.notes}`.toLowerCase();
+      const categoryKey = norm(finalCategory);
+
+      const { data: locations, error: locErr } = await supabase
+        .from('locations')
+        .select('*');
+      if (locErr || !locations?.length) {
+        toast({ title: 'No locations yet', description: 'Create locations to enable previews.', variant: 'destructive' });
+        return;
+      }
+
+      const { data: occRows } = await supabase
+        .from('item_locations')
+        .select('location_id')
+        .is('date_removed', null);
+      const occMap = new Map<string, number>();
+      occRows?.forEach((r: any) => {
+        const id = (r.location_id as string) || '';
+        occMap.set(id, (occMap.get(id) || 0) + 1);
+      });
+
+      const hasAny = (arr: string[]) => arr.some(k => text.includes(k));
+      const socketKeywords = ['socket','ratchet','torx','1/4"','3/8"','1/2"','hex bit socket','extension'];
+      const smallParts = ['screw','bolt','nut','washer','nail','anchor','fastener','o-ring','zip tie','clip','fuse','connector','terminal'];
+      const pegKeywords = ['wrench','pliers','screwdriver','hammer','tape measure','square','level','saw','clamp','chisel','mallet'];
+      const powerKeywords = ['drill','driver','grinder','sander','router','planer','circular saw','miter','reciprocating saw','jigsaw','multi-tool','dremel'];
+
+      const preferSockets = hasAny(socketKeywords) || /socket/i.test(formData.name);
+      const preferBins = hasAny(smallParts) || categoryKey === 'fasteners' || /small|mixed parts/.test(text);
+      const preferPeg = hasAny(pegKeywords) || ['hand tools','measuring tools','cutting tools'].includes(categoryKey);
+      const preferPower = hasAny(powerKeywords) || categoryKey === 'power tools';
+
+      const isLarge = /large|table|floor|stand|heavy|4x8|4x 8|4\s*x\s*8/i.test(text) ||
+        ((formData.size_specs || '').toLowerCase().includes('inch') && /2[5-9]|[3-9]\d/.test(formData.size_specs || ''));
+
+      const fits = (loc: any) => {
+        const cap = (loc.capacity as number | null) ?? null;
+        const occ = occMap.get(loc.id) || 0;
+        return cap === null || occ < cap;
+      };
+      const byLowestOcc = (a: any, b: any) => ( (occMap.get(a.id) || 0) - (occMap.get(b.id) || 0) );
+      const findFirst = (filterFn: (l:any)=>boolean) => locations.filter(filterFn).filter(fits).sort(byLowestOcc)[0];
+
+      let chosen: any | undefined;
+      if (!chosen && aiPlacement) {
+        const t = norm(aiPlacement);
+        if (t === 'sockets-drawer') chosen = findFirst(l => norm(l.type) === 'drawer' && /socket/.test(norm(l.name)));
+        else if (t === 'bin') chosen = findFirst(l => norm(l.type) === 'bin');
+        else if (t === 'pegboard') chosen = findFirst(l => norm(l.type) === 'pegboard');
+        else if (t === 'drawer') chosen = findFirst(l => norm(l.type) === 'drawer' && /4x8|4x 8|4\s*x\s*8/.test(norm(l.name))) || findFirst(l => norm(l.type) === 'drawer');
+        else if (t === 'large-area') chosen = findFirst(l => /large.*area/.test(norm(l.name)) || norm(l.type) === 'rack');
+        else if (t === 'general-shelf') chosen = findFirst(l => /general/.test(norm(l.name)) || norm(l.type) === 'shelf');
+      }
+      if (!chosen && preferSockets) chosen = findFirst(l => norm(l.type) === 'drawer' && /socket/.test(norm(l.name))) || findFirst(l => /socket/.test(norm(l.name)));
+      if (!chosen && preferBins) chosen = findFirst(l => norm(l.type) === 'bin');
+      if (!chosen && preferPeg) chosen = findFirst(l => norm(l.type) === 'pegboard');
+      if (!chosen && preferPower) chosen = findFirst(l => norm(l.type) === 'drawer' && /4x8|4x 8|4\s*x\s*8/.test(norm(l.name))) || findFirst(l => norm(l.type) === 'drawer');
+      if (!chosen && isLarge) chosen = findFirst(l => /large.*area/.test(norm(l.name)) || /large/.test(norm(l.name)));
+      if (!chosen) chosen = findFirst(l => /general/.test(norm(l.name)));
+      if (!chosen) chosen = findFirst(() => true);
+
+      if (chosen) setPreviewLocation(chosen);
+      else setPreviewLocation(null);
+    } catch (_) {
+      setPreviewLocation(null);
     }
   };
 
@@ -556,6 +633,26 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
               onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
               placeholder="Additional notes..."
             />
+          </div>
+
+          <div className="space-y-3">
+            <Button type="button" variant="outline" onClick={handlePreviewLabels}>
+              Preview Labels
+            </Button>
+            {previewItemQr && (
+              <LabelPreview
+                title="Item Label Preview"
+                lines={[formData.name || 'New Item', formData.category || 'Other']}
+                qrValue={previewItemQr}
+              />
+            )}
+            {previewLocation && (
+              <LabelPreview
+                title="Location Label Preview"
+                lines={[previewLocation.name, previewLocation.type]}
+                qrValue={previewLocation.qr_code}
+              />
+            )}
           </div>
 
           <DialogFooter>

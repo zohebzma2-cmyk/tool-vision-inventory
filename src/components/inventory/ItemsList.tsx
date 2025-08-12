@@ -88,13 +88,27 @@ export function ItemsList() {
 
   const fetchItems = async () => {
     try {
-      const { data, error } = await supabase
-        .from('items')
-        .select('*')
-        .order('date_added', { ascending: false });
+      const [{ data: itemsData, error: itemsErr }, { data: links, error: linksErr }, { data: locs, error: locsErr }] = await Promise.all([
+        supabase.from('items').select('*').order('date_added', { ascending: false }),
+        supabase.from('item_locations').select('item_id, location_id').is('date_removed', null),
+        supabase.from('locations').select('id, name')
+      ]);
 
-      if (error) throw error;
-      setItems(data || []);
+      if (itemsErr) throw itemsErr;
+      if (linksErr) throw linksErr;
+      if (locsErr) throw locsErr;
+
+      setItems(itemsData || []);
+
+      const nameByLoc = new Map<string, string>();
+      (locs || []).forEach(l => nameByLoc.set((l as any).id, (l as any).name));
+      const itemToLoc = new Map<string, string>();
+      (links || []).forEach(l => {
+        const n = nameByLoc.get((l as any).location_id);
+        if (n && !itemToLoc.has((l as any).item_id)) itemToLoc.set((l as any).item_id, n);
+      });
+      // attach locationName onto items for quick render
+      setItems(prev => (itemsData || []).map(it => ({ ...(it as any), __locationName: itemToLoc.get((it as any).id) || null })) as any);
     } catch (error) {
       toast({
         title: "Error",
@@ -307,7 +321,7 @@ export function ItemsList() {
                   
                   <div className="flex items-center text-xs text-muted-foreground bg-muted/50 rounded-md px-2 py-1">
                     <MapPin className="h-3 w-3 mr-1" />
-                    <span>No location assigned</span>
+                    <span>{(item as any).__locationName ? (item as any).__locationName : 'No location assigned'}</span>
                   </div>
                   
                   {item.model && (
