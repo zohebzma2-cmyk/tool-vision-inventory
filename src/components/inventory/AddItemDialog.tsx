@@ -180,31 +180,84 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
       if (error) throw error;
 
-      // Try to auto-assign a location/bin based on category/name
+      // Advanced auto-assignment by storage layout (bins, pegboard, drawers, areas)
       let assignedLocationName: string | null = null;
       try {
+        const norm = (s?: string) => (s || '').toLowerCase();
+        const text = `${formData.name} ${formData.description} ${formData.notes}`.toLowerCase();
+        const categoryKey = norm(finalCategory);
+
         const { data: locations, error: locErr } = await supabase
           .from('locations')
-          .select('id,name,type');
+          .select('id,name,type,capacity');
+
         if (!locErr && Array.isArray(locations) && locations.length) {
-          const categoryKey = (finalCategory || '').toLowerCase();
-          const norm = (s?: string) => (s || '').toLowerCase();
-          const scoreLocation = (loc: any) => {
-            const name = norm(loc.name);
-            const type = norm(loc.type);
-            let score = 0;
-            if (type.includes('bin') || name.includes('bin')) score += 2;
-            if (categoryKey && name.includes(categoryKey.split(' ')[0])) score += 3;
-            if (categoryKey === 'Electrical'.toLowerCase() && /electr(ic|ical)/.test(name)) score += 3;
-            if (categoryKey === 'Plumbing'.toLowerCase() && /(plumb|pipe)/.test(name)) score += 3;
-            if (categoryKey.includes('hand') && /(hand|tool)/.test(name)) score += 2;
-            if (categoryKey.includes('power') && /(power|battery|cord)/.test(name)) score += 2;
-            if (categoryKey.includes('cutting') && /(cut|saw|blade)/.test(name)) score += 2;
-            if (categoryKey.includes('measuring') && /(measure|level|ruler)/.test(name)) score += 2;
-            return score;
+          // Current occupancy per location (only active placements)
+          const { data: occRows } = await supabase
+            .from('item_locations')
+            .select('location_id')
+            .is('date_removed', null);
+
+          const occMap = new Map<string, number>();
+          occRows?.forEach((r: any) => {
+            const id = (r.location_id as string) || '';
+            occMap.set(id, (occMap.get(id) || 0) + 1);
+          });
+
+          const hasAny = (arr: string[]) => arr.some(k => text.includes(k));
+          const socketKeywords = ['socket','ratchet','torx','1/4"','3/8"','1/2"','hex bit socket','extension'];
+          const smallParts = ['screw','bolt','nut','washer','nail','anchor','fastener','o-ring','zip tie','clip','fuse','connector','terminal'];
+          const pegKeywords = ['wrench','pliers','screwdriver','hammer','tape measure','square','level','saw','clamp','chisel','mallet'];
+          const powerKeywords = ['drill','driver','grinder','sander','router','planer','circular saw','miter','reciprocating saw','jigsaw','multi-tool','dremel'];
+
+          const preferSockets = hasAny(socketKeywords) || /socket/i.test(formData.name);
+          const preferBins = hasAny(smallParts) || categoryKey === 'fasteners' || /small|mixed parts/.test(text);
+          const preferPeg = hasAny(pegKeywords) || ['hand tools','measuring tools','cutting tools'].includes(categoryKey);
+          const preferPower = hasAny(powerKeywords) || categoryKey === 'power tools';
+
+          const isLarge = /large|table|floor|stand|heavy|4x8|4x 8|4\s*x\s*8/i.test(text) ||
+            ((formData.size_specs || '').toLowerCase().includes('inch') && /2[5-9]|[3-9]\d/.test(formData.size_specs || ''));
+
+          const fits = (loc: any) => {
+            const cap = (loc.capacity as number | null) ?? null;
+            const occ = occMap.get(loc.id) || 0;
+            return cap === null || occ < cap;
           };
-          const sorted = [...locations].sort((a, b) => scoreLocation(b) - scoreLocation(a));
-          const chosen = sorted[0];
+
+          const byLowestOcc = (a: any, b: any) => {
+            const oa = occMap.get(a.id) || 0;
+            const ob = occMap.get(b.id) || 0;
+            return oa - ob;
+          };
+
+          const findFirst = (filterFn: (l:any)=>boolean) => locations.filter(filterFn).filter(fits).sort(byLowestOcc)[0];
+
+          let chosen: any | undefined;
+
+          if (!chosen && preferSockets) {
+            chosen = findFirst(l => norm(l.type) === 'drawer' && /socket/.test(norm(l.name)));
+            if (!chosen) chosen = findFirst(l => /socket/.test(norm(l.name)));
+          }
+          if (!chosen && preferBins) {
+            chosen = findFirst(l => norm(l.type) === 'bin');
+          }
+          if (!chosen && preferPeg) {
+            chosen = findFirst(l => norm(l.type) === 'pegboard');
+          }
+          if (!chosen && preferPower) {
+            chosen = findFirst(l => norm(l.type) === 'drawer' && /4x8|4x 8|4\s*x\s*8/.test(norm(l.name)))
+              || findFirst(l => norm(l.type) === 'drawer');
+          }
+          if (!chosen && isLarge) {
+            chosen = findFirst(l => /large.*area/.test(norm(l.name)) || /large/.test(norm(l.name)));
+          }
+          if (!chosen) {
+            chosen = findFirst(l => /general/.test(norm(l.name)));
+          }
+          if (!chosen) {
+            chosen = findFirst(() => true);
+          }
+
           if (chosen) {
             const { error: ilErr } = await supabase.from('item_locations').insert([
               { item_id: item.id, location_id: chosen.id, quantity: formData.quantity }
