@@ -38,6 +38,15 @@ export function LocationsList() {
     capacity: "",
     description: ""
   });
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: "",
+    type: "",
+    parent_location_id: "",
+    capacity: "",
+    description: ""
+  });
   const { toast } = useToast();
 
   const locationTypes = [
@@ -218,6 +227,73 @@ export function LocationsList() {
     }
   };
 
+  const handlePrintLocation = async (id: string) => {
+    if (!isPrintingSupported()) {
+      toast({ title: "Printing Unavailable", description: "Printer not connected.", variant: "destructive" });
+      return;
+    }
+    let currentStatus = "Preparing to print...";
+    const { dismiss } = toast({
+      title: "Printing Label",
+      description: currentStatus,
+      duration: 10000,
+    });
+    try {
+      const result = await autoPrintLabel(id, (status) => {
+        currentStatus = status;
+        dismiss();
+        toast({ title: "Printing Label", description: status, duration: status === 'Print complete!' ? 3000 : 10000 });
+      });
+      dismiss();
+      if (result.success) {
+        toast({ title: "Printed", description: result.message });
+      } else {
+        toast({ title: "Print Failed", description: result.message, variant: "destructive" });
+      }
+    } catch (e: any) {
+      dismiss();
+      toast({ title: "Print Error", description: String(e?.message || e), variant: "destructive" });
+    }
+  };
+
+  const openEdit = (loc: Location) => {
+    setEditingId(loc.id);
+    setEditFormData({
+      name: loc.name,
+      type: loc.type,
+      parent_location_id: loc.parent_location_id || "",
+      capacity: loc.capacity ? String(loc.capacity) : "",
+      description: loc.description || ""
+    });
+    setShowEditDialog(true);
+  };
+
+  const handleUpdateLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingId) return;
+    try {
+      const { data, error } = await supabase
+        .from('locations')
+        .update({
+          name: editFormData.name,
+          type: editFormData.type,
+          capacity: editFormData.capacity ? parseInt(editFormData.capacity) : null,
+          parent_location_id: editFormData.parent_location_id === "none" ? null : (editFormData.parent_location_id || null),
+          description: editFormData.description || null
+        })
+        .eq('id', editingId)
+        .select()
+        .single();
+      if (error) throw error;
+      setLocations(prev => prev.map(l => l.id === editingId ? data : l));
+      toast({ title: "Location Updated", description: "Changes saved successfully." });
+      setShowEditDialog(false);
+      setEditingId(null);
+    } catch (err) {
+      toast({ title: "Update Failed", description: "Could not save changes.", variant: "destructive" });
+    }
+  };
+
   const getParentLocationName = (parentId?: string) => {
     if (!parentId) return null;
     const parent = locations.find(loc => loc.id === parentId);
@@ -332,8 +408,11 @@ export function LocationsList() {
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(location)}>
                         <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handlePrintLocation(location.id)}>
+                        <Printer className="h-4 w-4" />
                       </Button>
                       <Button 
                         variant="ghost" 
@@ -427,7 +506,7 @@ export function LocationsList() {
               <Label htmlFor="parent">Parent Location</Label>
               <Select 
                 value={formData.parent_location_id || "none"} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, parent_location_id: value === "none" ? "" : value }))}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, parent_location_id: value == "none" ? "" : value }))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select parent location (optional)" />
@@ -475,6 +554,100 @@ export function LocationsList() {
               </Button>
               <Button type="submit" disabled={!formData.name || !formData.type}>
                 Add Location
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Location</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleUpdateLocation} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name">Location Name *</Label>
+              <Input
+                id="edit-name"
+                value={editFormData.name}
+                onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-type">Type *</Label>
+              <Select 
+                value={editFormData.type} 
+                onValueChange={(value) => setEditFormData(prev => ({ ...prev, type: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select location type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locationTypes.map(type => (
+                    <SelectItem key={type} value={type} className="capitalize">
+                      {type}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-parent">Parent Location</Label>
+              <Select 
+                value={editFormData.parent_location_id || "none"} 
+                onValueChange={(value) => setEditFormData(prev => ({ ...prev, parent_location_id: value === "none" ? "" : value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select parent location (optional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {locations
+                    .filter(l => l.id !== editingId)
+                    .map(loc => (
+                      <SelectItem key={loc.id} value={loc.id}>
+                        {loc.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-capacity">Capacity</Label>
+              <Input
+                id="edit-capacity"
+                type="number"
+                min="1"
+                value={editFormData.capacity}
+                onChange={(e) => setEditFormData(prev => ({ ...prev, capacity: e.target.value }))}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="edit-description">Description</Label>
+              <Textarea
+                id="edit-description"
+                value={editFormData.description}
+                onChange={(e) => setEditFormData(prev => ({ ...prev, description: e.target.value }))}
+              />
+            </div>
+
+            <DialogFooter>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setShowEditDialog(false)}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!editFormData.name || !editFormData.type}>
+                Save Changes
               </Button>
             </DialogFooter>
           </form>
