@@ -57,6 +57,9 @@ export function ItemsList() {
   const { categories, addCategory, categoriesForFilter } = useCategories();
   const [showPreview, setShowPreview] = useState(false);
   const [previewItem, setPreviewItem] = useState<Item | null>(null);
+  const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [editLocationId, setEditLocationId] = useState<string>("");
+  const [initialEditLocationId, setInitialEditLocationId] = useState<string>("");
 
   const normalizeDate = (v?: string): string | null => {
     if (!v) return null;
@@ -105,6 +108,7 @@ export function ItemsList() {
       });
       // attach locationName onto items for quick render
       setItems(prev => (itemsData || []).map(it => ({ ...(it as any), __locationName: itemToLoc.get((it as any).id) || null })) as any);
+      setLocations((locs || []) as any);
     } catch (error) {
       toast({
         title: "Error",
@@ -150,7 +154,7 @@ export function ItemsList() {
     }
   };
 
-  const openEdit = (item: Item) => {
+  const openEdit = async (item: Item) => {
     setEditingId(item.id);
     setEditFormData({
       name: item.name,
@@ -165,6 +169,21 @@ export function ItemsList() {
       purchase_price: item.purchase_price != null ? String(item.purchase_price) : '',
       notes: item.notes || ''
     });
+    try {
+      if (!locations.length) {
+        const { data: locs } = await supabase.from('locations').select('id, name').order('name');
+        setLocations(locs || []);
+      }
+      const { data: currLink } = await supabase
+        .from('item_locations')
+        .select('location_id')
+        .eq('item_id', item.id)
+        .is('date_removed', null)
+        .maybeSingle();
+      const locId = (currLink as any)?.location_id || "";
+      setEditLocationId(locId);
+      setInitialEditLocationId(locId);
+    } catch {}
     setShowEditDialog(true);
   };
 
@@ -192,7 +211,29 @@ export function ItemsList() {
         .single();
 
       if (error) throw error;
-      setItems(prev => prev.map(i => i.id === editingId ? { ...i, ...data } : i));
+
+      // Update location assignment if changed
+      try {
+        if (editLocationId !== initialEditLocationId) {
+          await supabase
+            .from('item_locations')
+            .update({ date_removed: new Date().toISOString() })
+            .eq('item_id', editingId)
+            .is('date_removed', null);
+
+          if (editLocationId) {
+            await supabase.from('item_locations').insert([
+              { item_id: editingId, location_id: editLocationId, quantity: Number(editFormData.quantity) || 1 }
+            ]);
+          }
+        }
+      } catch (e) {
+        toast({ title: 'Location update issue', description: 'Item saved, but location change may not have been applied.', variant: 'destructive' });
+      }
+
+      const newLocName = editLocationId ? (locations.find((l:any) => (l as any).id === editLocationId)?.name || null) : null;
+
+      setItems(prev => prev.map(i => i.id === editingId ? { ...i, ...data, __locationName: newLocName } : i));
       toast({ title: 'Item Updated', description: 'Changes saved successfully.' });
       setShowEditDialog(false);
       setEditingId(null);
@@ -426,6 +467,21 @@ export function ItemsList() {
               </div>
             </div>
 
+            <div className="space-y-2">
+              <Label>Assign Location</Label>
+              <Select value={editLocationId || "__none__"} onValueChange={(v) => setEditLocationId(v === "__none__" ? "" : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="No location" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No location</SelectItem>
+                  {locations.map((l:any) => (
+                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-date">Purchase Date</Label>
@@ -451,7 +507,7 @@ export function ItemsList() {
       </Dialog>
 
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Item Label Preview</DialogTitle>
           </DialogHeader>
