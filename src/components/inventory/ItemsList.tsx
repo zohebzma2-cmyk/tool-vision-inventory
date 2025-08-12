@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Search, Package, Edit, Trash2, MapPin } from "lucide-react";
+import { Search, Package, Edit, Trash2, MapPin, Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCategories } from "@/hooks/useCategories";
+import { LabelPreview } from "@/components/inventory/LabelPreview";
 
 interface Item {
   id: string;
@@ -54,6 +55,8 @@ export function ItemsList() {
   const { toast } = useToast();
 
   const { categories, addCategory, categoriesForFilter } = useCategories();
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewItem, setPreviewItem] = useState<Item | null>(null);
 
   const normalizeDate = (v?: string): string | null => {
     if (!v) return null;
@@ -273,9 +276,12 @@ export function ItemsList() {
                     )}
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-<Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(item)}>
-  <Edit className="h-4 w-4" />
-</Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setPreviewItem(item); setShowPreview(true); }}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(item)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
                     <Button 
                       variant="ghost" 
                       size="sm" 
@@ -441,6 +447,21 @@ export function ItemsList() {
               <Button type="submit" disabled={!editFormData.name || !editFormData.category}>Save Changes</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Item Label Preview</DialogTitle>
+          </DialogHeader>
+          {previewItem && (
+            <LabelPreview
+              title="Item Label"
+              lines={[previewItem.name, previewItem.category]}
+              qrValue={previewItem.qr_code || `ITEM:${previewItem.id}`}
+            />
+          )}
         </DialogContent>
       </Dialog>
     </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
 import { PaperTypeConfig } from "./PaperTypeConfig";
 import { ImageRecognition } from "./ImageRecognition";
+import { LabelPreview } from "@/components/inventory/LabelPreview";
 
 interface Location {
   id: string;
@@ -48,6 +49,9 @@ export function LocationsList() {
     description: ""
   });
   const { toast } = useToast();
+
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewLoc, setPreviewLoc] = useState<Location | null>(null);
 
   const locationTypes = [
     "bin", "pegboard", "drawer", "shelf", "hook", "rack", "cabinet"
@@ -408,6 +412,9 @@ export function LocationsList() {
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setPreviewLoc(location); setPreviewOpen(true); }}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(location)}>
                         <Edit className="h-4 w-4" />
                       </Button>
@@ -653,6 +660,22 @@ export function LocationsList() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Location Label Preview</DialogTitle>
+          </DialogHeader>
+          {previewLoc && (
+            <LabelPreview
+              title="Location Label"
+              lines={[previewLoc.name, previewLoc.type]}
+              qrValue={previewLoc.qr_code}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
+
