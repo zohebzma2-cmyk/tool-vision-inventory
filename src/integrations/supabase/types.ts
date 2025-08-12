@@ -151,6 +151,7 @@ export type Database = {
           photo_path: string | null
           purchase_date: string | null
           purchase_price: number | null
+          qr_code: string | null
           quantity: number | null
           quantity_unit: string | null
           size_specs: string | null
@@ -170,6 +171,7 @@ export type Database = {
           photo_path?: string | null
           purchase_date?: string | null
           purchase_price?: number | null
+          qr_code?: string | null
           quantity?: number | null
           quantity_unit?: string | null
           size_specs?: string | null
@@ -189,6 +191,7 @@ export type Database = {
           photo_path?: string | null
           purchase_date?: string | null
           purchase_price?: number | null
+          qr_code?: string | null
           quantity?: number | null
           quantity_unit?: string | null
           size_specs?: string | null

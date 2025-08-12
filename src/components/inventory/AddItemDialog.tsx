@@ -78,6 +78,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     return categoryMap[aiCategory] || 'Other';
   };
 
+  const generateItemQrCode = () => `ITEM-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+
   const normalizeDate = (v: string): string | null => {
     if (!v) return null;
     // ISO yyyy-mm-dd
@@ -167,12 +169,14 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     try {
       const finalCategory = formData.category || 'Other';
       const safePurchaseDate = normalizeDate(formData.purchase_date) || null;
+      const itemQr = generateItemQrCode();
 
       const { data: item, error } = await supabase
         .from('items')
         .insert([{
           ...formData,
           category: finalCategory,
+          qr_code: itemQr,
           purchase_price: formData.purchase_price ? parseFloat(formData.purchase_price) : null,
           purchase_date: safePurchaseDate
         }])
