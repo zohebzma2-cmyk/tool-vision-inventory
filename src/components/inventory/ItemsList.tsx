@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { useCategories } from "@/hooks/useCategories";
 
 interface Item {
   id: string;
@@ -51,16 +52,7 @@ export function ItemsList() {
   });
   const { toast } = useToast();
 
-  const categories = [
-    "all", "Power Tools", "Hand Tools", "Fasteners", "Hardware", 
-    "Safety Equipment", "Electrical", "Plumbing", "Cutting Tools", 
-    "Measuring Tools", "Other"
-  ];
-  const itemCategories = [
-    "Power Tools", "Hand Tools", "Fasteners", "Hardware", 
-    "Safety Equipment", "Electrical", "Plumbing", "Cutting Tools", 
-    "Measuring Tools", "Other"
-  ];
+  const { categories, addCategory, categoriesForFilter } = useCategories();
 
   const normalizeDate = (v?: string): string | null => {
     if (!v) return null;
@@ -234,7 +226,7 @@ export function ItemsList() {
           onChange={(e) => setSelectedCategory(e.target.value)}
           className="px-4 py-2 border border-input rounded-md bg-background text-foreground h-10 min-w-[160px]"
         >
-          {categories.map(cat => (
+          {categoriesForFilter.map(cat => (
             <option key={cat} value={cat}>
               {cat === "all" ? "All Categories" : cat}
             </option>
@@ -356,12 +348,23 @@ export function ItemsList() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-category">Category *</Label>
-                <Select value={editFormData.category} onValueChange={(v) => setEditFormData(p => ({ ...p, category: v }))}>
+                <Select value={editFormData.category} onValueChange={(v) => {
+                  if (v === "__add_category__") {
+                    const name = window.prompt("New category name");
+                    if (name && name.trim()) {
+                      addCategory(name.trim());
+                      setEditFormData(p => ({ ...p, category: name.trim() }));
+                    }
+                    return;
+                  }
+                  setEditFormData(p => ({ ...p, category: v }))
+                }}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
-                    {itemCategories.map(cat => (
+                    <SelectItem value="__add_category__">+ Add new category</SelectItem>
+                    {categories.map(cat => (
                       <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                     ))}
                   </SelectContent>

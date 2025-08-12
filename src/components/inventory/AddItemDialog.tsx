@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ImageRecognition } from "./ImageRecognition";
 import { isPrintingSupported, autoPrintLabel, printTextLabel } from "./PrinterService";
 import { LabelPreview } from "./LabelPreview";
+import { useCategories } from "@/hooks/useCategories";
 
 interface AddItemDialogProps {
   open: boolean;
@@ -56,10 +57,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     })();
   }, [open]);
 
-  const categories = [
-    "Power Tools", "Hand Tools", "Fasteners", "Hardware", "Safety Equipment",
-    "Electrical", "Plumbing", "Cutting Tools", "Measuring Tools", "Other"
-  ];
+  const { categories, addCategory } = useCategories();
 
   const handleToolIdentified = (toolInfo: { name: string; category: string; confidence: number }) => {
     setFormData(prev => ({
@@ -553,12 +551,23 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
               <Label htmlFor="category">Category *</Label>
               <Select 
                 value={formData.category} 
-                onValueChange={(value) => setFormData(prev => ({ ...prev, category: value }))}
+                onValueChange={(value) => {
+                  if (value === "__add_category__") {
+                    const name = window.prompt("New category name");
+                    if (name && name.trim()) {
+                      addCategory(name.trim());
+                      setFormData(prev => ({ ...prev, category: name.trim() }));
+                    }
+                    return;
+                  }
+                  setFormData(prev => ({ ...prev, category: value }));
+                }}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__add_category__">+ Add new category</SelectItem>
                   {categories.map(cat => (
                     <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                   ))}
