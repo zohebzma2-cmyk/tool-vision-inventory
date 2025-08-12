@@ -54,22 +54,30 @@ serve(async (req) => {
       "You are a precise vision assistant. Always respond with strict JSON only, no prose.";
 
     const baseUserInstructionIdentify = `
-You will be given an image. Identify the main item with a short, precise, human-readable name (prefer consumer/common product names). If brand/model are visible, include them in the name. Also estimate a confidence 0..1.
-Additionally, provide up to 8 general labels, up to 5 web-like entities (keywords or entity names), up to 3 object names that appear in the image (no boxes), and extract all readable text.
-Also assign exactly ONE category from this allowed set (lowercase):
+You will be given an image. Identify the main item with a short, precise, human-readable name (include brand/model if visible). Estimate a confidence 0..1.
+Provide up to 8 general labels, up to 5 web-like entities (keywords), up to 3 object names (no boxes), and extract all readable text.
+Assign exactly ONE category from this allowed set (lowercase):
 ["hand tools","power tools","electrical","plumbing","cutting tools","measuring tools","other"]
-Return strict JSON with this schema:
+Also decide the best placementType for a workshop with this storage layout:
+- 20 small bins for small parts (fasteners, connectors) => "bin"
+- 100 pegboard hooks/slots for hand/measuring/cutting tools => "pegboard"
+- A small 5-drawer sockets cabinet (for sockets/ratchets/torx) => "sockets-drawer"
+- A large 4x8 drawer for bulkier power tools => "drawer"
+- A floor/rack area for large/heavy items => "large-area"
+- A general shelf area for everything else => "general-shelf"
+Return strict JSON only with this schema:
 {
-  "specificName": string,          // short precise name, include brand/model if visible
-  "confidence": number,            // 0..1
-  "bestGuess": string,             // same as specificName or your best guess
+  "specificName": string,
+  "confidence": number,
+  "bestGuess": string,
   "category": string,              // one of the allowed set above, lowercase
+  "placementType": string,         // one of: ["bin","pegboard","drawer","sockets-drawer","large-area","general-shelf"]
   "webEntities": [ { "description": string, "score": number } ],
   "labels": [ { "description": string, "score": number } ],
   "objects": [ { "name": string, "score": number } ],
-  "text": string                   // all visible text with newlines preserved
+  "text": string
 }
-Keep arrays concise. Do not include any extra fields.`;
+Keep arrays concise. No extra fields.`;
 
     const baseUserInstructionLabels = `
 You will be given an image. Provide up to 10 general labels with confidence scores 0..1 as strict JSON only:
@@ -156,9 +164,10 @@ You will be given an image. Extract all readable text and return strict JSON onl
       const rawCategory = typeof parsed.category === "string" ? parsed.category.toLowerCase().trim() : "";
       const allowed = new Set(["hand tools","power tools","electrical","plumbing","cutting tools","measuring tools","other"]);
       const category = allowed.has(rawCategory) ? rawCategory : "";
+      const placementType: string = typeof parsed.placementType === 'string' ? parsed.placementType : '';
 
       return new Response(
-        JSON.stringify({ specificName, confidence, labels, objects, webEntities, text, bestGuess, category }),
+        JSON.stringify({ specificName, confidence, labels, objects, webEntities, text, bestGuess, category, placementType }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     } else if (mode === "labels") {

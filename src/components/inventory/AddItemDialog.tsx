@@ -34,6 +34,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     notes: ""
   });
   
+  const [aiPlacement, setAiPlacement] = useState<string | null>(null);
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -194,7 +196,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
         const { data: locations, error: locErr } = await supabase
           .from('locations')
-          .select('id,name,type,capacity,category');
+          .select('*');
 
         if (!locErr && Array.isArray(locations) && locations.length) {
           // Current occupancy per location (only active placements)
@@ -238,6 +240,24 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           const findFirst = (filterFn: (l:any)=>boolean) => locations.filter(filterFn).filter(fits).sort(byLowestOcc)[0];
 
           let chosen: any | undefined;
+
+          // Prioritize AI placement suggestion if available
+          if (!chosen && aiPlacement) {
+            const t = norm(aiPlacement);
+            if (t === 'sockets-drawer') {
+              chosen = findFirst(l => norm(l.type) === 'drawer' && /socket/.test(norm(l.name)));
+            } else if (t === 'bin') {
+              chosen = findFirst(l => norm(l.type) === 'bin');
+            } else if (t === 'pegboard') {
+              chosen = findFirst(l => norm(l.type) === 'pegboard');
+            } else if (t === 'drawer') {
+              chosen = findFirst(l => norm(l.type) === 'drawer' && /4x8|4x 8|4\s*x\s*8/.test(norm(l.name))) || findFirst(l => norm(l.type) === 'drawer');
+            } else if (t === 'large-area') {
+              chosen = findFirst(l => /large.*area/.test(norm(l.name)) || norm(l.type) === 'rack');
+            } else if (t === 'general-shelf') {
+              chosen = findFirst(l => /general/.test(norm(l.name)) || norm(l.type) === 'shelf');
+            }
+          }
 
           if (!chosen && preferSockets) {
             chosen = findFirst(l => norm(l.type) === 'drawer' && /socket/.test(norm(l.name)));
@@ -399,6 +419,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
             onToolIdentified={handleToolIdentified}
             onTextExtracted={handleTextExtracted}
             onAutoFill={handleAutoFill}
+            onPlacementSuggested={(t) => setAiPlacement(t)}
           />
 
           <div className="grid grid-cols-2 gap-4">

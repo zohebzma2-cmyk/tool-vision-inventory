@@ -32,9 +32,10 @@ interface ImageRecognitionProps {
     purchase_price: string;
     notes: string;
   }>) => void;
+  onPlacementSuggested?: (type: string) => void;
 }
 
-export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill }: ImageRecognitionProps) {
+export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill, onPlacementSuggested }: ImageRecognitionProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -127,6 +128,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
       const confidence = (data?.confidence as number | undefined) ?? 0;
       const labels = (data?.labels ?? []).slice(0, 3);
       const categoryFromAI: string | undefined = (data?.category as string | undefined) || undefined;
+      const placementType: string | undefined = typeof data?.placementType === 'string' ? data.placementType : undefined;
 
       const toolResults = [
         ...(specific ? [{ label: specific, score: confidence, category: categoryFromAI || mapToToolCategory(specific) }] : []),
@@ -138,6 +140,10 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
       if (top && (top.score ?? 0) > 0.3) {
         const topCategory = categoryFromAI || top.category;
         onToolIdentified?.({ name: top.label, category: topCategory, confidence: top.score! });
+      }
+
+      if (placementType) {
+        onPlacementSuggested?.(placementType);
       }
 
       // Build auto-fill suggestions using Vision web/entities/text
