@@ -59,19 +59,26 @@ serve(async (req) => {
     const systemPrompt =
       "You are a precise vision assistant. Always respond with strict JSON only, no prose.";
 
-    const baseUserInstructionIdentify = `
+    const identifyInstruction = `
 You will be given an image. Identify the main item with a short, precise, human-readable name (include brand/model if visible). Estimate a confidence 0..1.
 Provide up to 8 general labels, up to 5 web-like entities (keywords), up to 3 object names (no boxes), and extract all readable text.
 Assign exactly ONE category from this allowed set (lowercase):
 ["hand tools","power tools","electrical","plumbing","cutting tools","measuring tools","other"]
-Also decide the best placementType for a workshop with this storage layout:
+
+Storage layout and sizing (IMPORTANT):
 - 20 small bins for small parts (fasteners, connectors) => "bin"
 - 100 pegboard hooks/slots for hand/measuring/cutting tools => "pegboard"
 - A small 5-drawer sockets cabinet (for sockets/ratchets/torx) => "sockets-drawer"
 - A large 4x8 drawer for bulkier power tools => "drawer"
 - A floor/rack area for large/heavy items => "large-area"
 - A general shelf area for everything else => "general-shelf"
-Return strict JSON only with this schema:
+
+26-gallon bin internal size approx 23.5 x 18 x 16.5 inches (volume ≈ 6000 in^3). An item is "bin-eligible" only if its approximate L/W/H all fit within those internal dimensions AND its rough volume is ≤ 6000 in^3.
+${(dims && Number.isFinite(dims.length) && Number.isFinite(dims.width) && Number.isFinite(dims.height))
+  ? `User-provided approximate dimensions (inches): L=${dims.length}, W=${dims.width}, H=${dims.height}. Use these to decide if "bin" is appropriate.`
+  : `No dimensions provided. If dimensions are needed to decide between "bin" vs other placements, set "needsDimensions": true and include a short "dimensionQuestion" asking for approximate L, W, H in inches (e.g., "About how long, wide, and tall is it?").`}
+
+Return strict JSON ONLY with this schema:
 {
   "specificName": string,
   "confidence": number,
@@ -81,9 +88,11 @@ Return strict JSON only with this schema:
   "webEntities": [ { "description": string, "score": number } ],
   "labels": [ { "description": string, "score": number } ],
   "objects": [ { "name": string, "score": number } ],
-  "text": string
+  "text": string,
+  "needsDimensions": boolean,      // true only if you need L/W/H to decide placement
+  "dimensionQuestion": string      // present only if needsDimensions is true
 }
-Keep arrays concise. No extra fields.`;
+Keep arrays concise. No extra fields.`
 
     const baseUserInstructionLabels = `
 You will be given an image. Provide up to 10 general labels with confidence scores 0..1 as strict JSON only:
@@ -118,7 +127,7 @@ You will be given an image. Extract all readable text and return strict JSON onl
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(bodyCommon(baseUserInstructionIdentify)),
+        body: JSON.stringify(bodyCommon(identifyInstruction)),
       });
     } else if (mode === "labels") {
       openAIResponse = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -172,8 +181,11 @@ You will be given an image. Extract all readable text and return strict JSON onl
       const category = allowed.has(rawCategory) ? rawCategory : "";
       const placementType: string = typeof parsed.placementType === 'string' ? parsed.placementType : '';
 
+      const needsDimensions: boolean = !!parsed.needsDimensions;
+      const dimensionQuestion: string = typeof parsed.dimensionQuestion === 'string' ? parsed.dimensionQuestion : '';
+
       return new Response(
-        JSON.stringify({ specificName, confidence, labels, objects, webEntities, text, bestGuess, category, placementType }),
+        JSON.stringify({ specificName, confidence, labels, objects, webEntities, text, bestGuess, category, placementType, needsDimensions, dimensionQuestion }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     } else if (mode === "labels") {
