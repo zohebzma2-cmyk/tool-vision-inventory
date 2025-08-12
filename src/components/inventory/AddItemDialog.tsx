@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ImageRecognition } from "./ImageRecognition";
+import { isPrintingSupported, autoPrintLabel, printTextLabel } from "./PrinterService";
 
 interface AddItemDialogProps {
   open: boolean;
@@ -189,7 +190,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
         const { data: locations, error: locErr } = await supabase
           .from('locations')
-          .select('id,name,type,capacity');
+          .select('id,name,type,capacity,category');
 
         if (!locErr && Array.isArray(locations) && locations.length) {
           // Current occupancy per location (only active placements)
@@ -259,10 +260,33 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
           }
 
           if (chosen) {
+            const wasEmpty = (occMap.get(chosen.id) || 0) === 0;
+
             const { error: ilErr } = await supabase.from('item_locations').insert([
               { item_id: item.id, location_id: chosen.id, quantity: formData.quantity }
             ]);
             if (!ilErr) assignedLocationName = chosen.name;
+
+            // Categorize bin on first assignment if it has no category
+            if (norm(chosen.type) === 'bin' && (!chosen.category || !String(chosen.category).trim())) {
+              await supabase
+                .from('locations')
+                .update({ category: finalCategory })
+                .eq('id', chosen.id);
+            }
+
+            // Print item label; if first item in location, also print location label
+            if (isPrintingSupported()) {
+              try {
+                const labelText = `${item.name} • ${finalCategory}${assignedLocationName ? ' @ ' + assignedLocationName : ''}`;
+                await printTextLabel(labelText);
+                if (wasEmpty) {
+                  await autoPrintLabel(chosen.id);
+                }
+              } catch (printErr) {
+                console.warn('Printing labels failed:', printErr);
+              }
+            }
           }
         }
       } catch (assignErr) {

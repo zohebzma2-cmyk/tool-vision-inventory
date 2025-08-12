@@ -199,6 +199,7 @@ export type Database = {
       locations: {
         Row: {
           capacity: number | null
+          category: string | null
           created_at: string
           description: string | null
           id: string
@@ -210,6 +211,7 @@ export type Database = {
         }
         Insert: {
           capacity?: number | null
+          category?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -221,6 +223,7 @@ export type Database = {
         }
         Update: {
           capacity?: number | null
+          category?: string | null
           created_at?: string
           description?: string | null
           id?: string
