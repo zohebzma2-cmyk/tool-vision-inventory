@@ -64,13 +64,38 @@ export function LocationsList() {
 
   const fetchLocations = async () => {
     try {
-      const { data, error } = await supabase
-        .from('locations')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const [locsRes, linksRes, itemsRes] = await Promise.all([
+        supabase.from('locations').select('*').order('created_at', { ascending: false }),
+        supabase.from('item_locations').select('item_id, location_id').is('date_removed', null),
+        supabase.from('items').select('id, name')
+      ]);
 
-      if (error) throw error;
-      setLocations(data || []);
+      if (locsRes.error) throw locsRes.error;
+      if (linksRes.error) throw linksRes.error;
+      if (itemsRes.error) throw itemsRes.error;
+
+      const locations = locsRes.data || [];
+      const links = linksRes.data || [];
+      const items = itemsRes.data || [];
+
+      const nameByItemId = new Map<string, string>();
+      (items as any[]).forEach((it:any) => nameByItemId.set(it.id, it.name));
+
+      const namesByLoc = new Map<string, string[]>();
+      (links as any[]).forEach((l:any) => {
+        const nm = nameByItemId.get(l.item_id);
+        if (!nm) return;
+        const arr = namesByLoc.get(l.location_id) || [];
+        if (!arr.includes(nm)) arr.push(nm);
+        namesByLoc.set(l.location_id, arr);
+      });
+
+      const enriched = (locations as any[]).map((loc:any) => ({
+        ...loc,
+        __itemNames: namesByLoc.get(loc.id) || []
+      }));
+
+      setLocations(enriched as any);
     } catch (error) {
       toast({
         title: "Error",
@@ -458,11 +483,21 @@ export function LocationsList() {
                       </div>
                     )}
                     
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Items stored:</span>
-                      <Badge variant="secondary" className="text-xs bg-success/10 text-success border-success/20">
-                        0 items
-                      </Badge>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Items stored:</span>
+                        <Badge variant="secondary" className="text-xs bg-success/10 text-success border-success/20">
+                          {((location as any).__itemNames?.length || 0)} item{(((location as any).__itemNames?.length || 0) === 1) ? '' : 's'}
+                        </Badge>
+                      </div>
+                      {((location as any).__itemNames?.length || 0) > 0 && (
+                        <div className="text-xs text-muted-foreground">
+                          <span className="font-medium">{(location as any).__itemNames.slice(0,3).join(', ')}</span>
+                          {((location as any).__itemNames.length > 3) && (
+                            <span className="ml-1">+{(location as any).__itemNames.length - 3} more</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
