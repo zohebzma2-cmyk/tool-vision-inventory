@@ -33,9 +33,10 @@ interface ImageRecognitionProps {
     notes: string;
   }>) => void;
   onPlacementSuggested?: (type: string) => void;
+  dimsInches?: { length?: number; width?: number; height?: number };
 }
 
-export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill, onPlacementSuggested }: ImageRecognitionProps) {
+export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill, onPlacementSuggested, dimsInches }: ImageRecognitionProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -121,7 +122,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
     try {
       setIsProcessing(true);
       const { data, error } = await supabase.functions.invoke('openai-vision', {
-        body: { imageDataUrl: imageUrl, mode: 'identify' }
+        body: { imageDataUrl: imageUrl, mode: 'identify', dimsInches }
       });
       if (error) throw error;
       const specific = data?.specificName as string | undefined;
@@ -144,6 +145,10 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
 
       if (placementType) {
         onPlacementSuggested?.(placementType);
+      }
+
+      if (data?.dimensionQuestion) {
+        toast({ title: 'Size needed', description: String(data.dimensionQuestion) });
       }
 
       // Build auto-fill suggestions using Vision web/entities/text

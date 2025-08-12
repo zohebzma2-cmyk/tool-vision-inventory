@@ -41,13 +41,19 @@ serve(async (req) => {
       });
     }
 
-    const { imageDataUrl, mode } = await req.json();
+    const { imageDataUrl, mode, dimsInches } = await req.json();
     if (!imageDataUrl || !mode) {
       return new Response(JSON.stringify({ error: "Missing imageDataUrl or mode" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    const dims = dimsInches && typeof dimsInches === 'object' ? {
+      length: Number(dimsInches.length ?? NaN),
+      width: Number(dimsInches.width ?? NaN),
+      height: Number(dimsInches.height ?? NaN),
+    } : null;
 
     // Build request to OpenAI GPT-4o-mini with vision
     const systemPrompt =
