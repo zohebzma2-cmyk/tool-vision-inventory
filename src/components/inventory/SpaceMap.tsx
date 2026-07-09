@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import { getTemplate, type LabelData } from "@/lib/labelTemplates";
+import { type LabelData } from "@/lib/labelTemplates";
+import { resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { printTemplateLabel } from "@/lib/brotherPrint";
 import { isPrintingSupported } from "./PrinterService";
@@ -42,7 +43,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
   const [printingAll, setPrintingAll] = useState(false);
 
   const templateId = location?.layout?.labelTemplateId;
-  const template = useMemo(() => getTemplate(templateId), [templateId]);
+  const template = useMemo(() => resolveTemplate(templateId), [templateId]);
   const rows = location?.grid_rows ?? 0;
   const cols = location?.grid_cols ?? 0;
 

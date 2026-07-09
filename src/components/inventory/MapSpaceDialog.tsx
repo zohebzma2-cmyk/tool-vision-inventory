@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { buildSlotDefs, createSpaceWithSlots } from "@/lib/slots";
-import { BUILTIN_TEMPLATES, getTemplate, type LabelData } from "@/lib/labelTemplates";
+import { BUILTIN_TEMPLATES, type LabelData } from "@/lib/labelTemplates";
+import { getAllTemplates, resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { suggestSpaceFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 
@@ -228,15 +229,15 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
               <Select value={templateId} onValueChange={setTemplateId}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {BUILTIN_TEMPLATES.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
+                  {getAllTemplates().map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">{getTemplate(templateId).description}</p>
+              <p className="text-xs text-muted-foreground">{resolveTemplate(templateId).description}</p>
             </div>
             <div className="space-y-2">
               <Label>Sample slot label</Label>
               <div className="flex justify-center rounded-md border p-4 bg-muted/30">
-                <LabelTemplateRenderer template={getTemplate(templateId)} data={previewData} pxPerMm={5} />
+                <LabelTemplateRenderer template={resolveTemplate(templateId)} data={previewData} pxPerMm={5} />
               </div>
             </div>
             <div className="rounded-md border p-3 text-sm text-muted-foreground">

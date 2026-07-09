@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3 } from "lucide-react";
 import { MapSpaceDialog } from "./MapSpaceDialog";
 import { SpaceMap } from "./SpaceMap";
+import { LabelTemplateEditor } from "./LabelTemplateEditor";
+import { Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +40,7 @@ export function LocationsList() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
   const [mapLoc, setMapLoc] = useState<Location | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [printerConnected, setPrinterConnected] = useState(false);
   const [formData, setFormData] = useState({
@@ -386,6 +389,13 @@ export function LocationsList() {
               </>
             )}
             <Button
+              variant="outline"
+              onClick={() => setShowTemplates(true)}
+            >
+              <Tags className="h-4 w-4 mr-2" />
+              Templates
+            </Button>
+            <Button
               variant="secondary"
               onClick={() => setShowMapDialog(true)}
               className="shadow-soft"
@@ -728,6 +738,8 @@ export function LocationsList() {
         onOpenChange={(v) => { if (!v) setMapLoc(null); }}
         location={mapLoc}
       />
+
+      <LabelTemplateEditor open={showTemplates} onOpenChange={setShowTemplates} />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent>
