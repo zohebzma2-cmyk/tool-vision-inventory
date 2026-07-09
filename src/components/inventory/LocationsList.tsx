@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3 } from "lucide-react";
+import { MapSpaceDialog } from "./MapSpaceDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ export function LocationsList() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showMapDialog, setShowMapDialog] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [printerConnected, setPrinterConnected] = useState(false);
   const [formData, setFormData] = useState({
@@ -377,7 +379,15 @@ export function LocationsList() {
                 )}
               </>
             )}
-            <Button 
+            <Button
+              variant="secondary"
+              onClick={() => setShowMapDialog(true)}
+              className="shadow-soft"
+            >
+              <Grid3x3 className="h-4 w-4 mr-2" />
+              Map a Space
+            </Button>
+            <Button
               onClick={() => setShowAddDialog(true)}
               className="shadow-soft"
             >
@@ -695,6 +705,12 @@ export function LocationsList() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <MapSpaceDialog
+        open={showMapDialog}
+        onOpenChange={setShowMapDialog}
+        onCreated={fetchLocations}
+      />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent>

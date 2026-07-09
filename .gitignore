@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Environment / secrets (never commit real keys; .env.example is the tracked template)
+.env
+.env.*
+!.env.example
+.dev.vars
+.wrangler
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
