@@ -30,7 +30,25 @@ uncomment the `kv_namespaces` block in `wrangler.toml` to cap per-IP daily usage
 | ------ | ---------------- | --------------------------- | ------- |
 | GET    | `/health`        | —                           | `{ ok, model }` |
 | POST   | `/map-space`     | `{ imageDataUrl, hint? }`   | `{ type, gridRows, gridCols, notes, confidence }` |
-| POST   | `/identify-item` | `{ imageDataUrl }`          | `{ name, category, brand, model, text, confidence }` |
+| POST   | `/identify-item` | `{ imageDataUrl }`          | `{ name, category, brand, model, text, confidence, enrichment }` |
+
+### Web-grounded enrichment (`/identify-item`)
+
+After identifying the item, the Worker can make a second OpenRouter call using a text model plus
+OpenRouter's [web search plugin](https://openrouter.ai/docs/features/web-search) to add
+**current, real-world** info — key specs, typical price, and any active safety recalls — instead of
+relying only on the vision model's training data. The result is returned under an `enrichment` key:
+
+```json
+{ "specs": "18V, 1/2\" chuck, 500 in-lbs torque", "typicalPrice": "~$99 (kit)",
+  "recallNotice": "", "sources": ["https://…", "https://…"] }
+```
+
+This is best-effort: if the enrichment call fails or times out it is skipped silently and the base
+identification is still returned, with `enrichment: null`. Config (Worker vars):
+
+- `ENABLE_WEB_GROUNDING` — on by default; set to `"false"` to disable the enrichment call.
+- `GROUNDING_MODEL` — text model used for grounding (default `google/gemma-4-31b-it:free`).
 
 ## One-command setup (Mac mini)
 

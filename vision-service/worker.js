@@ -5,7 +5,7 @@
 // so the frontend only needs VITE_VISION_API_URL pointed at this Worker's URL.
 //
 //   POST /map-space      { imageDataUrl, hint }  -> { type, gridRows, gridCols, notes, confidence }
-//   POST /identify-item  { imageDataUrl }         -> { name, category, brand, model, text, confidence }
+//   POST /identify-item  { imageDataUrl }         -> { name, category, brand, model, text, confidence, enrichment }
 //   GET  /health                                  -> { ok, model }
 //
 // Security / reliability hardening:
@@ -21,6 +21,8 @@
 //   OPENROUTER_API_KEY (secret) · VISION_MODEL · VISION_MODEL_FALLBACK · OPENROUTER_BASE
 //   SUPABASE_URL · SUPABASE_ANON_KEY · ALLOWED_ORIGINS · DAILY_LIMIT · MAX_BODY_BYTES
 //   RATE_LIMIT_KV (KV binding, optional)
+//   GROUNDING_MODEL (text model for web-grounded enrichment, default "google/gemma-4-31b-it:free")
+//   ENABLE_WEB_GROUNDING (default on; set to "false" to disable the enrichment call)
 
 const CATEGORIES = ["hand tools", "power tools", "electrical", "plumbing", "cutting tools", "measuring tools", "fasteners", "other"];
 const LOCATION_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "space"];
@@ -98,6 +100,62 @@ async function callModelResilient(env, apiKey, prompt, imageDataUrl) {
   throw lastErr;
 }
 
+const GROUNDING_MODEL = "google/gemma-4-31b-it:free";
+const GROUNDING_TIMEOUT_MS = 12000;
+
+const GROUNDING_PROMPT = (name, brand, model) =>
+  `Using current web information, enrich this identified tool/item for a garage inventory.
+Tool: name="${name || ""}", brand="${brand || ""}", model="${model || ""}".
+Search for its key specifications, current typical retail price, and any active safety recalls.
+Respond with STRICT JSON ONLY:
+{"specs": short string of key specs (e.g. voltage, torque, bit/blade size), "typicalPrice": short string, "recallNotice": string or "", "sources": array of up to 3 URLs}`;
+
+// Optional web-grounded enrichment. Uses a text model + OpenRouter's web search plugin.
+// Never throws: on error, timeout, or disabled returns null so identification always succeeds.
+async function enrichWithWeb(env, apiKey, ident) {
+  if (String(env.ENABLE_WEB_GROUNDING || "").toLowerCase() === "false") return null;
+  const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), GROUNDING_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://github.com/zalvi22/tool-vision-inventory",
+        "X-Title": "Tool Vision Inventory",
+      },
+      body: JSON.stringify({
+        model: env.GROUNDING_MODEL || GROUNDING_MODEL,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        plugins: [{ id: "web" }], // OpenRouter web search plugin
+        messages: [
+          { role: "user", content: GROUNDING_PROMPT(ident.name, ident.brand, ident.model) },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const out = parseJson(data?.choices?.[0]?.message?.content ?? "{}");
+    const sources = Array.isArray(out.sources)
+      ? out.sources.filter((s) => typeof s === "string").slice(0, 3)
+      : [];
+    return {
+      specs: typeof out.specs === "string" ? out.specs : "",
+      typicalPrice: typeof out.typicalPrice === "string" ? out.typicalPrice : "",
+      recallNotice: typeof out.recallNotice === "string" ? out.recallNotice : "",
+      sources,
+    };
+  } catch { /* timeout / network / parse — enrichment must never break identification */
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Verify the request carries a valid Supabase user token (only when SUPABASE_URL configured).
 async function verifyUser(env, token) {
   if (!env.SUPABASE_URL) return true; // auth not enforced (dev / self-host without accounts)
@@ -170,14 +228,17 @@ export default {
       }
       const out = await callModelResilient(env, apiKey, IDENTIFY_PROMPT, body.imageDataUrl);
       const cat = String(out.category || "").toLowerCase();
-      return json(200, {
+      const ident = {
         name: typeof out.name === "string" ? out.name : "Unknown item",
         category: CATEGORIES.includes(cat) ? cat : "other",
         brand: typeof out.brand === "string" ? out.brand : "",
         model: typeof out.model === "string" ? out.model : "",
         text: typeof out.text === "string" ? out.text : "",
         confidence: clamp01(out.confidence ?? 0.6),
-      }, cors);
+      };
+      // Optional web-grounded enrichment — never allowed to break identification.
+      const enrichment = await enrichWithWeb(env, apiKey, ident);
+      return json(200, { ...ident, enrichment }, cors);
     } catch (e) {
       return json(502, { error: String(e?.message || e) }, cors);
     }

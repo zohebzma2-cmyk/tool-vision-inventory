@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3 } from "lucide-react";
 import { MapSpaceDialog } from "./MapSpaceDialog";
+import { SpaceMap } from "./SpaceMap";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,10 @@ interface Location {
   capacity?: number;
   description?: string;
   created_at: string;
+  grid_rows?: number | null;
+  grid_cols?: number | null;
+  is_slot?: boolean;
+  layout?: { labelTemplateId?: string } | null;
 }
 
 export function LocationsList() {
@@ -32,6 +37,7 @@ export function LocationsList() {
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
+  const [mapLoc, setMapLoc] = useState<Location | null>(null);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [printerConnected, setPrinterConnected] = useState(false);
   const [formData, setFormData] = useState({
@@ -67,7 +73,7 @@ export function LocationsList() {
   const fetchLocations = async () => {
     try {
       const [locsRes, linksRes, itemsRes] = await Promise.all([
-        supabase.from('locations').select('*').order('created_at', { ascending: false }),
+        supabase.from('locations').select('*').eq('is_slot', false).order('created_at', { ascending: false }),
         supabase.from('item_locations').select('item_id, location_id').is('date_removed', null),
         supabase.from('items').select('id, name')
       ]);
@@ -447,6 +453,11 @@ export function LocationsList() {
                       </div>
                     </div>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {location.grid_rows && location.grid_cols && (
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="View slot map" onClick={() => setMapLoc(location)}>
+                          <Grid3x3 className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setPreviewLoc(location); setPreviewOpen(true); }}>
                         <Eye className="h-4 w-4" />
                       </Button>
@@ -710,6 +721,12 @@ export function LocationsList() {
         open={showMapDialog}
         onOpenChange={setShowMapDialog}
         onCreated={fetchLocations}
+      />
+
+      <SpaceMap
+        open={!!mapLoc}
+        onOpenChange={(v) => { if (!v) setMapLoc(null); }}
+        location={mapLoc}
       />
 
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>

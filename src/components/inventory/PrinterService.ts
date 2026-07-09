@@ -53,22 +53,12 @@ class BrotherQLPrinterService implements PrinterService {
 
       console.log('Requesting Brother QL printer connection via WebUSB...');
 
-      // Request Brother QL device
+      // Request any Brother label printer (QL roll series + PT/P-touch tape series).
+      // Vendor-only filter matches every Brother device so users aren't limited to QL-800.
       this.device = await (navigator as any).usb.requestDevice({
         filters: [
-          {
-            vendorId: 0x04f9, // Brother vendor ID
-            classCode: 7,     // Printer class
-          },
-          {
-            vendorId: 0x04f9, // Brother vendor ID  
-            productId: 0x209b // QL-800 product ID
-          },
-          {
-            vendorId: 0x04f9, // Brother vendor ID
-            productId: 0x2100 // Alternative QL-800 product ID
-          }
-        ]
+          { vendorId: 0x04f9 }, // any Brother device
+        ],
       });
 
       if (!this.device) {
