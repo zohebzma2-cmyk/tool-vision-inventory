@@ -1,0 +1,5 @@
+# Automatic HTTPS for the self-hosted vision endpoint.
+# Replace vision.yourdomain.com with your real hostname (DNS A record -> this box's IP).
+vision.yourdomain.com {
+	reverse_proxy adapter:8787
+}

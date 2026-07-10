@@ -1,0 +1,72 @@
+# Fixed-cost self-hosted vision on a Hetzner box (or any Docker host).
+#
+# Runs Ollama (open-source VLM) + the zero-dependency adapter, fronted by Caddy for automatic
+# HTTPS. After the box's flat monthly cost, inference is unlimited and free — no per-image API
+# charges, which matters when you have thousands of tools to identify.
+#
+# Setup (on the box):
+#   1. Install Docker + compose plugin.
+#   2. Point a DNS A record (e.g. vision.yourdomain.com) at the box's IP.
+#   3. Create .env next to this file (see .env.hetzner.example).
+#   4. docker compose -f docker-compose.hetzner.yml --env-file .env up -d
+#   5. Pull the model once: docker exec tvi-ollama ollama pull "$VISION_MODEL"
+#
+# Then set VITE_VISION_API_URL=https://vision.yourdomain.com in the frontend.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: tvi-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    # Expose only to the internal compose network (not the public internet).
+    expose:
+      - "11434"
+    # For an NVIDIA GPU box, uncomment to enable GPU acceleration:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  adapter:
+    image: node:20-alpine
+    container_name: tvi-adapter
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./server.mjs:/app/server.mjs:ro
+    command: ["node", "server.mjs"]
+    environment:
+      VISION_PORT: "8787"
+      OLLAMA_URL: "http://ollama:11434"
+      VISION_MODEL: "${VISION_MODEL:-qwen2.5vl:7b}"
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
+      SUPABASE_URL: "${SUPABASE_URL}"
+      SUPABASE_ANON_KEY: "${SUPABASE_ANON_KEY}"
+    expose:
+      - "8787"
+    depends_on:
+      - ollama
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: tvi-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - adapter
+
+volumes:
+  ollama:
+  caddy_data:
+  caddy_config:
