@@ -1,0 +1,13 @@
+{
+  "name": "tool-vision-adapter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Zero-dependency adapter exposing /map-space and /identify-item in front of a local Ollama vision model.",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

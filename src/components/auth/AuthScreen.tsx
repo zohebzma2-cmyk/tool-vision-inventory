@@ -1,0 +1,123 @@
+import { useState } from "react";
+import { Wrench, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+
+export function AuthScreen() {
+  const { toast } = useToast();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const signIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+    if (error) toast({ title: "Sign in failed", description: error.message, variant: "destructive" });
+  };
+
+  const signUp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    setBusy(false);
+    if (error) {
+      toast({ title: "Sign up failed", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Check your email", description: "Confirm your address to finish signing up." });
+    }
+  };
+
+  const google = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    if (error) toast({ title: "Google sign in failed", description: error.message, variant: "destructive" });
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm shadow-elegant">
+        <CardHeader className="text-center">
+          <div className="mx-auto mb-2 p-2 bg-primary/10 rounded-lg w-fit">
+            <Wrench className="h-8 w-8 text-primary" />
+          </div>
+          <CardTitle className="text-2xl">Tool Inventory</CardTitle>
+          <CardDescription>Map your garage. Label every slot. Never lose a tool.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="signin">
+            <TabsList className="grid w-full grid-cols-2 mb-4">
+              <TabsTrigger value="signin">Sign in</TabsTrigger>
+              <TabsTrigger value="signup">Sign up</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="signin">
+              <form onSubmit={signIn} className="space-y-3">
+                <Field id="si-email" label="Email" type="email" value={email} onChange={setEmail} />
+                <Field id="si-pw" label="Password" type="password" value={password} onChange={setPassword} />
+                <Button type="submit" className="w-full" disabled={busy || !email || !password}>
+                  {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Sign in
+                </Button>
+              </form>
+            </TabsContent>
+
+            <TabsContent value="signup">
+              <form onSubmit={signUp} className="space-y-3">
+                <Field id="su-email" label="Email" type="email" value={email} onChange={setEmail} />
+                <Field id="su-pw" label="Password" type="password" value={password} onChange={setPassword} />
+                <Button type="submit" className="w-full" disabled={busy || !email || !password}>
+                  {busy && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Create account
+                </Button>
+              </form>
+            </TabsContent>
+          </Tabs>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">or</span>
+            </div>
+          </div>
+
+          <Button variant="outline" className="w-full" onClick={google} disabled={busy}>
+            Continue with Google
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function Field(props: {
+  id: string;
+  label: string;
+  type: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={props.id}>{props.label}</Label>
+      <Input
+        id={props.id}
+        type={props.type}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+        required
+        autoComplete={props.type === "password" ? "current-password" : "email"}
+      />
+    </div>
+  );
+}

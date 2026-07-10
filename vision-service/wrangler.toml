@@ -1,0 +1,35 @@
+# Cloudflare Worker config for the cloud vision endpoint.
+# Deploy:
+#   cd vision-service
+#   npx wrangler secret put OPENROUTER_API_KEY      # paste your OpenRouter key
+#   npx wrangler deploy
+# Then set VITE_VISION_API_URL to the deployed Worker URL in the frontend env.
+
+name = "tool-vision"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+
+[vars]
+# Free vision models (no OpenRouter credit needed → $0). Swap to "qwen/qwen-2.5-vl-7b-instruct"
+# after loading ~$5 credit for higher accuracy — one-line change, no code edits.
+VISION_MODEL = "google/gemma-4-31b-it:free"
+VISION_MODEL_FALLBACK = "nvidia/nemotron-nano-12b-v2-vl:free"
+OPENROUTER_BASE = "https://openrouter.ai/api/v1"
+
+# Security: lock CORS + require signed-in users of your app. These are set as SECRETS, not vars,
+# so real values never live in this committed file. Set them once per deployment with:
+#   wrangler secret put ALLOWED_ORIGINS    # comma-separated frontend origins
+#   wrangler secret put SUPABASE_URL       # your Supabase project URL
+#   wrangler secret put SUPABASE_ANON_KEY  # your Supabase anon key
+# (Do NOT also declare them under [vars] — a plain var shadows the secret of the same name.)
+
+# Abuse limits.
+DAILY_LIMIT = "100"
+MAX_BODY_BYTES = "8388608"
+
+# Optional per-IP rate limiting (protects your OpenRouter credit). Create with:
+#   npx wrangler kv namespace create RATE_LIMIT_KV
+# then uncomment and paste the id.
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT_KV"
+# id = "your-kv-namespace-id"

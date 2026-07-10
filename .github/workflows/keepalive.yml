@@ -1,0 +1,77 @@
+# Keepalive: prevents the Supabase FREE-tier project from auto-pausing after
+# 7 days of inactivity, and doubles as a lightweight daily uptime check for the
+# Cloudflare Worker vision service.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   SUPABASE_URL       Base URL of the Supabase project, e.g. https://abcdefgh.supabase.co
+#                      (no trailing slash). The workflow appends /rest/v1/.
+#   SUPABASE_ANON_KEY  The project's anon/public API key. Sent as the `apikey` header.
+#                      This is the public anon key (safe to store as an Actions secret);
+#                      do NOT use the service_role key here.
+#   VISION_HEALTH_URL  Full URL to the vision Worker health endpoint,
+#                      e.g. https://vision.example.workers.dev/health
+#
+# The job fails if either endpoint returns a non-2xx status, surfacing outages
+# in the Actions tab and via GitHub's failed-workflow notifications.
+
+name: keepalive
+
+on:
+  schedule:
+    # Once daily at 08:17 UTC. Odd minute chosen to avoid the top-of-hour
+    # scheduling congestion that delays GitHub-hosted cron runs.
+    - cron: "17 8 * * *"
+  workflow_dispatch: {}
+
+# Prevent overlapping runs if a manual dispatch races the scheduled run.
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping Supabase REST (keeps free-tier project awake)
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::SUPABASE_URL and SUPABASE_ANON_KEY secrets must be set."
+            exit 1
+          fi
+          # Strip any trailing slash so we do not produce a double slash.
+          base="${SUPABASE_URL%/}"
+          url="${base}/rest/v1/"
+          echo "GET ${url}"
+          code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            --max-time 30 --retry 2 --retry-delay 5 \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            "${url}")
+          echo "Supabase REST responded HTTP ${code}"
+          case "${code}" in
+            2*) echo "Supabase is awake." ;;
+            *)  echo "::error::Supabase REST returned non-2xx (${code})."; exit 1 ;;
+          esac
+
+      - name: Ping vision Worker /health
+        env:
+          VISION_HEALTH_URL: ${{ secrets.VISION_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VISION_HEALTH_URL:-}" ]; then
+            echo "::error::VISION_HEALTH_URL secret must be set."
+            exit 1
+          fi
+          echo "GET ${VISION_HEALTH_URL}"
+          code=$(curl -sS -o /dev/null -w "%{http_code}" \
+            --max-time 30 --retry 2 --retry-delay 5 \
+            "${VISION_HEALTH_URL}")
+          echo "Vision Worker responded HTTP ${code}"
+          case "${code}" in
+            2*) echo "Vision Worker is healthy." ;;
+            *)  echo "::error::Vision Worker /health returned non-2xx (${code})."; exit 1 ;;
+          esac

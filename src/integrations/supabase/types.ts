@@ -205,10 +205,18 @@ export type Database = {
           category: string | null
           created_at: string
           description: string | null
+          grid_cols: number | null
+          grid_rows: number | null
           id: string
+          image_path: string | null
+          is_slot: boolean
+          layout: Json | null
           name: string
           parent_location_id: string | null
           qr_code: string
+          slot_col: number | null
+          slot_index: number | null
+          slot_row: number | null
           type: string
           updated_at: string
         }
@@ -217,10 +225,18 @@ export type Database = {
           category?: string | null
           created_at?: string
           description?: string | null
+          grid_cols?: number | null
+          grid_rows?: number | null
           id?: string
+          image_path?: string | null
+          is_slot?: boolean
+          layout?: Json | null
           name: string
           parent_location_id?: string | null
           qr_code: string
+          slot_col?: number | null
+          slot_index?: number | null
+          slot_row?: number | null
           type: string
           updated_at?: string
         }
@@ -229,10 +245,18 @@ export type Database = {
           category?: string | null
           created_at?: string
           description?: string | null
+          grid_cols?: number | null
+          grid_rows?: number | null
           id?: string
+          image_path?: string | null
+          is_slot?: boolean
+          layout?: Json | null
           name?: string
           parent_location_id?: string | null
           qr_code?: string
+          slot_col?: number | null
+          slot_index?: number | null
+          slot_row?: number | null
           type?: string
           updated_at?: string
         }

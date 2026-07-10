@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Plus, Package, MapPin, BarChart3, Search, Wrench, AlertTriangle, TrendingUp } from "lucide-react";
+import { Plus, Package, MapPin, BarChart3, Search, Wrench, AlertTriangle, TrendingUp, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import { QRScanner } from "@/components/inventory/QRScanner";
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const { user, signOut } = useAuth();
 
   return (
     <div className="min-h-screen bg-background">
@@ -38,13 +40,22 @@ const Index = () => {
                 <Search className="h-4 w-4 mr-2" />
                 Scan QR Code
               </Button>
-              <Button 
+              <Button
                 size="default"
                 onClick={() => setShowAddItem(true)}
                 className="bg-white text-primary hover:bg-white/90 font-semibold shadow-soft"
               >
                 <Plus className="h-4 w-4 mr-2" />
                 Add New Item
+              </Button>
+              <Button
+                variant="outline"
+                size="default"
+                onClick={signOut}
+                title={user?.email ? `Sign out ${user.email}` : "Sign out"}
+                className="bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm"
+              >
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
