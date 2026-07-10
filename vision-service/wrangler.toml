@@ -16,12 +16,12 @@ VISION_MODEL = "google/gemma-4-31b-it:free"
 VISION_MODEL_FALLBACK = "nvidia/nemotron-nano-12b-v2-vl:free"
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
-# Security: lock CORS + require signed-in users of your app.
-# Comma-separated allowed browser origins (your frontend). Leave unset only for local dev.
-ALLOWED_ORIGINS = "https://your-app-domain"
-# Your Supabase project URL + anon key so the Worker can verify the caller's login token.
-SUPABASE_URL = "https://your-project.supabase.co"
-SUPABASE_ANON_KEY = "your-anon-public-key"
+# Security: lock CORS + require signed-in users of your app. These are set as SECRETS, not vars,
+# so real values never live in this committed file. Set them once per deployment with:
+#   wrangler secret put ALLOWED_ORIGINS    # comma-separated frontend origins
+#   wrangler secret put SUPABASE_URL       # your Supabase project URL
+#   wrangler secret put SUPABASE_ANON_KEY  # your Supabase anon key
+# (Do NOT also declare them under [vars] — a plain var shadows the secret of the same name.)
 
 # Abuse limits.
 DAILY_LIMIT = "100"
