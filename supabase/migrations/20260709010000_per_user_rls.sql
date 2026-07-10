@@ -41,14 +41,26 @@ END $$;
 
 -- 4. Lock down unused legacy tables (were world-writable from an earlier template).
 --    RLS stays enabled with no permissive policy => no anonymous access.
-DROP POLICY IF EXISTS "Public access to User" ON public."User";
-DROP POLICY IF EXISTS "Public access to customers" ON public.customers;
-DROP POLICY IF EXISTS "Public delete customers" ON public.customers;
-DROP POLICY IF EXISTS "Public update customers" ON public.customers;
-DROP POLICY IF EXISTS "Public access to invoices" ON public.invoices;
-DROP POLICY IF EXISTS "Public delete invoices" ON public.invoices;
-DROP POLICY IF EXISTS "Public access to payments" ON public.payments;
-DROP POLICY IF EXISTS "Public delete payments" ON public.payments;
+--    Guarded by existence checks so a fresh clone (which never had these tables) still applies.
+DO $$
+BEGIN
+  IF to_regclass('public."User"') IS NOT NULL THEN
+    DROP POLICY IF EXISTS "Public access to User" ON public."User";
+  END IF;
+  IF to_regclass('public.customers') IS NOT NULL THEN
+    DROP POLICY IF EXISTS "Public access to customers" ON public.customers;
+    DROP POLICY IF EXISTS "Public delete customers" ON public.customers;
+    DROP POLICY IF EXISTS "Public update customers" ON public.customers;
+  END IF;
+  IF to_regclass('public.invoices') IS NOT NULL THEN
+    DROP POLICY IF EXISTS "Public access to invoices" ON public.invoices;
+    DROP POLICY IF EXISTS "Public delete invoices" ON public.invoices;
+  END IF;
+  IF to_regclass('public.payments') IS NOT NULL THEN
+    DROP POLICY IF EXISTS "Public access to payments" ON public.payments;
+    DROP POLICY IF EXISTS "Public delete payments" ON public.payments;
+  END IF;
+END $$;
 
 -- NOTE: any rows created before this migration have NULL owner_id and are intentionally
 -- inaccessible under the new policies. Seed/demo data should be re-created per account.
