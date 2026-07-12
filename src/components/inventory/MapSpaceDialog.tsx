@@ -187,7 +187,12 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
     try {
       const dataUrl = await compressImage(file);
       setImageDataUrl(dataUrl);
-      if (isVisionConfigured()) void runAISuggest(dataUrl);
+      // The AI gets a smaller copy — vision cost scales steeply with resolution, and
+      // 960px is plenty for rack geometry. The stored photo stays high-res.
+      if (isVisionConfigured()) {
+        const aiUrl = await compressImage(file, 960, 0.65);
+        void runAISuggest(aiUrl);
+      }
     } catch (e) {
       toast({ title: "Couldn't read the photo", description: String((e as Error)?.message || e), variant: "destructive" });
     }

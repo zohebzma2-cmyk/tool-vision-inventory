@@ -60,7 +60,8 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
     try {
       const dataUrl = await compressImage(file);
       setImageDataUrl(dataUrl);
-      await runAI(dataUrl);
+      const aiUrl = await compressImage(file, 960, 0.65);
+      await runAI(aiUrl);
     } catch (e) {
       toast({ title: "Couldn't read the photo", description: String((e as Error)?.message || e), variant: "destructive" });
     }
