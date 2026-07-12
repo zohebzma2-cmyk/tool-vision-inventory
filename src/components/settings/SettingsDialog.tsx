@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Printer, TestTube, LogOut, Share, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
 import { setupPrinter, testPrint, isPrintingSupported } from "@/components/inventory/PrinterService";

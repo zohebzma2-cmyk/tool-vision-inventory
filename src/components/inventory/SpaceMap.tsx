@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Grid3x3, Printer, Loader2, Package, Camera, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { type LabelData } from "@/lib/labelTemplates";
@@ -10,6 +10,7 @@ import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { printTemplateLabel, outputLabel, isLabelOutputSupported } from "@/lib/brotherPrint";
 import { isPrintingSupported } from "./PrinterService";
 import { BinFillDialog } from "./BinFillDialog";
+import { cellQuad, quadToSvgPoints, type QuadCorners } from "@/lib/quad";
 
 interface SpaceLocation {
   id: string;
@@ -19,7 +20,10 @@ interface SpaceLocation {
   grid_rows?: number | null;
   grid_cols?: number | null;
   image_path?: string | null;
-  layout?: { labelTemplateId?: string } | null;
+  layout?: {
+    labelTemplateId?: string;
+    region?: { corners: { x: number; y: number }[] } | null;
+  } | null;
 }
 
 interface Slot {
@@ -191,40 +195,40 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
             </div>
 
             {location?.image_path ? (
-              /* Photo view: the slot grid drawn over the actual space. Tap a cell to inspect. */
+              /* Photo view: the slot grid drawn over the actual space (pinned to the
+                 mapped quad when one was set, so cells sit on the real bins). */
               <div className="relative rounded-md overflow-hidden border">
-                <img src={location.image_path} alt={`${location.name} photo`} className="w-full object-cover" />
-                <div
-                  className="absolute inset-0 grid"
-                  style={{
-                    gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
-                    gridTemplateRows: `repeat(${Math.max(rows, 1)}, 1fr)`,
-                  }}
-                >
-                  {Array.from({ length: rows }).flatMap((_, ri) =>
-                    Array.from({ length: cols }).map((__, ci) => {
-                      const r = ri + 1, c = ci + 1;
-                      const slot = slotAt(r, c);
-                      const filled = (slot?.items.length ?? 0) > 0;
-                      return (
-                        <button
-                          key={`${r}-${c}`}
-                          onClick={() => slot && setSelected(slot)}
-                          title={slot ? `${slot.name}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}
-                          className={[
-                            "relative border border-white/40 transition-colors",
-                            filled ? "bg-primary/30 hover:bg-primary/40" : "hover:bg-white/20",
-                            selected?.id === slot?.id ? "ring-2 ring-primary ring-inset bg-primary/20" : "",
-                          ].join(" ")}
-                        >
-                          {filled && (
-                            <span className="absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full bg-primary shadow" aria-hidden />
-                          )}
-                        </button>
-                      );
-                    }),
-                  )}
-                </div>
+                <img src={location.image_path} alt={`${location.name} photo`} className="w-full object-contain bg-tile" />
+                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  {(() => {
+                    const rc = location.layout?.region?.corners;
+                    const quad: QuadCorners = rc && rc.length === 4
+                      ? (rc as QuadCorners)
+                      : [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+                    return Array.from({ length: rows }).flatMap((_, ri) =>
+                      Array.from({ length: cols }).map((__, ci) => {
+                        const r = ri + 1, c = ci + 1;
+                        const slot = slotAt(r, c);
+                        const filled = (slot?.items.length ?? 0) > 0;
+                        const isSel = !!slot && selected?.id === slot.id;
+                        return (
+                          <polygon
+                            key={`${r}-${c}`}
+                            points={quadToSvgPoints(cellQuad(quad, r, c, rows, cols), 100, 100)}
+                            className="cursor-pointer"
+                            fill={isSel ? "hsl(22 92% 55% / 0.45)" : filled ? "hsl(22 92% 55% / 0.28)" : "transparent"}
+                            stroke={isSel ? "hsl(22 92% 55%)" : "rgba(255,255,255,0.55)"}
+                            strokeWidth={isSel ? 0.8 : 0.3}
+                            vectorEffect="non-scaling-stroke"
+                            onClick={() => slot && setSelected(slot)}
+                          >
+                            <title>{slot ? `${slot.name}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}</title>
+                          </polygon>
+                        );
+                      }),
+                    );
+                  })()}
+                </svg>
               </div>
             ) : (
               <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.max(cols, 1)}, minmax(0, 1fr))` }}>

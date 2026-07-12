@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sparkles, Grid3x3, Camera, Loader2, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,6 +15,77 @@ import { getAllTemplates, resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { suggestSpaceFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_QUAD,
+  quadFromBox,
+  quadPoint,
+  type QuadCorners,
+  type Pt,
+} from "@/lib/quad";
+
+/** Drag-the-corners editor that pins the slot grid onto the photo (with perspective). */
+function QuadEditor(props: {
+  imageUrl: string;
+  corners: QuadCorners;
+  onChange: (c: QuadCorners) => void;
+  rows: number;
+  cols: number;
+}) {
+  const { imageUrl, corners, onChange, rows, cols } = props;
+  const ref = useRef<HTMLDivElement>(null);
+  const dragging = useRef<number | null>(null);
+
+  const toNorm = (e: React.PointerEvent): Pt => {
+    const r = ref.current!.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
+    };
+  };
+
+  const lines: { a: Pt; b: Pt }[] = [];
+  for (let c = 0; c <= cols; c++) {
+    lines.push({ a: quadPoint(corners, c / cols, 0), b: quadPoint(corners, c / cols, 1) });
+  }
+  for (let r = 0; r <= rows; r++) {
+    lines.push({ a: quadPoint(corners, 0, r / rows), b: quadPoint(corners, 1, r / rows) });
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="relative rounded-md overflow-hidden border select-none touch-none"
+      onPointerMove={(e) => {
+        if (dragging.current === null) return;
+        const p = toNorm(e);
+        const next = corners.map((c, i) => (i === dragging.current ? p : c)) as QuadCorners;
+        onChange(next);
+      }}
+      onPointerUp={() => { dragging.current = null; }}
+      onPointerCancel={() => { dragging.current = null; }}
+    >
+      <img src={imageUrl} alt="The space being mapped" className="w-full max-h-80 object-contain bg-tile" draggable={false} />
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+        {lines.map((l, i) => (
+          <line key={i} x1={l.a.x * 100} y1={l.a.y * 100} x2={l.b.x * 100} y2={l.b.y * 100}
+            stroke="hsl(22 92% 55%)" strokeWidth="0.35" strokeOpacity="0.9" vectorEffect="non-scaling-stroke" />
+        ))}
+      </svg>
+      {corners.map((c, i) => (
+        <button
+          key={i}
+          type="button"
+          aria-label={`Corner ${["top-left", "top-right", "bottom-right", "bottom-left"][i]}`}
+          onPointerDown={(e) => { e.preventDefault(); (e.target as HTMLElement).setPointerCapture?.(e.pointerId); dragging.current = i; }}
+          className="absolute h-11 w-11 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center"
+          style={{ left: `${c.x * 100}%`, top: `${c.y * 100}%` }}
+        >
+          <span className="h-5 w-5 rounded-full bg-primary border-2 border-white shadow" />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const SPACE_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "toolbox", "tool bag", "space"];
 
@@ -48,6 +119,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [gridRows, setGridRows] = useState(4);
   const [gridCols, setGridCols] = useState(5);
+  const [corners, setCorners] = useState<QuadCorners>(DEFAULT_QUAD);
   const [namingScheme, setNamingScheme] = useState(NAMING_PRESETS[0].value);
   const [pad, setPad] = useState(true);
   const [templateId, setTemplateId] = useState(BUILTIN_TEMPLATES[0].id);
@@ -84,7 +156,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
   const reset = () => {
     setStep(1); setName(""); setNameTouched(false); setType("pegboard"); setImageDataUrl(null);
     setGridRows(4); setGridCols(5); setNamingScheme(NAMING_PRESETS[0].value); setPad(true);
-    setTemplateId(BUILTIN_TEMPLATES[0].id); setAiNote(null);
+    setTemplateId(BUILTIN_TEMPLATES[0].id); setAiNote(null); setCorners(DEFAULT_QUAD);
     setPlaceId(null); setNewPlaceName(""); setAddingPlace(false);
   };
 
@@ -131,6 +203,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
       if (s.gridRows) setGridRows(s.gridRows);
       if (s.gridCols) setGridCols(s.gridCols);
       if (s.type) setType(s.type);
+      setCorners(s.region ? quadFromBox(s.region) : DEFAULT_QUAD);
       setAiNote(
         `AI read this as a ${s.gridRows ?? gridRows} × ${s.gridCols ?? gridCols} ${s.type ?? type}` +
         (s.notes ? ` — ${s.notes}` : "") + ". Adjust anything that looks off.",
@@ -157,6 +230,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
       const { slots } = await createSpaceWithSlots({
         name: effectiveName, type, gridRows, gridCols, imagePath: imageDataUrl,
         namingScheme, labelTemplateId: templateId, pad, parentLocationId,
+        region: imageDataUrl ? { corners } : null,
       });
       toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${slots.length} slots.` });
       onCreated?.();
@@ -325,17 +399,18 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
             <div className="space-y-2">
               <Label>Preview — {gridRows * gridCols} slots</Label>
               {imageDataUrl ? (
-                <div className="relative rounded-md overflow-hidden border">
-                  <img src={imageDataUrl} alt="The space with the slot grid overlaid" className="w-full max-h-72 object-cover" />
-                  <div
-                    className="absolute inset-0 grid"
-                    style={{ gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gridTemplateRows: `repeat(${gridRows}, 1fr)` }}
-                    aria-hidden
-                  >
-                    {Array.from({ length: Math.min(gridRows * gridCols, 1600) }).map((_, i) => (
-                      <div key={i} className="border border-primary/60" />
-                    ))}
-                  </div>
+                <div className="space-y-2">
+                  <QuadEditor
+                    imageUrl={imageDataUrl}
+                    corners={corners}
+                    onChange={setCorners}
+                    rows={gridRows}
+                    cols={gridCols}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Drag the orange corners onto the corners of the actual rack — the grid follows
+                    the photo's perspective and every cell lands on its real bin.
+                  </p>
                 </div>
               ) : (
                 <div className="grid gap-1 rounded-md border p-2 bg-muted/30"

@@ -54,7 +54,7 @@ const Index = () => {
   return (
     // Fixed-height app shell: header and bottom bar are flex siblings, only <main>
     // scrolls. position:fixed/sticky misbehave under iOS WebView rubber-banding.
-    <div className="h-dvh flex flex-col bg-background pegboard">
+    <div className="relative h-dvh flex flex-col bg-background pegboard">
       {/* Graphite header band — the wall the tiles hang on */}
       <header
         className="bg-tile text-tile-foreground border-b border-tile-edge shrink-0 z-40"
@@ -149,8 +149,8 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
-        <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-8">
+      <main className="relative flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-[calc(env(safe-area-inset-bottom)+88px)] md:pb-8">
         <div className="bg-card rounded-lg shadow-soft border">
           {tab === "items" && (
             <ItemsList />
@@ -171,9 +171,10 @@ const Index = () => {
         </div>
       </main>
 
-      {/* Mobile bottom bar — a flex sibling of <main>, so it can never scroll away */}
+      {/* Mobile bottom bar — iOS-style translucent blur; content scrolls beneath it.
+          Absolutely positioned inside the fixed-height shell, so it still can't move. */}
       <nav
-        className="md:hidden shrink-0 z-40 bg-tile text-tile-foreground border-t border-tile-edge"
+        className="md:hidden absolute bottom-0 inset-x-0 z-40 bg-tile/85 backdrop-blur-xl backdrop-saturate-150 text-tile-foreground border-t border-tile-edge/60"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Primary"
       >
@@ -192,7 +193,7 @@ const Index = () => {
           />
           <button
             onClick={() => setShowAddItem(true)}
-            className="flex flex-col items-center justify-center gap-0.5 py-2"
+            className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
             aria-label="Add tool"
           >
             <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
@@ -246,7 +247,7 @@ function MobileTab(props: {
       onClick={props.onClick}
       aria-current={props.active ? "page" : undefined}
       className={cn(
-        "flex flex-col items-center justify-center gap-0.5 py-2 transition-colors",
+        "flex flex-col items-center justify-center gap-0.5 py-2 transition-[color,opacity] active:opacity-60",
         props.active ? "text-primary" : "text-tile-foreground/60"
       )}
     >

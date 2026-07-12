@@ -61,6 +61,8 @@ export interface CreateSpaceInput {
   slotType?: string;
   /** Parent place (garage, shed, …) this space lives in. */
   parentLocationId?: string | null;
+  /** Photo-overlay quad (four corners, normalized) pinning the grid onto the image. */
+  region?: { corners: { x: number; y: number }[] } | null;
 }
 
 /** Find a top-level place by name, creating it if needed (e.g. "Garage", "Shed"). */
@@ -91,6 +93,7 @@ export async function createSpaceWithSlots(input: CreateSpaceInput) {
     namingScheme: input.namingScheme,
     labelTemplateId: input.labelTemplateId,
     pad: input.pad ?? true,
+    ...(input.region ? { region: input.region } : {}),
   };
 
   const { data: parent, error: pErr } = await supabase
