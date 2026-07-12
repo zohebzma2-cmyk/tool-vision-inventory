@@ -302,11 +302,25 @@ export default {
     }
   },
 
-  // Daily cron ([triggers] in wrangler.toml): pings Supabase REST so the free-tier project
-  // registers activity and never hits the 7-day auto-pause. Runs on Cloudflare's scheduler —
-  // no GitHub Actions or external cron needed. Throws on a non-2xx response so failed runs
-  // surface in the Cloudflare dashboard (Workers -> tool-vision -> Cron Events).
+  // Two crons ([triggers] in wrangler.toml):
+  //  - daily: pings Supabase REST so the free-tier project never hits the 7-day auto-pause
+  //  - every 5 min: a 1-token request to the self-hosted vision model so Ollama keeps it
+  //    resident in RAM — warm inference is ~10s, a cold reload is ~3 minutes
   async scheduled(event, env) {
+    if (event.cron === "*/5 * * * *") {
+      if (!env.SELF_VISION_BASE || !env.SELF_VISION_KEY) return;
+      await fetch(`${env.SELF_VISION_BASE.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        signal: AbortSignal.timeout(25000),
+        headers: { Authorization: `Bearer ${env.SELF_VISION_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: env.SELF_VISION_MODEL || "qwen2.5vl:7b",
+          max_tokens: 1,
+          messages: [{ role: "user", content: "ok" }],
+        }),
+      }).catch(() => {}); // best-effort — a missed warm-up just means one slow request later
+      return;
+    }
     const base = (env.SUPABASE_URL || "").replace(/\/+$/, "");
     if (!base) return; // keepalive only matters when a Supabase project is configured
     const res = await fetch(`${base}/rest/v1/`, {

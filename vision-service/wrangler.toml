@@ -12,7 +12,7 @@ compatibility_date = "2026-07-01"
 # Daily Supabase keepalive (see the `scheduled` handler in worker.js): keeps the free-tier
 # Supabase project from auto-pausing after 7 idle days. Cron triggers are free on Workers.
 [triggers]
-crons = ["17 8 * * *"]
+crons = ["17 8 * * *", "*/5 * * * *"]
 
 [vars]
 # Free vision models only ($0, no credit). VISION_MODEL_FALLBACK is a comma-separated
