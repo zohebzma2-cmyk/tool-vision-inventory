@@ -34,11 +34,26 @@ interface Location {
   layout?: { labelTemplateId?: string } | null;
 }
 
-export function LocationsList() {
+export function LocationsList({
+  openMapOnMount = false,
+  onMapOpened,
+}: {
+  openMapOnMount?: boolean;
+  onMapOpened?: () => void;
+} = {}) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
+
+  // Onboarding hand-off: "Map my first space" lands here with the dialog pre-opened.
+  useEffect(() => {
+    if (openMapOnMount) {
+      setShowMapDialog(true);
+      onMapOpened?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openMapOnMount]);
   const [mapLoc, setMapLoc] = useState<Location | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);

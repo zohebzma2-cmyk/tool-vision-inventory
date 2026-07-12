@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Package, MapPin, LayoutGrid, ScanLine, LogOut, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -6,6 +6,7 @@ import { AddItemDialog } from "@/components/inventory/AddItemDialog";
 import { ItemsList } from "@/components/inventory/ItemsList";
 import { LocationsList } from "@/components/inventory/LocationsList";
 import { QRScanner } from "@/components/inventory/QRScanner";
+import { Onboarding } from "@/components/onboarding/Onboarding";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { cn } from "@/lib/utils";
 
@@ -15,16 +16,48 @@ const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [tab, setTab] = useState<Tab>("items");
+  const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
   const { user, signOut } = useAuth();
   const stats = useInventoryStats();
+
+  // First-run onboarding: once per account, and only while the wall is empty.
+  const onboardKey = user ? `tv-onboarded:${user.id}` : null;
+  const [onboarded, setOnboarded] = useState(true);
+  useEffect(() => {
+    if (onboardKey) setOnboarded(!!localStorage.getItem(onboardKey));
+  }, [onboardKey]);
+
+  // Keep the header counts honest as the user moves between sections.
+  useEffect(() => {
+    stats.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+  const showOnboarding =
+    !onboarded && !stats.loading && stats.itemCount === 0 && stats.locationCount === 0;
+
+  const finishOnboarding = (action: "map-space" | "add-tool" | "done") => {
+    if (onboardKey) localStorage.setItem(onboardKey, "1");
+    setOnboarded(true);
+    if (action === "map-space") {
+      setTab("locations");
+      setOpenMapOnLocations(true);
+    } else if (action === "add-tool") {
+      setShowAddItem(true);
+    }
+  };
 
   const fmtMoney = (n: number) =>
     n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toFixed(0)}`;
 
   return (
-    <div className="min-h-screen bg-background pegboard">
+    // Fixed-height app shell: header and bottom bar are flex siblings, only <main>
+    // scrolls. position:fixed/sticky misbehave under iOS WebView rubber-banding.
+    <div className="h-dvh flex flex-col bg-background pegboard">
       {/* Graphite header band — the wall the tiles hang on */}
-      <header className="bg-tile text-tile-foreground border-b border-tile-edge sticky top-0 z-40">
+      <header
+        className="bg-tile text-tile-foreground border-b border-tile-edge shrink-0 z-40"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <div className="container mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
@@ -114,13 +147,17 @@ const Index = () => {
         </div>
       </header>
 
-      <main className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-28 md:pb-10">
+      <main className="flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
+        <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-8">
         <div className="bg-card rounded-lg shadow-soft border">
           {tab === "items" && (
             <ItemsList />
           )}
           {tab === "locations" && (
-            <LocationsList />
+            <LocationsList
+              openMapOnMount={openMapOnLocations}
+              onMapOpened={() => setOpenMapOnLocations(false)}
+            />
           )}
           {tab === "overview" && (
             <Overview
@@ -129,11 +166,12 @@ const Index = () => {
             />
           )}
         </div>
+        </div>
       </main>
 
-      {/* Mobile bottom bar — thumb-first */}
+      {/* Mobile bottom bar — a flex sibling of <main>, so it can never scroll away */}
       <nav
-        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-tile text-tile-foreground border-t border-tile-edge"
+        className="md:hidden shrink-0 z-40 bg-tile text-tile-foreground border-t border-tile-edge"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
         aria-label="Primary"
       >
@@ -186,6 +224,8 @@ const Index = () => {
       />
 
       <QRScanner open={showQRScanner} onOpenChange={setShowQRScanner} />
+
+      {showOnboarding && <Onboarding onFinish={finishOnboarding} />}
     </div>
   );
 };

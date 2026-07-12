@@ -59,6 +59,30 @@ export interface CreateSpaceInput {
   labelTemplateId: string;
   pad?: boolean;
   slotType?: string;
+  /** Parent place (garage, shed, …) this space lives in. */
+  parentLocationId?: string | null;
+}
+
+/** Find a top-level place by name, creating it if needed (e.g. "Garage", "Shed"). */
+export async function findOrCreatePlace(name: string, type = "space") {
+  const trimmed = name.trim();
+  const { data: existing } = await supabase
+    .from("locations")
+    .select("id, name")
+    .eq("is_slot", false)
+    .is("parent_location_id", null)
+    .is("grid_rows", null)
+    .ilike("name", trimmed)
+    .maybeSingle();
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from("locations")
+    .insert([{ name: trimmed, type, qr_code: generateQRCode(), is_slot: false }])
+    .select("id, name")
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 /** Create the container location plus all of its slot child-locations in Supabase. */
@@ -81,6 +105,7 @@ export async function createSpaceWithSlots(input: CreateSpaceInput) {
         grid_cols: input.gridCols,
         is_slot: false,
         image_path: input.imagePath || null,
+        parent_location_id: input.parentLocationId || null,
         layout,
       },
     ])

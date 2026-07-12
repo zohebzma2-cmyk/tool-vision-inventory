@@ -16,6 +16,7 @@ interface SpaceLocation {
   type: string;
   grid_rows?: number | null;
   grid_cols?: number | null;
+  image_path?: string | null;
   layout?: { labelTemplateId?: string } | null;
 }
 
@@ -161,32 +162,70 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
               )}
             </div>
 
-            <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.max(cols, 1)}, minmax(0, 1fr))` }}>
-              {Array.from({ length: rows }).flatMap((_, ri) =>
-                Array.from({ length: cols }).map((__, ci) => {
-                  const r = ri + 1, c = ci + 1;
-                  const slot = slotAt(r, c);
-                  const filled = (slot?.items.length ?? 0) > 0;
-                  return (
-                    <button
-                      key={`${r}-${c}`}
-                      onClick={() => slot && setSelected(slot)}
-                      title={slot ? `${slot.name}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}
-                      className={[
-                        "aspect-square rounded border text-[9px] leading-tight p-1 overflow-hidden transition-colors",
-                        !slot ? "bg-muted/30 border-dashed cursor-default" :
-                          filled ? "bg-primary/15 border-primary/40 hover:bg-primary/25" :
-                            "bg-background hover:bg-muted",
-                        selected?.id === slot?.id ? "ring-2 ring-primary" : "",
-                      ].join(" ")}
-                    >
-                      <div className="font-mono text-muted-foreground">R{r}C{c}</div>
-                      {filled && <Package className="h-3 w-3 mx-auto mt-1 text-primary" />}
-                    </button>
-                  );
-                }),
-              )}
-            </div>
+            {location?.image_path ? (
+              /* Photo view: the slot grid drawn over the actual space. Tap a cell to inspect. */
+              <div className="relative rounded-md overflow-hidden border">
+                <img src={location.image_path} alt={`${location.name} photo`} className="w-full object-cover" />
+                <div
+                  className="absolute inset-0 grid"
+                  style={{
+                    gridTemplateColumns: `repeat(${Math.max(cols, 1)}, 1fr)`,
+                    gridTemplateRows: `repeat(${Math.max(rows, 1)}, 1fr)`,
+                  }}
+                >
+                  {Array.from({ length: rows }).flatMap((_, ri) =>
+                    Array.from({ length: cols }).map((__, ci) => {
+                      const r = ri + 1, c = ci + 1;
+                      const slot = slotAt(r, c);
+                      const filled = (slot?.items.length ?? 0) > 0;
+                      return (
+                        <button
+                          key={`${r}-${c}`}
+                          onClick={() => slot && setSelected(slot)}
+                          title={slot ? `${slot.name}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}
+                          className={[
+                            "relative border border-white/40 transition-colors",
+                            filled ? "bg-primary/30 hover:bg-primary/40" : "hover:bg-white/20",
+                            selected?.id === slot?.id ? "ring-2 ring-primary ring-inset bg-primary/20" : "",
+                          ].join(" ")}
+                        >
+                          {filled && (
+                            <span className="absolute bottom-0.5 right-0.5 h-2 w-2 rounded-full bg-primary shadow" aria-hidden />
+                          )}
+                        </button>
+                      );
+                    }),
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-1.5" style={{ gridTemplateColumns: `repeat(${Math.max(cols, 1)}, minmax(0, 1fr))` }}>
+                {Array.from({ length: rows }).flatMap((_, ri) =>
+                  Array.from({ length: cols }).map((__, ci) => {
+                    const r = ri + 1, c = ci + 1;
+                    const slot = slotAt(r, c);
+                    const filled = (slot?.items.length ?? 0) > 0;
+                    return (
+                      <button
+                        key={`${r}-${c}`}
+                        onClick={() => slot && setSelected(slot)}
+                        title={slot ? `${slot.name}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}
+                        className={[
+                          "aspect-square rounded border text-[9px] leading-tight p-1 overflow-hidden transition-colors",
+                          !slot ? "bg-muted/30 border-dashed cursor-default" :
+                            filled ? "bg-primary/15 border-primary/40 hover:bg-primary/25" :
+                              "bg-background hover:bg-muted",
+                          selected?.id === slot?.id ? "ring-2 ring-primary" : "",
+                        ].join(" ")}
+                      >
+                        <div className="font-mono text-muted-foreground">R{r}C{c}</div>
+                        {filled && <Package className="h-3 w-3 mx-auto mt-1 text-primary" />}
+                      </button>
+                    );
+                  }),
+                )}
+              </div>
+            )}
 
             {selected && (
               <div className="rounded-md border p-3 space-y-3">
