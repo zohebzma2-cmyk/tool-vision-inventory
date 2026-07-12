@@ -33,3 +33,6 @@ dist-ssr
 # Supabase CLI local link state
 supabase/.temp
 !*.example
+
+# xcodebuild archive/export output from scripts/testflight.sh
+ios/build/
