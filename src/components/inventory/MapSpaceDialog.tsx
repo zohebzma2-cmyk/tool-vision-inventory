@@ -16,7 +16,7 @@ import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { suggestSpaceFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 import { cn } from "@/lib/utils";
 
-const SPACE_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "space"];
+const SPACE_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "toolbox", "tool bag", "space"];
 
 // One-tap starters for a new place. Anything else via the inline input.
 const PLACE_PRESETS = ["Garage", "Shed", "Basement", "Attic", "Workshop"];

@@ -8,13 +8,32 @@ import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
 import { identifyBinFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 
+const KINDS = ["part", "tool", "set", "consumable"] as const;
+
 interface DraftItem {
   name: string;
   category: string;
+  kind: string;
   brand: string;
   model: string;
   quantity: number;
   include: boolean;
+}
+
+/** Flags rows whose category disagrees with the clear majority of the bin —
+ * "a plumbing fitting in the electrical bin" gets pointed out during setup. */
+function outlierIndexes(drafts: DraftItem[]): Set<number> {
+  const included = drafts.filter((d) => d.include && d.name.trim());
+  if (included.length < 3) return new Set();
+  const counts = new Map<string, number>();
+  included.forEach((d) => counts.set(d.category, (counts.get(d.category) || 0) + 1));
+  const [topCat, topCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  if (topCount / included.length < 0.6) return new Set(); // no clear majority — nothing to flag
+  const out = new Set<number>();
+  drafts.forEach((d, i) => {
+    if (d.include && d.name.trim() && d.category !== topCat) out.add(i);
+  });
+  return out;
 }
 
 interface Props {
@@ -54,7 +73,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
     try {
       const found = await identifyBinFromImage(img);
       setDrafts(found.map((f) => ({
-        name: f.name, category: f.category, brand: f.brand, model: f.model,
+        name: f.name, category: f.category, kind: f.kind || "part", brand: f.brand, model: f.model,
         quantity: f.quantity || 1, include: true,
       })));
       if (found.length === 0) {
@@ -75,25 +94,30 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
     setDrafts((d) => d.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
 
   const addRow = () =>
-    setDrafts((d) => [...d, { name: "", category: "other", brand: "", model: "", quantity: 1, include: true }]);
+    setDrafts((d) => [...d, { name: "", category: "other", kind: "part", brand: "", model: "", quantity: 1, include: true }]);
 
   const selected = drafts.filter((d) => d.include && d.name.trim());
+  const outliers = outlierIndexes(drafts);
 
   const save = async () => {
     if (!bin || selected.length === 0) return;
     setSaving(true);
     try {
-      const { data: created, error } = await supabase
-        .from("items")
-        .insert(selected.map((d) => ({
-          name: d.name.trim(),
-          category: d.category || "other",
-          brand: d.brand || null,
-          model: d.model || null,
-          quantity: d.quantity || 1,
-          quantity_unit: "piece",
-        })))
-        .select("id");
+      const rows = selected.map((d) => ({
+        name: d.name.trim(),
+        category: d.category || "other",
+        kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
+        brand: d.brand || null,
+        model: d.model || null,
+        quantity: d.quantity || 1,
+        quantity_unit: "piece",
+      }));
+      let { data: created, error } = await supabase.from("items").insert(rows).select("id");
+      if (error && /kind/.test(error.message)) {
+        // items.kind migration not applied yet — save everything else rather than failing.
+        const withoutKind = rows.map(({ kind: _kind, ...r }) => r);
+        ({ data: created, error } = await supabase.from("items").insert(withoutKind).select("id"));
+      }
       if (error) throw error;
 
       const links = (created || []).map((it, i) => ({
@@ -166,29 +190,42 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
         {(drafts.length > 0 || imageDataUrl) && (
           <div className="space-y-2">
-            <div className="grid grid-cols-[auto_1fr_5rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display uppercase tracking-wide px-1">
-              <span /> <span>Item</span> <span>Brand</span> <span>Qty</span> <span />
+            <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display uppercase tracking-wide px-1">
+              <span /> <span>Item</span> <span>Kind</span> <span>Qty</span> <span />
             </div>
             {drafts.map((d, i) => (
-              <div key={i} className="grid grid-cols-[auto_1fr_5rem_4rem_auto] gap-2 items-center">
-                <input
-                  type="checkbox"
-                  checked={d.include}
-                  onChange={(e) => setDraft(i, { include: e.target.checked })}
-                  className="h-4 w-4 accent-[hsl(var(--primary))]"
-                  aria-label={`Include ${d.name || "row"}`}
-                />
-                <Input value={d.name} placeholder="Item name"
-                  onChange={(e) => setDraft(i, { name: e.target.value })} className="h-9" />
-                <Input value={d.brand} placeholder="Brand"
-                  onChange={(e) => setDraft(i, { brand: e.target.value })} className="h-9" />
-                <Input type="number" min={1} value={d.quantity}
-                  onChange={(e) => setDraft(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="h-9" />
-                <Button variant="ghost" size="icon" className="h-9 w-9"
-                  onClick={() => setDrafts((rows) => rows.filter((_, idx) => idx !== i))}>
-                  <Trash2 className="h-4 w-4" />
-                  <span className="sr-only">Remove row</span>
-                </Button>
+              <div key={i} className="space-y-1">
+                <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center">
+                  <input
+                    type="checkbox"
+                    checked={d.include}
+                    onChange={(e) => setDraft(i, { include: e.target.checked })}
+                    className="h-4 w-4 accent-[hsl(var(--primary))]"
+                    aria-label={`Include ${d.name || "row"}`}
+                  />
+                  <Input value={d.name} placeholder="Item name"
+                    onChange={(e) => setDraft(i, { name: e.target.value })} className="h-9" />
+                  <select
+                    value={d.kind}
+                    onChange={(e) => setDraft(i, { kind: e.target.value })}
+                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                    aria-label="Kind"
+                  >
+                    {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                  <Input type="number" min={1} value={d.quantity}
+                    onChange={(e) => setDraft(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="h-9" />
+                  <Button variant="ghost" size="icon" className="h-9 w-9"
+                    onClick={() => setDrafts((rows) => rows.filter((_, idx) => idx !== i))}>
+                    <Trash2 className="h-4 w-4" />
+                    <span className="sr-only">Remove row</span>
+                  </Button>
+                </div>
+                {outliers.has(i) && (
+                  <p className="text-xs text-warning pl-6">
+                    ⚠ Doesn't match the rest of this bin ({d.category}) — misfiled, or just uncheck it.
+                  </p>
+                )}
               </div>
             ))}
             <Button variant="outline" size="sm" onClick={addRow}>
