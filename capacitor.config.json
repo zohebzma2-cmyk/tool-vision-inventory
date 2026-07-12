@@ -1,13 +1,16 @@
 {
   "appId": "app.toolvision.inventory",
-  "appName": "Tool Vision Inventory",
+  "appName": "Tool Vision",
   "webDir": "dist",
   "ios": {
     "contentInset": "always"
   },
   "plugins": {
     "Camera": {
-      "permissions": ["camera", "photos"]
+      "permissions": [
+        "camera",
+        "photos"
+      ]
     }
   }
 }
