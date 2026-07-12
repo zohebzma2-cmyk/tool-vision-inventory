@@ -95,21 +95,35 @@ async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs) 
   return parseJson(data?.choices?.[0]?.message?.content ?? "{}");
 }
 
-/** Providers in order: the self-hosted box first (flat cost, stronger model), then
- * the free OpenRouter chain — so the box being down degrades quality, not the feature. */
+/** Providers in quality order. VISION_PRIMARY chooses the lead brain:
+ *  - "cloud": paid open model on OpenRouter (Qwen3-VL) first — fast + best quality —
+ *    then the self-hosted box, then the free chain
+ *  - anything else: self-hosted box first (flat cost), free chain as fallback */
 function providers(env, apiKey) {
   const list = [];
-  if (env.SELF_VISION_BASE && env.SELF_VISION_KEY) {
+  const orBase = env.OPENROUTER_BASE || "https://openrouter.ai/api/v1";
+  const selfHosted = env.SELF_VISION_BASE && env.SELF_VISION_KEY
+    ? {
+        base: env.SELF_VISION_BASE,
+        key: env.SELF_VISION_KEY,
+        models: [env.SELF_VISION_MODEL || "qwen2.5vl:7b"],
+        retries: 1,
+        timeoutMs: 120000, // CPU inference on the box is slow but bounded
+      }
+    : null;
+
+  if (env.VISION_PRIMARY === "cloud") {
     list.push({
-      base: env.SELF_VISION_BASE,
-      key: env.SELF_VISION_KEY,
-      models: [env.SELF_VISION_MODEL || "qwen2.5vl:7b"],
+      base: orBase,
+      key: apiKey,
+      models: [env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct"],
       retries: 1,
-      timeoutMs: 120000, // CPU inference on the box is slow but bounded
+      timeoutMs: 60000,
     });
   }
+  if (selfHosted) list.push(selfHosted);
   list.push({
-    base: env.OPENROUTER_BASE || "https://openrouter.ai/api/v1",
+    base: orBase,
     key: apiKey,
     models: [
       env.VISION_MODEL || DEFAULT_MODEL,
@@ -219,7 +233,11 @@ export default {
     if (request.method === "GET" && url.pathname === "/health") {
       return json(200, {
         ok: true,
-        model: env.SELF_VISION_BASE ? `${env.SELF_VISION_MODEL || "qwen2.5vl:7b"} (self-hosted)` : (env.VISION_MODEL || DEFAULT_MODEL),
+        model: env.VISION_PRIMARY === "cloud"
+          ? `${env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct"} (cloud primary)`
+          : env.SELF_VISION_BASE
+            ? `${env.SELF_VISION_MODEL || "qwen2.5vl:7b"} (self-hosted)`
+            : (env.VISION_MODEL || DEFAULT_MODEL),
       }, cors);
     }
 
