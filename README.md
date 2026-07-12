@@ -26,7 +26,7 @@ _Screenshots coming soon. Placeholder - add images of the space-mapping flow, sl
 
 ```sh
 # 1. Clone the repository
-git clone https://github.com/zalvi22/tool-vision-inventory.git
+git clone https://github.com/zohebzma2-cmyk/tool-vision-inventory.git
 cd tool-vision-inventory
 
 # 2. Install dependencies
