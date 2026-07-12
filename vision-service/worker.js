@@ -66,8 +66,12 @@ Respond with STRICT JSON ONLY:
 
 async function callModel(env, apiKey, prompt, imageDataUrl) {
   const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
-  const models = [env.VISION_MODEL || DEFAULT_MODEL];
-  if (env.VISION_MODEL_FALLBACK) models.push(env.VISION_MODEL_FALLBACK);
+  // VISION_MODEL_FALLBACK may be a comma-separated chain; OpenRouter tries each in
+  // order, so one upstream-rate-limited free model doesn't take the feature down.
+  const models = [
+    env.VISION_MODEL || DEFAULT_MODEL,
+    ...(env.VISION_MODEL_FALLBACK || "").split(",").map((s) => s.trim()).filter(Boolean),
+  ];
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: {
