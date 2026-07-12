@@ -61,8 +61,11 @@ Set `VITE_VISION_API_URL` on Cloudflare Pages to the Worker URL, then redeploy t
 
 ## Notes
 
-- Free OpenRouter models are rate-limited. Load ~$5 credit and switch `VISION_MODEL` to
-  `qwen/qwen-2.5-vl-7b-instruct` for higher accuracy + headroom.
+- Free OpenRouter models are rate-limited and vary in quality. For a consistent, unlimited,
+  flat-cost brain, self-host Qwen2.5-VL (Ollama behind any OpenAI-compatible proxy such as
+  LiteLLM) and set the Worker secrets `SELF_VISION_BASE` + `SELF_VISION_KEY` (plus the
+  `SELF_VISION_MODEL` var). The Worker uses it first and falls back to the free chain if the
+  box is down; a 5-minute cron keeps the model loaded so requests stay on the warm path.
 - Supabase free tier auto-pauses after 7 days idle — the vision Worker's daily cron trigger
   (`[triggers]` in `vision-service/wrangler.toml` + the `scheduled` handler in `worker.js`)
   pings Supabase REST to prevent that. It reuses the Worker's existing `SUPABASE_URL` /
