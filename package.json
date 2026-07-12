@@ -14,6 +14,10 @@
     "ios:open": "cap open ios"
   },
   "dependencies": {
+    "@capacitor/camera": "^8.2.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
+    "@capacitor/ios": "^8.4.1",
     "@fontsource/barlow": "^5.2.8",
     "@fontsource/barlow-condensed": "^5.2.8",
     "@fontsource/ibm-plex-mono": "^5.2.7",
