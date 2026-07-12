@@ -1,236 +1,305 @@
-import { useState, useRef, useEffect } from "react";
-import { X, Camera, Upload } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { X, Camera, Upload, Package, MapPin, ScanLine, Loader2 } from "lucide-react";
+import jsQR from "jsqr";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { BinFillDialog } from "./BinFillDialog";
 
 interface QRScannerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+interface ScanResult {
+  code: string;
+  kind: "bin" | "space" | "item" | "unknown";
+  title: string;
+  path: string;
+  locationId?: string;
+  items: { name: string; quantity: number }[];
+}
+
+/** Resolve a scanned code against locations (bins/spaces) and items. */
+async function resolveCode(code: string): Promise<ScanResult> {
+  const { data: loc } = await supabase
+    .from("locations")
+    .select("id, name, is_slot, parent_location_id")
+    .eq("qr_code", code)
+    .maybeSingle();
+
+  if (loc) {
+    // Build the human path: Place · Space (for a bin) or Place (for a space).
+    let path = "";
+    if (loc.parent_location_id) {
+      const { data: parent } = await supabase
+        .from("locations")
+        .select("name, parent_location_id")
+        .eq("id", loc.parent_location_id)
+        .maybeSingle();
+      if (parent) {
+        path = parent.name;
+        if (parent.parent_location_id) {
+          const { data: gp } = await supabase
+            .from("locations").select("name").eq("id", parent.parent_location_id).maybeSingle();
+          if (gp) path = `${gp.name} · ${parent.name}`;
+        }
+      }
+    }
+
+    const { data: links } = await supabase
+      .from("item_locations")
+      .select("item_id, quantity")
+      .eq("location_id", loc.id)
+      .is("date_removed", null);
+    const ids = (links ?? []).map((l) => l.item_id);
+    const { data: its } = ids.length
+      ? await supabase.from("items").select("id, name").in("id", ids)
+      : { data: [] as { id: string; name: string }[] };
+    const qtyById = new Map((links ?? []).map((l) => [l.item_id, l.quantity ?? 1]));
+    const items = (its ?? []).map((i) => ({ name: i.name, quantity: qtyById.get(i.id) ?? 1 }));
+
+    return {
+      code,
+      kind: loc.is_slot ? "bin" : "space",
+      title: loc.name,
+      path,
+      locationId: loc.id,
+      items,
+    };
+  }
+
+  const { data: item } = await supabase
+    .from("items")
+    .select("id, name, quantity")
+    .eq("qr_code", code)
+    .maybeSingle();
+  if (item) {
+    // Where does this item live?
+    const { data: link } = await supabase
+      .from("item_locations")
+      .select("location_id")
+      .eq("item_id", item.id)
+      .is("date_removed", null)
+      .maybeSingle();
+    let path = "No bin assigned";
+    if (link) {
+      const { data: bin } = await supabase
+        .from("locations").select("name").eq("id", link.location_id).maybeSingle();
+      if (bin) path = bin.name;
+    }
+    return { code, kind: "item", title: item.name, path, items: [] };
+  }
+
+  return { code, kind: "unknown", title: "Not in your inventory", path: "", items: [] };
+}
+
 export function QRScanner({ open, onOpenChange }: QRScannerProps) {
-  const [isScanning, setIsScanning] = useState(false);
-  const [scannedCode, setScannedCode] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [result, setResult] = useState<ScanResult | null>(null);
+  const [fillOpen, setFillOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const rafRef = useRef<number>(0);
   const { toast } = useToast();
 
-  useEffect(() => {
-    if (open && isScanning) {
-      startCamera();
-    } else {
-      stopCamera();
-    }
+  const stopCamera = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
+    const stream = videoRef.current?.srcObject as MediaStream | null;
+    stream?.getTracks().forEach((t) => t.stop());
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
 
-    return () => {
-      stopCamera();
-    };
-  }, [open, isScanning]);
-
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        } 
-      });
-      
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        // Start scanning for QR codes
-        scanForQRCode();
-      }
-    } catch (error) {
-      toast({
-        title: "Camera Error",
-        description: "Could not access camera. Please check permissions.",
-        variant: "destructive"
-      });
-      setIsScanning(false);
-    }
-  };
-
-  const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach(track => track.stop());
-      videoRef.current.srcObject = null;
-    }
-  };
-
-  const scanForQRCode = () => {
-    // This is a simplified QR code scanner
-    // In a real implementation, you would use a library like jsQR
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    
-    if (!canvas || !video) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const scan = () => {
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Here you would integrate with a QR code library like jsQR
-        // For now, we'll simulate QR code detection
-        
-        // Simulate finding a QR code after 3 seconds
-        setTimeout(() => {
-          if (isScanning) {
-            const mockQRCode = `LOC-${Date.now()}-SAMPLE`;
-            handleQRCodeDetected(mockQRCode);
-          }
-        }, 3000);
-      }
-      
-      if (isScanning) {
-        requestAnimationFrame(scan);
-      }
-    };
-    
-    scan();
-  };
-
-  const handleQRCodeDetected = (code: string) => {
-    setScannedCode(code);
-    setIsScanning(false);
+  const onDecoded = useCallback(async (code: string) => {
+    setScanning(false);
     stopCamera();
-    
-    toast({
-      title: "QR Code Scanned",
-      description: `Found code: ${code}`,
-    });
+    setResolving(true);
+    try {
+      setResult(await resolveCode(code));
+    } catch (e) {
+      toast({ title: "Lookup failed", description: String((e as Error)?.message || e), variant: "destructive" });
+    } finally {
+      setResolving(false);
+    }
+  }, [stopCamera, toast]);
+
+  // Live camera decode loop.
+  useEffect(() => {
+    if (!open || !scanning) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        const video = videoRef.current!;
+        video.srcObject = stream;
+        await video.play();
+
+        const canvas = canvasRef.current!;
+        const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+        const tick = () => {
+          if (cancelled) return;
+          if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const qr = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+            if (qr?.data) { void onDecoded(qr.data); return; }
+          }
+          rafRef.current = requestAnimationFrame(tick);
+        };
+        rafRef.current = requestAnimationFrame(tick);
+      } catch {
+        toast({ title: "Camera unavailable", description: "Check camera permission, or scan from a photo instead.", variant: "destructive" });
+        setScanning(false);
+      }
+    })();
+    return () => { cancelled = true; stopCamera(); };
+  }, [open, scanning, onDecoded, stopCamera, toast]);
+
+  const scanFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      const bmp = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      const scale = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+      canvas.width = Math.round(bmp.width * scale);
+      canvas.height = Math.round(bmp.height * scale);
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const qr = jsQR(img.data, img.width, img.height);
+      if (qr?.data) void onDecoded(qr.data);
+      else toast({ title: "No QR code found", description: "Try a closer, sharper photo of the label.", variant: "destructive" });
+    } catch (e) {
+      toast({ title: "Couldn't read the photo", description: String((e as Error)?.message || e), variant: "destructive" });
+    }
   };
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      // In a real implementation, you would process the image file
-      // to extract QR codes using a library
-      toast({
-        title: "File Upload",
-        description: "QR code scanning from images is not yet implemented",
-        variant: "destructive"
-      });
-    }
+  const close = (v: boolean) => {
+    if (!v) { setScanning(false); stopCamera(); setResult(null); }
+    onOpenChange(v);
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Scan QR Code</DialogTitle>
+          <DialogTitle className="font-display uppercase tracking-wide flex items-center gap-2">
+            <ScanLine className="h-5 w-5" /> Scan a label
+          </DialogTitle>
         </DialogHeader>
-        
-        <div className="space-y-4">
-          {!isScanning && !scannedCode && (
-            <div className="text-center space-y-4">
-              <p className="text-muted-foreground">
-                Scan a QR code to find location or item details
-              </p>
-              
-              <div className="flex gap-2 justify-center">
-                <Button onClick={() => setIsScanning(true)}>
-                  <Camera className="h-4 w-4 mr-2" />
-                  Start Camera
-                </Button>
-                
-                <Button 
-                  variant="outline" 
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Upload Image
-                </Button>
-              </div>
-              
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
+
+        {!scanning && !result && !resolving && (
+          <div className="text-center space-y-4 py-2">
+            <p className="text-muted-foreground text-sm">
+              Point at a bin or tool label to jump straight to what's stored there.
+            </p>
+            <div className="flex gap-2 justify-center">
+              <Button onClick={() => setScanning(true)}>
+                <Camera className="h-4 w-4 mr-2" /> Start camera
+              </Button>
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="h-4 w-4 mr-2" /> From photo
+              </Button>
             </div>
-          )}
-          
-          {isScanning && (
-            <div className="space-y-4">
-              <div className="relative">
-                <video 
-                  ref={videoRef} 
-                  className="w-full rounded-lg"
-                  autoPlay 
-                  playsInline 
-                />
-                <div className="absolute inset-0 border-2 border-primary rounded-lg pointer-events-none">
-                  <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 
-                                  w-48 h-48 border-2 border-primary bg-transparent">
-                    <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-primary"></div>
-                    <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-primary"></div>
-                    <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-primary"></div>
-                    <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-primary"></div>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
+              onChange={(e) => scanFile(e.target.files?.[0])} />
+          </div>
+        )}
+
+        {scanning && (
+          <div className="space-y-3">
+            <div className="relative rounded-lg overflow-hidden border">
+              <video ref={videoRef} className="w-full" autoPlay playsInline muted />
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <div className="w-44 h-44 border-2 border-primary rounded" />
+              </div>
+            </div>
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="text-center">
+              <Button variant="outline" onClick={() => { setScanning(false); stopCamera(); }}>
+                <X className="h-4 w-4 mr-2" /> Stop
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {resolving && (
+          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" /> Looking it up…
+          </div>
+        )}
+
+        {result && (
+          <div className="space-y-4">
+            <div className="rounded-md border p-3">
+              <div className="flex items-center gap-2">
+                {result.kind === "item"
+                  ? <Package className="h-4 w-4 text-primary shrink-0" aria-hidden />
+                  : <MapPin className="h-4 w-4 text-primary shrink-0" aria-hidden />}
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{result.title}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {result.kind === "item" ? `Stored in: ${result.path}` : result.path || "Top-level"}
                   </div>
                 </div>
               </div>
-              
-              <canvas ref={canvasRef} className="hidden" />
-              
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground mb-2">
-                  Position the QR code within the frame
-                </p>
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setIsScanning(false);
-                    stopCamera();
-                  }}
-                >
-                  <X className="h-4 w-4 mr-2" />
-                  Stop Scanning
-                </Button>
-              </div>
+              <div className="font-mono text-[11px] text-muted-foreground mt-2 truncate">{result.code}</div>
             </div>
-          )}
-          
-          {scannedCode && (
-            <div className="text-center space-y-4">
-              <div className="p-4 bg-muted rounded-lg">
-                <p className="font-semibold mb-2">QR Code Detected:</p>
-                <p className="font-mono text-sm break-all">{scannedCode}</p>
+
+            {(result.kind === "bin" || result.kind === "space") && (
+              <div className="rounded-md border p-3">
+                <div className="font-display text-sm font-semibold uppercase tracking-wide mb-2">
+                  Contents ({result.items.length})
+                </div>
+                {result.items.length > 0 ? (
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    {result.items.map((it, i) => (
+                      <li key={i} className="flex justify-between gap-2">
+                        <span className="truncate">{it.name}</span>
+                        {it.quantity > 1 && <span className="font-mono shrink-0">×{it.quantity}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Empty.</p>
+                )}
               </div>
-              
-              <div className="flex gap-2 justify-center">
-                <Button onClick={() => {
-                  setScannedCode(null);
-                  setIsScanning(true);
-                }}>
-                  Scan Another
+            )}
+
+            {result.kind === "unknown" && (
+              <p className="text-sm text-muted-foreground">
+                This code isn't a bin, space, or tool in your inventory.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2 justify-center">
+              {result.kind === "bin" && result.locationId && (
+                <Button onClick={() => setFillOpen(true)}>
+                  <Camera className="h-4 w-4 mr-2" /> Fill bin with camera
                 </Button>
-                
-                <Button 
-                  variant="outline" 
-                  onClick={() => {
-                    setScannedCode(null);
-                    onOpenChange(false);
-                  }}
-                >
-                  Close
-                </Button>
-              </div>
+              )}
+              <Button variant="outline" onClick={() => { setResult(null); setScanning(true); }}>
+                <ScanLine className="h-4 w-4 mr-2" /> Scan another
+              </Button>
+              <Button variant="ghost" onClick={() => close(false)}>Close</Button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        <BinFillDialog
+          open={fillOpen}
+          onOpenChange={setFillOpen}
+          bin={result?.locationId ? { id: result.locationId, name: result.title } : null}
+          onSaved={() => { if (result) void resolveCode(result.code).then(setResult); }}
+        />
       </DialogContent>
     </Dialog>
   );
