@@ -1,9 +1,9 @@
 // Vision provider abstraction.
 //
-// The self-hosted open-source model service (Ollama + a small adapter running on the Mac mini,
-// exposed via a Cloudflare Tunnel) is reached through VITE_VISION_API_URL. Until that is wired up,
-// every call throws `VisionNotConfiguredError`, and callers fall back to fully-manual flows so the
-// app is 100% usable offline.
+// All AI calls go through the vision Worker at VITE_VISION_API_URL, which serves them from the
+// self-hosted model (LiteLLM -> Ollama qwen2.5vl) first and falls back to free cloud models only
+// if the box is unreachable — one consistent brain. If VITE_VISION_API_URL is unset, every call
+// throws `VisionNotConfiguredError` and callers fall back to fully-manual flows.
 
 import { supabase } from "@/integrations/supabase/client";
 

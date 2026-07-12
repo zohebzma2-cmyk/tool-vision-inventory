@@ -21,7 +21,7 @@ A free, open-source web app for small home garages to inventory their tools, usi
 
 - **Frontend:** React 18, Vite, TypeScript, shadcn/ui, Tailwind CSS
 - **Backend / data:** Supabase (Postgres, Auth, Row Level Security)
-- **Vision:** Cloudflare Worker (`vision-service/`) calling open-source vision models via OpenRouter (free models by default), or a self-hosted Ollama instance on a Mac mini
+- **Vision:** Cloudflare Worker (`vision-service/`) that prefers a self-hosted open-source model (any OpenAI-compatible endpoint, e.g. LiteLLM in front of Ollama running Qwen2.5-VL — set the `SELF_VISION_BASE`/`SELF_VISION_KEY` secrets) and falls back to free models via OpenRouter
 - **Labels:** QR codes generated client-side, formatted for Brother label printers
 
 ## Quickstart

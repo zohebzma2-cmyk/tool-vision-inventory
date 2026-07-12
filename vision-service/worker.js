@@ -58,7 +58,7 @@ const clampInt = (n, lo, hi, fb) => { const v = Math.round(Number(n)); return Nu
 const MAP_PROMPT = (hint) => `You are mapping a physical tool-storage space into a grid of slots.
 The photo shows a pegboard, drawer organizer, parts-bin wall, shelf unit, or socket rail.
 ${hint ? `User hint: "${hint}". Trust it if it conflicts with the image.\n` : ""}Respond with STRICT JSON ONLY:
-{"type": one of ${JSON.stringify(LOCATION_TYPES)}, "gridRows": int 1-40, "gridCols": int 1-40, "region": {"x": 0..1, "y": 0..1, "w": 0..1, "h": 0..1} tight bounding box of ONLY the storage unit within the image (normalized to image size), "notes": short string, "confidence": 0..1}`;
+{"type": one of ${JSON.stringify(LOCATION_TYPES)}, "gridRows": int 1-40 (count of horizontal rows, top to bottom), "gridCols": int 1-40 (count of vertical columns, left to right), "region": {"x": 0..1, "y": 0..1, "w": 0..1, "h": 0..1} tight bounding box of ONLY the storage unit within the image (normalized to image size), "notes": short string, "confidence": 0..1}`;
 
 const ITEM_KINDS = ["part", "tool", "set", "consumable"];
 
