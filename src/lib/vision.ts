@@ -74,3 +74,19 @@ export async function suggestSpaceFromImage(
 export async function identifyItemFromImage(imageDataUrl: string): Promise<ItemSuggestion> {
   return postJson<ItemSuggestion>("/identify-item", { imageDataUrl });
 }
+
+/** One recognized item from a bin-contents photo. */
+export interface BinItemSuggestion {
+  name: string;
+  category: string;
+  brand: string;
+  model: string;
+  quantity: number;
+  confidence: number;
+}
+
+/** Ask the vision model to list every item visible in a bin-contents photo. */
+export async function identifyBinFromImage(imageDataUrl: string): Promise<BinItemSuggestion[]> {
+  const out = await postJson<{ items: BinItemSuggestion[] }>("/identify-bin", { imageDataUrl });
+  return Array.isArray(out.items) ? out.items : [];
+}
