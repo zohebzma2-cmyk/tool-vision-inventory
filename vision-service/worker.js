@@ -25,7 +25,7 @@
 //   ENABLE_WEB_GROUNDING (default on; set to "false" to disable the enrichment call)
 
 const CATEGORIES = ["hand tools", "power tools", "electrical", "plumbing", "cutting tools", "measuring tools", "fasteners", "other"];
-const LOCATION_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "space"];
+const LOCATION_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "toolbox", "tool bag", "space"];
 const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -60,9 +60,11 @@ The photo shows a pegboard, drawer organizer, parts-bin wall, shelf unit, or soc
 ${hint ? `User hint: "${hint}". Trust it if it conflicts with the image.\n` : ""}Respond with STRICT JSON ONLY:
 {"type": one of ${JSON.stringify(LOCATION_TYPES)}, "gridRows": int 1-40, "gridCols": int 1-40, "notes": short string, "confidence": 0..1}`;
 
+const ITEM_KINDS = ["part", "tool", "set", "consumable"];
+
 const IDENTIFY_MANY_PROMPT = `This photo shows the contents of one storage bin in a garage inventory. List EVERY distinct item you can identify. Read visible brand/model text. Group identical items with a count instead of repeating them.
 Respond with STRICT JSON ONLY:
-{"items": [{"name": short specific name, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string or "", "model": string or "", "quantity": int >= 1, "confidence": 0..1}]}`;
+{"items": [{"name": short specific name, "category": one of ${JSON.stringify(CATEGORIES)}, "kind": one of ${JSON.stringify(ITEM_KINDS)} (part = component/hardware, tool = works on things, set = multi-piece kit, consumable = gets used up), "brand": string or "", "model": string or "", "quantity": int >= 1, "confidence": 0..1}]}`;
 
 const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a garage inventory. Read visible brand/model text.
 Respond with STRICT JSON ONLY:
@@ -239,9 +241,11 @@ export default {
         const out = await callModelResilient(env, apiKey, IDENTIFY_MANY_PROMPT, body.imageDataUrl);
         const items = (Array.isArray(out.items) ? out.items : []).slice(0, 40).map((it) => {
           const cat = String(it?.category || "").toLowerCase();
+          const kind = String(it?.kind || "").toLowerCase();
           return {
             name: typeof it?.name === "string" && it.name.trim() ? it.name.trim() : "Unknown item",
             category: CATEGORIES.includes(cat) ? cat : "other",
+            kind: ITEM_KINDS.includes(kind) ? kind : "part",
             brand: typeof it?.brand === "string" ? it.brand : "",
             model: typeof it?.model === "string" ? it.model : "",
             quantity: clampInt(it?.quantity, 1, 999, 1),

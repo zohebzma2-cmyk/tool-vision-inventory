@@ -79,6 +79,7 @@ export async function identifyItemFromImage(imageDataUrl: string): Promise<ItemS
 export interface BinItemSuggestion {
   name: string;
   category: string;
+  kind: "part" | "tool" | "set" | "consumable";
   brand: string;
   model: string;
   quantity: number;
