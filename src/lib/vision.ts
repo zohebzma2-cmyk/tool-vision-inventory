@@ -28,6 +28,8 @@ export interface SpaceSuggestion {
   type?: string; // one of the location types (pegboard, drawer, shelf, ...)
   gridRows?: number;
   gridCols?: number;
+  /** Bounding box of the storage unit within the photo, normalized 0..1. */
+  region?: { x: number; y: number; w: number; h: number } | null;
   slotNames?: string[]; // optional per-cell names, row-major
   notes?: string;
   confidence?: number; // 0..1

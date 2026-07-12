@@ -58,7 +58,7 @@ const clampInt = (n, lo, hi, fb) => { const v = Math.round(Number(n)); return Nu
 const MAP_PROMPT = (hint) => `You are mapping a physical tool-storage space into a grid of slots.
 The photo shows a pegboard, drawer organizer, parts-bin wall, shelf unit, or socket rail.
 ${hint ? `User hint: "${hint}". Trust it if it conflicts with the image.\n` : ""}Respond with STRICT JSON ONLY:
-{"type": one of ${JSON.stringify(LOCATION_TYPES)}, "gridRows": int 1-40, "gridCols": int 1-40, "notes": short string, "confidence": 0..1}`;
+{"type": one of ${JSON.stringify(LOCATION_TYPES)}, "gridRows": int 1-40, "gridCols": int 1-40, "region": {"x": 0..1, "y": 0..1, "w": 0..1, "h": 0..1} tight bounding box of ONLY the storage unit within the image (normalized to image size), "notes": short string, "confidence": 0..1}`;
 
 const ITEM_KINDS = ["part", "tool", "set", "consumable"];
 
@@ -229,10 +229,15 @@ export default {
     try {
       if (url.pathname === "/map-space") {
         const out = await callModelResilient(env, apiKey, MAP_PROMPT(body.hint || ""), body.imageDataUrl);
+        const r = out.region;
+        const region = r && typeof r === "object"
+          ? { x: clamp01(r.x), y: clamp01(r.y), w: clamp01(r.w), h: clamp01(r.h) }
+          : null;
         return json(200, {
           type: LOCATION_TYPES.includes(String(out.type)) ? out.type : "space",
           gridRows: clampInt(out.gridRows, 1, 40, 4),
           gridCols: clampInt(out.gridCols, 1, 40, 4),
+          region,
           notes: typeof out.notes === "string" ? out.notes : "",
           confidence: clamp01(out.confidence ?? 0.6),
         }, cors);

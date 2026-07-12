@@ -19,7 +19,9 @@ export default {
 		},
 		extend: {
 			fontFamily: {
-				sans: ['Barlow', 'system-ui', 'sans-serif'],
+				// System-first: renders SF Pro on Apple devices so UI text feels native iOS;
+				// Barlow stays as the cross-platform fallback and the brand accent.
+				sans: ['-apple-system', 'BlinkMacSystemFont', '"SF Pro Text"', '"Segoe UI"', 'Barlow', 'sans-serif'],
 				display: ['"Barlow Condensed"', 'Barlow', 'system-ui', 'sans-serif'],
 				mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
 			},
