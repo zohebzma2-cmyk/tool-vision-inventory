@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/adaptive-dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { compressImage } from "@/lib/image";
 import { supabase } from "@/integrations/supabase/client";
 import { printTextLabel, isPrintingSupported, setupPrinter } from "@/components/inventory/PrinterService";
 
@@ -64,12 +65,15 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
     setSelectedImage(file);
     setResults(null);
     
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      console.log('FileReader loaded, setting preview');
-      setImagePreview(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+    // Downscale before anything else — the preview and the AI payload both use this,
+    // and vision inference cost scales steeply with resolution.
+    compressImage(file, 960, 0.65)
+      .then(setImagePreview)
+      .catch(() => {
+        const reader = new FileReader();
+        reader.onload = (e) => setImagePreview(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
   };
 
   // Camera controls
