@@ -355,16 +355,14 @@ export function LocationsList() {
   return (
     <>
       <div className="p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              Locations ({locations.length})
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+          <div className="flex items-baseline gap-2">
+            <h2 className="font-display text-xl font-semibold uppercase tracking-wide text-foreground">
+              Spaces
             </h2>
-            <p className="text-sm text-muted-foreground">
-              Organize your workspace with QR-coded locations
-            </p>
+            <span className="font-mono text-sm text-muted-foreground">({locations.length})</span>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {isPrintingSupported() && (
               <>
                 <Button 
@@ -408,7 +406,7 @@ export function LocationsList() {
               className="shadow-soft"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add Location
+              Add space
             </Button>
           </div>
         </div>
@@ -444,9 +442,10 @@ export function LocationsList() {
             <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
               <MapPin className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-semibold mb-2">No locations yet</h3>
+            <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">No spaces mapped</h3>
             <p className="text-muted-foreground max-w-sm mx-auto">
-              Create your first location to start organizing your tools with QR codes for easy tracking.
+              Point the camera at a pegboard, drawer, or shelf and Map a Space turns it
+              into a labeled grid of slots.
             </p>
           </div>
         ) : (
@@ -626,7 +625,7 @@ export function LocationsList() {
                 Cancel
               </Button>
               <Button type="submit" disabled={!formData.name || !formData.type}>
-                Add Location
+                Add space
               </Button>
             </DialogFooter>
           </form>

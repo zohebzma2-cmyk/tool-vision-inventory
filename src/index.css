@@ -2,117 +2,127 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Design system — "Shop Label".
+   The identity borrows from a labeled garage tool wall: graphite label tiles with
+   engraved condensed lettering, concrete-grey walls, one safety-orange accent, and
+   a faint pegboard dot grid. All colors are HSL triplets consumed by Tailwind. */
 
 @layer base {
   :root {
-    --background: 210 20% 98%;
-    --foreground: 210 15% 15%;
+    /* Concrete wall */
+    --background: 210 12% 97%;
+    --foreground: 220 14% 14%;
 
     --card: 0 0% 100%;
-    --card-foreground: 210 15% 15%;
+    --card-foreground: 220 14% 14%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 210 15% 15%;
+    --popover-foreground: 220 14% 14%;
 
-    --primary: 217 89% 61%;
+    /* Safety orange — the single accent. Reserved for primary actions. */
+    --primary: 22 92% 50%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 17% 90%;
-    --secondary-foreground: 210 15% 25%;
+    /* Steel */
+    --secondary: 215 14% 92%;
+    --secondary-foreground: 220 14% 22%;
 
-    --muted: 210 17% 96%;
-    --muted-foreground: 210 10% 50%;
+    --muted: 214 12% 94%;
+    --muted-foreground: 215 10% 44%;
 
-    --accent: 142 71% 45%;
-    --accent-foreground: 0 0% 100%;
+    /* Graphite tile — the signature surface */
+    --accent: 220 14% 15%;
+    --accent-foreground: 40 20% 96%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 210 20% 92%;
-    --input: 210 20% 92%;
-    --ring: 217 89% 61%;
+    --border: 214 14% 88%;
+    --input: 214 14% 86%;
+    --ring: 22 92% 50%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 48 96% 89%;
+    --warning: 42 96% 45%;
+    --warning-foreground: 40 20% 96%;
 
-    --success: 142 71% 45%;
-    --success-foreground: 355 100% 97%;
+    --success: 145 55% 36%;
+    --success-foreground: 0 0% 100%;
 
-    --info: 217 89% 61%;
+    --info: 215 60% 45%;
     --info-foreground: 0 0% 100%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(217 89% 61%), hsl(217 89% 45%));
-    --gradient-accent: linear-gradient(135deg, hsl(142 71% 45%), hsl(142 71% 35%));
-    --shadow-elegant: 0 10px 25px -5px hsl(217 89% 61% / 0.2);
-    --shadow-soft: 0 4px 6px -1px hsl(210 15% 15% / 0.1);
+    /* Tile surfaces (label-tile signature element) */
+    --tile: 220 14% 15%;
+    --tile-foreground: 40 20% 96%;
+    --tile-edge: 220 12% 28%;
 
-    --radius: 0.5rem;
+    --radius: 0.375rem;
 
-    --sidebar-background: 210 17% 96%;
-    --sidebar-foreground: 210 15% 25%;
-    --sidebar-primary: 217 89% 61%;
+    --shadow-tile: inset 0 1px 0 hsl(220 12% 32%), 0 1px 2px hsl(220 14% 14% / 0.35);
+    --shadow-soft: 0 1px 2px hsl(220 14% 14% / 0.06), 0 4px 12px -4px hsl(220 14% 14% / 0.08);
+
+    --sidebar-background: 214 12% 94%;
+    --sidebar-foreground: 220 14% 22%;
+    --sidebar-primary: 22 92% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 20% 90%;
-    --sidebar-accent-foreground: 210 15% 25%;
-    --sidebar-border: 210 20% 88%;
-    --sidebar-ring: 217 89% 61%;
+    --sidebar-accent: 214 14% 88%;
+    --sidebar-accent-foreground: 220 14% 22%;
+    --sidebar-border: 214 14% 86%;
+    --sidebar-ring: 22 92% 50%;
   }
 
   .dark {
-    --background: 210 15% 7%;
-    --foreground: 210 20% 92%;
+    --background: 220 14% 9%;
+    --foreground: 214 14% 90%;
 
-    --card: 210 15% 10%;
-    --card-foreground: 210 20% 92%;
+    --card: 220 14% 12%;
+    --card-foreground: 214 14% 90%;
 
-    --popover: 210 15% 10%;
-    --popover-foreground: 210 20% 92%;
+    --popover: 220 14% 12%;
+    --popover-foreground: 214 14% 90%;
 
-    --primary: 217 89% 61%;
-    --primary-foreground: 210 15% 7%;
+    --primary: 22 92% 54%;
+    --primary-foreground: 220 14% 9%;
 
-    --secondary: 210 15% 15%;
-    --secondary-foreground: 210 20% 85%;
+    --secondary: 220 12% 18%;
+    --secondary-foreground: 214 14% 84%;
 
-    --muted: 210 15% 15%;
-    --muted-foreground: 210 10% 60%;
+    --muted: 220 12% 16%;
+    --muted-foreground: 215 10% 58%;
 
-    --accent: 142 71% 45%;
-    --accent-foreground: 210 15% 7%;
+    --accent: 214 14% 90%;
+    --accent-foreground: 220 14% 12%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 65% 52%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 210 15% 20%;
-    --input: 210 15% 20%;
-    --ring: 217 89% 61%;
+    --border: 220 12% 20%;
+    --input: 220 12% 22%;
+    --ring: 22 92% 54%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 48 96% 89%;
+    --warning: 42 96% 55%;
+    --warning-foreground: 220 14% 9%;
 
-    --success: 142 71% 45%;
-    --success-foreground: 355 100% 97%;
+    --success: 145 50% 44%;
+    --success-foreground: 220 14% 9%;
 
-    --info: 217 89% 61%;
-    --info-foreground: 210 15% 7%;
+    --info: 215 60% 60%;
+    --info-foreground: 220 14% 9%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(217 89% 61%), hsl(217 89% 45%));
-    --gradient-accent: linear-gradient(135deg, hsl(142 71% 45%), hsl(142 71% 35%));
-    --shadow-elegant: 0 10px 25px -5px hsl(217 89% 61% / 0.3);
-    --shadow-soft: 0 4px 6px -1px hsl(210 15% 7% / 0.2);
+    --tile: 220 14% 15%;
+    --tile-foreground: 40 20% 96%;
+    --tile-edge: 220 12% 30%;
 
-    --sidebar-background: 210 15% 10%;
-    --sidebar-foreground: 210 20% 85%;
-    --sidebar-primary: 217 89% 61%;
-    --sidebar-primary-foreground: 210 15% 7%;
-    --sidebar-accent: 210 15% 15%;
-    --sidebar-accent-foreground: 210 20% 85%;
-    --sidebar-border: 210 15% 20%;
-    --sidebar-ring: 217 89% 61%;
+    --shadow-tile: inset 0 1px 0 hsl(220 12% 34%), 0 1px 2px hsl(220 14% 4% / 0.6);
+    --shadow-soft: 0 1px 2px hsl(220 14% 4% / 0.4), 0 4px 12px -4px hsl(220 14% 4% / 0.5);
+
+    --sidebar-background: 220 14% 12%;
+    --sidebar-foreground: 214 14% 84%;
+    --sidebar-primary: 22 92% 54%;
+    --sidebar-primary-foreground: 220 14% 9%;
+    --sidebar-accent: 220 12% 18%;
+    --sidebar-accent-foreground: 214 14% 84%;
+    --sidebar-border: 220 12% 20%;
+    --sidebar-ring: 22 92% 54%;
   }
 }
 
@@ -125,15 +135,55 @@ All colors MUST be HSL.
     @apply bg-background text-foreground font-sans antialiased;
   }
 
-  .gradient-bg {
-    background: var(--gradient-primary);
+  /* Visible keyboard focus everywhere */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 
-  .shadow-elegant {
-    box-shadow: var(--shadow-elegant);
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Signature: the label tile. Mirrors the 3D-printed name plates on the tool wall —
+     graphite plate, raised light lettering, condensed and tracked. */
+  .label-tile {
+    background: hsl(var(--tile));
+    color: hsl(var(--tile-foreground));
+    box-shadow: var(--shadow-tile);
+    border-radius: 0.25rem;
+    font-family: theme("fontFamily.display");
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* Faint pegboard dot grid, spaced like 1" pegboard holes. */
+  .pegboard {
+    background-image: radial-gradient(hsl(220 14% 14% / 0.055) 1.5px, transparent 1.5px);
+    background-size: 26px 26px;
+  }
+  .dark .pegboard {
+    background-image: radial-gradient(hsl(214 14% 90% / 0.05) 1.5px, transparent 1.5px);
   }
 
   .shadow-soft {
     box-shadow: var(--shadow-soft);
+  }
+
+  /* Retained for legacy references */
+  .shadow-elegant {
+    box-shadow: var(--shadow-soft);
+  }
+  .gradient-bg {
+    background: hsl(var(--tile));
   }
 }

@@ -1,205 +1,296 @@
 import { useState } from "react";
-import { Plus, Package, MapPin, BarChart3, Search, Wrench, AlertTriangle, TrendingUp, LogOut } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, LogOut, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from "@/components/ui/badge";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
 import { ItemsList } from "@/components/inventory/ItemsList";
 import { LocationsList } from "@/components/inventory/LocationsList";
 import { QRScanner } from "@/components/inventory/QRScanner";
+import { useInventoryStats } from "@/hooks/useInventoryStats";
+import { cn } from "@/lib/utils";
+
+type Tab = "items" | "locations" | "overview";
 
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [tab, setTab] = useState<Tab>("items");
   const { user, signOut } = useAuth();
+  const stats = useInventoryStats();
+
+  const fmtMoney = (n: number) =>
+    n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n.toFixed(0)}`;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header with gradient background */}
-      <header className="gradient-bg border-b shadow-elegant">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
-                <Wrench className="h-8 w-8 text-white" />
+    <div className="min-h-screen bg-background pegboard">
+      {/* Graphite header band — the wall the tiles hang on */}
+      <header className="bg-tile text-tile-foreground border-b border-tile-edge sticky top-0 z-40">
+        <div className="container mx-auto px-4 py-3 md:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="label-tile flex items-center justify-center h-10 w-10 shrink-0 border border-tile-edge">
+                <Wrench className="h-5 w-5" aria-hidden />
               </div>
-              <div>
-                <h1 className="text-3xl font-bold text-white">Tool Inventory</h1>
-                <p className="text-white/80 text-sm">Comprehensive tool management system</p>
+              <div className="min-w-0">
+                <h1 className="font-display text-2xl md:text-3xl font-bold uppercase tracking-[0.08em] leading-none truncate">
+                  Tool Vision
+                </h1>
+                <p className="font-mono text-[11px] md:text-xs text-tile-foreground/60 mt-1 truncate">
+                  {stats.loading
+                    ? "reading the wall…"
+                    : [
+                        `${stats.itemCount} tools`,
+                        `${stats.locationCount} spaces`,
+                        ...(stats.totalValue > 0 ? [`${fmtMoney(stats.totalValue)} on the wall`] : []),
+                      ].join(" · ")}
+                </p>
               </div>
             </div>
-            <div className="flex space-x-3">
-              <Button 
-                variant="outline" 
-                size="default"
-                onClick={() => setShowQRScanner(true)}
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm"
-              >
-                <Search className="h-4 w-4 mr-2" />
-                Scan QR Code
-              </Button>
-              <Button
-                size="default"
-                onClick={() => setShowAddItem(true)}
-                className="bg-white text-primary hover:bg-white/90 font-semibold shadow-soft"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add New Item
-              </Button>
+
+            {/* Desktop actions */}
+            <div className="hidden md:flex items-center gap-2">
               <Button
                 variant="outline"
-                size="default"
+                onClick={() => setShowQRScanner(true)}
+                className="bg-transparent border-tile-edge text-tile-foreground hover:bg-tile-foreground/10 hover:text-tile-foreground"
+              >
+                <ScanLine className="h-4 w-4 mr-2" />
+                Scan label
+              </Button>
+              <Button onClick={() => setShowAddItem(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add tool
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={signOut}
                 title={user?.email ? `Sign out ${user.email}` : "Sign out"}
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20 backdrop-blur-sm"
+                className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
               >
                 <LogOut className="h-4 w-4" />
+                <span className="sr-only">Sign out</span>
               </Button>
             </div>
+
+            {/* Mobile: sign out only — actions live in the bottom bar */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={signOut}
+              title="Sign out"
+              className="md:hidden text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="sr-only">Sign out</span>
+            </Button>
           </div>
+
+          {/* Desktop tab rail */}
+          <nav className="hidden md:flex gap-1 mt-4 -mb-px" aria-label="Sections">
+            {(
+              [
+                { id: "items", label: "Tools", icon: Package },
+                { id: "locations", label: "Spaces", icon: MapPin },
+                { id: "overview", label: "Overview", icon: LayoutGrid },
+              ] as const
+            ).map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setTab(id)}
+                aria-current={tab === id ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-2 px-4 py-2 font-display uppercase tracking-[0.08em] text-sm font-semibold rounded-t border-b-2 transition-colors",
+                  tab === id
+                    ? "border-primary text-tile-foreground"
+                    : "border-transparent text-tile-foreground/55 hover:text-tile-foreground"
+                )}
+              >
+                <Icon className="h-4 w-4" aria-hidden />
+                {label}
+              </button>
+            ))}
+          </nav>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-8">
-        {/* Stats Dashboard */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="border-0 shadow-soft bg-gradient-to-br from-primary/5 to-primary/10">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-semibold text-primary">Total Items</CardTitle>
-              <div className="p-2 bg-primary/10 rounded-full">
-                <Package className="h-4 w-4 text-primary" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-primary">0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <span className="text-success font-medium">+0</span> from last month
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-0 shadow-soft bg-gradient-to-br from-accent/5 to-accent/10">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-semibold text-accent">Locations</CardTitle>
-              <div className="p-2 bg-accent/10 rounded-full">
-                <MapPin className="h-4 w-4 text-accent" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-accent">0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <span className="text-success font-medium">+0</span> new this week
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-0 shadow-soft bg-gradient-to-br from-info/5 to-info/10">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-semibold text-info">Categories</CardTitle>
-              <div className="p-2 bg-info/10 rounded-full">
-                <BarChart3 className="h-4 w-4 text-info" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-info">0</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <TrendingUp className="h-3 w-3 inline mr-1 text-success" />
-                Well organized
-              </p>
-            </CardContent>
-          </Card>
-          
-          <Card className="border-0 shadow-soft bg-gradient-to-br from-warning/5 to-warning/10">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-semibold text-warning">Low Stock</CardTitle>
-              <div className="p-2 bg-warning/10 rounded-full">
-                <AlertTriangle className="h-4 w-4 text-warning" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-warning">0</div>
-              <Badge variant="outline" className="text-xs mt-1 border-warning/20 text-warning">
-                No alerts
-              </Badge>
-            </CardContent>
-          </Card>
+      <main className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-28 md:pb-10">
+        <div className="bg-card rounded-lg shadow-soft border">
+          {tab === "items" && (
+            <ItemsList />
+          )}
+          {tab === "locations" && (
+            <LocationsList />
+          )}
+          {tab === "overview" && (
+            <Overview
+              stats={stats}
+              onAddTool={() => setShowAddItem(true)}
+            />
+          )}
         </div>
-
-        {/* Main Content Tabs */}
-        <Card className="border-0 shadow-soft">
-          <Tabs defaultValue="items" className="w-full">
-            <div className="border-b bg-muted/30">
-              <TabsList className="grid w-full grid-cols-3 h-12 bg-transparent">
-                <TabsTrigger 
-                  value="items" 
-                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold"
-                >
-                  <Package className="h-4 w-4 mr-2" />
-                  Items
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="locations"
-                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold"
-                >
-                  <MapPin className="h-4 w-4 mr-2" />
-                  Locations
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="analytics"
-                  className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground font-semibold"
-                >
-                  <BarChart3 className="h-4 w-4 mr-2" />
-                  Analytics
-                </TabsTrigger>
-              </TabsList>
-            </div>
-            
-            <TabsContent value="items" className="m-0">
-              <ItemsList />
-            </TabsContent>
-            
-            <TabsContent value="locations" className="m-0">
-              <LocationsList />
-            </TabsContent>
-            
-            <TabsContent value="analytics" className="m-0">
-              <div className="p-6">
-                <div className="text-center py-12">
-                  <div className="mx-auto w-24 h-24 bg-muted rounded-full flex items-center justify-center mb-4">
-                    <BarChart3 className="h-12 w-12 text-muted-foreground" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Analytics Dashboard</h3>
-                  <p className="text-muted-foreground max-w-md mx-auto">
-                    Comprehensive usage analytics, inventory trends, and detailed reports will be available here once you start adding items and tracking usage.
-                  </p>
-                  <Button 
-                    variant="outline" 
-                    className="mt-4"
-                    onClick={() => setShowAddItem(true)}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Your First Item
-                  </Button>
-                </div>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </Card>
       </main>
 
-      <AddItemDialog 
-        open={showAddItem} 
-        onOpenChange={setShowAddItem} 
+      {/* Mobile bottom bar — thumb-first */}
+      <nav
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-tile text-tile-foreground border-t border-tile-edge"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        aria-label="Primary"
+      >
+        <div className="grid grid-cols-5 items-stretch">
+          <MobileTab
+            active={tab === "items"}
+            onClick={() => setTab("items")}
+            icon={Package}
+            label="Tools"
+          />
+          <MobileTab
+            active={tab === "locations"}
+            onClick={() => setTab("locations")}
+            icon={MapPin}
+            label="Spaces"
+          />
+          <button
+            onClick={() => setShowAddItem(true)}
+            className="flex flex-col items-center justify-center gap-0.5 py-2"
+            aria-label="Add tool"
+          >
+            <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
+              <Plus className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+              Add
+            </span>
+          </button>
+          <MobileTab
+            active={false}
+            onClick={() => setShowQRScanner(true)}
+            icon={ScanLine}
+            label="Scan"
+          />
+          <MobileTab
+            active={tab === "overview"}
+            onClick={() => setTab("overview")}
+            icon={LayoutGrid}
+            label="Overview"
+          />
+        </div>
+      </nav>
+
+      <AddItemDialog
+        open={showAddItem}
+        onOpenChange={(open) => {
+          setShowAddItem(open);
+          if (!open) stats.refresh();
+        }}
       />
-      
-      <QRScanner 
-        open={showQRScanner} 
-        onOpenChange={setShowQRScanner} 
-      />
+
+      <QRScanner open={showQRScanner} onOpenChange={setShowQRScanner} />
     </div>
   );
 };
+
+function MobileTab(props: {
+  active: boolean;
+  onClick: () => void;
+  icon: typeof Package;
+  label: string;
+}) {
+  const Icon = props.icon;
+  return (
+    <button
+      onClick={props.onClick}
+      aria-current={props.active ? "page" : undefined}
+      className={cn(
+        "flex flex-col items-center justify-center gap-0.5 py-2 transition-colors",
+        props.active ? "text-primary" : "text-tile-foreground/60"
+      )}
+    >
+      <Icon className="h-5 w-5" aria-hidden />
+      <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+        {props.label}
+      </span>
+    </button>
+  );
+}
+
+function Overview(props: {
+  stats: ReturnType<typeof useInventoryStats>;
+  onAddTool: () => void;
+}) {
+  const { itemCount, locationCount, categoryCounts, totalValue, loading } = props.stats;
+  const categories = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1]);
+
+  if (loading) {
+    return (
+      <div className="p-10 flex justify-center">
+        <Package className="h-8 w-8 animate-pulse text-muted-foreground" aria-hidden />
+      </div>
+    );
+  }
+
+  if (itemCount === 0) {
+    return (
+      <div className="p-8 md:p-12 text-center">
+        <div className="label-tile inline-flex items-center px-4 py-2 text-sm mb-4">
+          Empty wall
+        </div>
+        <h2 className="font-display text-2xl font-semibold uppercase tracking-wide mb-2">
+          Nothing on the board yet
+        </h2>
+        <p className="text-muted-foreground max-w-sm mx-auto mb-6">
+          Add your first tool, or open Spaces and map a pegboard, drawer, or shelf
+          with the camera.
+        </p>
+        <Button onClick={props.onAddTool}>
+          <Plus className="h-4 w-4 mr-2" />
+          Add tool
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-6">
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <BoardStat label="Tools" value={String(itemCount)} />
+        <BoardStat label="Spaces" value={String(locationCount)} />
+        <BoardStat
+          label="Value"
+          value={totalValue > 0 ? `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
+        />
+      </div>
+
+      <h2 className="font-display text-lg font-semibold uppercase tracking-wide mb-3">
+        By category
+      </h2>
+      <ul className="space-y-2">
+        {categories.map(([name, count]) => (
+          <li key={name} className="flex items-center gap-3">
+            <span className="label-tile px-2.5 py-1 text-xs shrink-0 w-36 text-center truncate">{name}</span>
+            <span className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden" aria-hidden>
+              <span
+                className="block h-full bg-primary/80 rounded-full"
+                style={{ width: `${Math.max(4, (count / itemCount) * 100)}%` }}
+              />
+            </span>
+            <span className="font-mono text-sm text-muted-foreground shrink-0 w-8 text-right">{count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function BoardStat(props: { label: string; value: string }) {
+  return (
+    <div className="label-tile px-3 py-3 text-center">
+      <div className="font-display text-2xl md:text-3xl font-bold leading-none">{props.value}</div>
+      <div className="font-mono text-[10px] md:text-xs text-tile-foreground/60 mt-1 lowercase">
+        {props.label}
+      </div>
+    </div>
+  );
+}
 
 export default Index;

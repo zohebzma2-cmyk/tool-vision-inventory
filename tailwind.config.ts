@@ -18,6 +18,11 @@ export default {
 			}
 		},
 		extend: {
+			fontFamily: {
+				sans: ['Barlow', 'system-ui', 'sans-serif'],
+				display: ['"Barlow Condensed"', 'Barlow', 'system-ui', 'sans-serif'],
+				mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+			},
 			colors: {
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
@@ -51,6 +56,11 @@ export default {
 				card: {
 					DEFAULT: 'hsl(var(--card))',
 					foreground: 'hsl(var(--card-foreground))'
+				},
+				tile: {
+					DEFAULT: 'hsl(var(--tile))',
+					foreground: 'hsl(var(--tile-foreground))',
+					edge: 'hsl(var(--tile-edge))'
 				},
 				warning: {
 					DEFAULT: 'hsl(var(--warning))',
