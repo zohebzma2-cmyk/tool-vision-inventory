@@ -304,10 +304,10 @@ export default {
 
   // Two crons ([triggers] in wrangler.toml):
   //  - daily: pings Supabase REST so the free-tier project never hits the 7-day auto-pause
-  //  - every 3 min: a 1-token request (inside Ollama's 5-minute unload window, so the to the self-hosted vision model so Ollama keeps it
-  //    ping never races the unload) keeping the model resident — warm ~10s, cold ~3min
+  //  - every minute: a 1-token request — the proxy pins keep_alive to ~90s, so only a to the self-hosted vision model so Ollama keeps it
+  //    1-minute cadence actually keeps the model resident (warm ~10s, cold ~3min)
   async scheduled(event, env) {
-    if (event.cron === "*/3 * * * *") {
+    if (event.cron === "* * * * *") {
       if (!env.SELF_VISION_BASE || !env.SELF_VISION_KEY) return;
       await fetch(`${env.SELF_VISION_BASE.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
