@@ -39,7 +39,7 @@ SELF_VISION_MODEL = "qwen2.5vl:7b"
 # with the self-hosted box and then the free chain as fallbacks. Anything else = box first.
 # Flip to "cloud" once the OpenRouter account has prepaid credit (keep auto-top-up OFF —
 # prepaid credit is the hard spend cap).
-VISION_PRIMARY = "self"
+VISION_PRIMARY = "cloud"
 VISION_MODEL_PAID = "qwen/qwen3-vl-235b-a22b-instruct"
 
 # Abuse limits.
