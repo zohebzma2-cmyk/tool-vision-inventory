@@ -68,10 +68,11 @@ async function callModel(env, apiKey, prompt, imageDataUrl) {
   const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
   // VISION_MODEL_FALLBACK may be a comma-separated chain; OpenRouter tries each in
   // order, so one upstream-rate-limited free model doesn't take the feature down.
+  // OpenRouter rejects more than 3 entries in `models`, so the chain is capped.
   const models = [
     env.VISION_MODEL || DEFAULT_MODEL,
     ...(env.VISION_MODEL_FALLBACK || "").split(",").map((s) => s.trim()).filter(Boolean),
-  ];
+  ].slice(0, 3);
   const res = await fetch(`${base}/chat/completions`, {
     method: "POST",
     headers: {
