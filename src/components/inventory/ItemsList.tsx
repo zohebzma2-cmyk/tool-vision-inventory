@@ -260,7 +260,7 @@ export function ItemsList() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search items by name, brand, model..."
+            placeholder="Find a tool — name, brand, or model"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9 h-10"
@@ -279,13 +279,11 @@ export function ItemsList() {
         </select>
       </div>
 
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold text-foreground">
-          Items ({filteredItems.length})
+      <div className="mb-4 flex items-baseline gap-2">
+        <h2 className="font-display text-xl font-semibold uppercase tracking-wide text-foreground">
+          Tools
         </h2>
-        <p className="text-sm text-muted-foreground">
-          Manage your tool inventory and track locations
-        </p>
+        <span className="font-mono text-sm text-muted-foreground">({filteredItems.length})</span>
       </div>
 
       {filteredItems.length === 0 ? (
@@ -293,15 +291,15 @@ export function ItemsList() {
           <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
             <Package className="h-10 w-10 text-muted-foreground" />
           </div>
-          <h3 className="text-lg font-semibold mb-2">
-            {searchTerm || selectedCategory !== "all" 
-              ? "No matching items found" 
-              : "No items in inventory"}
+          <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">
+            {searchTerm || selectedCategory !== "all"
+              ? "No tools match"
+              : "Empty wall"}
           </h3>
           <p className="text-muted-foreground max-w-sm mx-auto">
-            {searchTerm || selectedCategory !== "all" 
-              ? "Try adjusting your search criteria or add new items to your inventory." 
-              : "Start building your tool inventory by adding your first item."}
+            {searchTerm || selectedCategory !== "all"
+              ? "Clear the search or pick a different category."
+              : "Add your first tool — point the camera at it and the app fills in the details."}
           </p>
         </div>
       ) : (
@@ -313,10 +311,10 @@ export function ItemsList() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground text-lg mb-1">{item.name}</h3>
                     {item.brand && (
-                      <p className="text-sm text-primary font-medium">{item.brand}</p>
+                      <p className="text-sm text-muted-foreground font-medium uppercase tracking-wide">{item.brand}</p>
                     )}
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setPreviewItem(item); setShowPreview(true); }}>
                       <Eye className="h-4 w-4" />
                     </Button>
@@ -334,16 +332,13 @@ export function ItemsList() {
                   </div>
                 </div>
                 
-                <Badge 
-                  variant="secondary" 
-                  className="mb-3 bg-primary/10 text-primary border-primary/20"
-                >
+                <span className="label-tile inline-block px-2 py-0.5 text-[11px] mb-3">
                   {item.category}
-                </Badge>
-                
+                </span>
+
                 <div className="text-[11px] text-muted-foreground font-mono mb-2 space-x-3 truncate">
                   {item.qr_code && <span className="truncate">QR: {item.qr_code}</span>}
-                  <span className="truncate">ID: {item.id}</span>
+                  <span className="truncate">ID: {item.id.slice(0, 8)}</span>
                 </div>
                 
                 {item.description && (
@@ -358,7 +353,7 @@ export function ItemsList() {
                       Quantity: <span className="font-medium text-foreground">{item.quantity} {item.quantity_unit}</span>
                     </span>
                     {item.purchase_price && (
-                      <span className="text-accent font-semibold text-base">
+                      <span className="font-mono font-medium text-foreground">
                         ${item.purchase_price}
                       </span>
                     )}
