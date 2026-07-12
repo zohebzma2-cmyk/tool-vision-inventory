@@ -1,20 +1,25 @@
-import { useMemo, useState } from "react";
-import { Sparkles, Grid3x3, Camera, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Sparkles, Grid3x3, Camera, Loader2, Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { buildSlotDefs, createSpaceWithSlots } from "@/lib/slots";
+import { buildSlotDefs, createSpaceWithSlots, findOrCreatePlace } from "@/lib/slots";
+import { compressImage } from "@/lib/image";
+import { supabase } from "@/integrations/supabase/client";
 import { BUILTIN_TEMPLATES, type LabelData } from "@/lib/labelTemplates";
 import { getAllTemplates, resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { suggestSpaceFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
+import { cn } from "@/lib/utils";
 
 const SPACE_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "space"];
+
+// One-tap starters for a new place. Anything else via the inline input.
+const PLACE_PRESETS = ["Garage", "Shed", "Basement", "Attic", "Workshop"];
 
 const NAMING_PRESETS = [
   { label: "Name + coords (Pegboard R2C3)", value: "{{parent}} {{slot}}" },
@@ -22,6 +27,11 @@ const NAMING_PRESETS = [
   { label: "Sequential (Pegboard #012)", value: "{{parent}} #{{index}}" },
   { label: "Coords only (R2C3)", value: "{{slot}}" },
 ];
+
+interface Place {
+  id: string;
+  name: string;
+}
 
 interface Props {
   open: boolean;
@@ -33,8 +43,8 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
+  const [nameTouched, setNameTouched] = useState(false);
   const [type, setType] = useState("pegboard");
-  const [description, setDescription] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [gridRows, setGridRows] = useState(4);
   const [gridCols, setGridCols] = useState(5);
@@ -42,26 +52,54 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
   const [pad, setPad] = useState(true);
   const [templateId, setTemplateId] = useState(BUILTIN_TEMPLATES[0].id);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Places (garage / shed / …) — one tap to pick, one tap to create.
+  const [places, setPlaces] = useState<Place[]>([]);
+  const [placeId, setPlaceId] = useState<string | null>(null);
+  const [newPlaceName, setNewPlaceName] = useState("");
+  const [addingPlace, setAddingPlace] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      const { data } = await supabase
+        .from("locations")
+        .select("id, name")
+        .eq("is_slot", false)
+        .is("parent_location_id", null)
+        .is("grid_rows", null)
+        .order("name");
+      setPlaces((data as Place[]) || []);
+    })();
+  }, [open]);
+
+  const placeName = places.find((p) => p.id === placeId)?.name ?? newPlaceName.trim();
+
+  // Auto-name: "Garage pegboard" — until the user edits the field themselves.
+  const autoName = placeName ? `${placeName} ${type}` : "";
+  const effectiveName = nameTouched ? name : (name || autoName);
+
   const reset = () => {
-    setStep(1); setName(""); setType("pegboard"); setDescription(""); setImageDataUrl(null);
+    setStep(1); setName(""); setNameTouched(false); setType("pegboard"); setImageDataUrl(null);
     setGridRows(4); setGridCols(5); setNamingScheme(NAMING_PRESETS[0].value); setPad(true);
-    setTemplateId(BUILTIN_TEMPLATES[0].id);
+    setTemplateId(BUILTIN_TEMPLATES[0].id); setAiNote(null);
+    setPlaceId(null); setNewPlaceName(""); setAddingPlace(false);
   };
 
   const close = (v: boolean) => { if (!v) reset(); onOpenChange(v); };
 
   const slotDefs = useMemo(
-    () => buildSlotDefs({ rows: gridRows, cols: gridCols, namingScheme, parentName: name || "Space", pad }),
-    [gridRows, gridCols, namingScheme, name, pad],
+    () => buildSlotDefs({ rows: gridRows, cols: gridCols, namingScheme, parentName: effectiveName || "Space", pad }),
+    [gridRows, gridCols, namingScheme, effectiveName, pad],
   );
 
   const previewData: LabelData = useMemo(() => {
     const d = slotDefs[0];
     return {
-      name: d?.name ?? name,
-      parent: name || "Space",
+      name: d?.name ?? effectiveName,
+      parent: effectiveName || "Space",
       type,
       slot: "R1C1",
       row: pad ? "01" : "1",
@@ -69,35 +107,37 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
       index: pad ? "001" : "1",
       qr: d?.qr_code ?? "LOC-PREVIEW",
     };
-  }, [slotDefs, name, type, pad]);
+  }, [slotDefs, effectiveName, type, pad]);
 
-  const onPickPhoto = (file?: File) => {
+  // Photo pick → compress → auto-run the AI so the user's next tap is already "looks right".
+  const onPickPhoto = async (file?: File) => {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImageDataUrl(String(reader.result));
-    reader.readAsDataURL(file);
+    try {
+      const dataUrl = await compressImage(file);
+      setImageDataUrl(dataUrl);
+      if (isVisionConfigured()) void runAISuggest(dataUrl);
+    } catch (e) {
+      toast({ title: "Couldn't read the photo", description: String((e as Error)?.message || e), variant: "destructive" });
+    }
   };
 
-  const runAISuggest = async () => {
-    if (!imageDataUrl) return;
+  const runAISuggest = async (dataUrl?: string) => {
+    const img = dataUrl ?? imageDataUrl;
+    if (!img) return;
     setAiBusy(true);
+    setAiNote(null);
     try {
-      const s = await suggestSpaceFromImage(imageDataUrl, type);
+      const s = await suggestSpaceFromImage(img, type);
       if (s.gridRows) setGridRows(s.gridRows);
       if (s.gridCols) setGridCols(s.gridCols);
       if (s.type) setType(s.type);
-      toast({
-        title: "AI mapped the space",
-        description: `Suggested a ${s.gridRows ?? gridRows}x${s.gridCols ?? gridCols} grid${s.notes ? ` — ${s.notes}` : ""}. Adjust as needed.`,
-      });
-      setStep(2);
+      setAiNote(
+        `AI read this as a ${s.gridRows ?? gridRows} × ${s.gridCols ?? gridCols} ${s.type ?? type}` +
+        (s.notes ? ` — ${s.notes}` : "") + ". Adjust anything that looks off.",
+      );
     } catch (e) {
       if (e instanceof VisionNotConfiguredError) {
-        toast({
-          title: "AI not connected yet",
-          description: "Set up the vision service on your Mac mini to auto-map spaces. For now, enter the grid manually.",
-        });
-        setStep(2);
+        setAiNote("AI mapping isn't connected — set the grid manually below.");
       } else {
         toast({ title: "Couldn't analyze photo", description: String((e as Error)?.message || e), variant: "destructive" });
       }
@@ -109,10 +149,16 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
   const create = async () => {
     setCreating(true);
     try {
+      let parentLocationId: string | null = placeId;
+      if (!parentLocationId && newPlaceName.trim()) {
+        const place = await findOrCreatePlace(newPlaceName);
+        parentLocationId = place.id;
+      }
       const { slots } = await createSpaceWithSlots({
-        name, type, description, gridRows, gridCols, imagePath: imageDataUrl, namingScheme, labelTemplateId: templateId, pad,
+        name: effectiveName, type, gridRows, gridCols, imagePath: imageDataUrl,
+        namingScheme, labelTemplateId: templateId, pad, parentLocationId,
       });
-      toast({ title: "Space mapped", description: `Created "${name}" with ${slots.length} slots.` });
+      toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${slots.length} slots.` });
       onCreated?.();
       close(false);
     } catch (e) {
@@ -128,48 +174,119 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Grid3x3 className="h-5 w-5" /> Map a Space — step {step} of 3
+          <DialogTitle className="flex items-center gap-2 font-display uppercase tracking-wide">
+            <Grid3x3 className="h-5 w-5" /> Map a space
           </DialogTitle>
         </DialogHeader>
 
         {step === 1 && (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="space-name">Space name *</Label>
-              <Input id="space-name" value={name} onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., East Wall Pegboard" />
-            </div>
-            <div className="space-y-2">
-              <Label>Type</Label>
-              <Select value={type} onValueChange={setType}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {SPACE_TYPES.map((t) => <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Photo of the space (optional — lets AI propose the grid)</Label>
-              <div className="flex items-center gap-3">
-                <Button type="button" variant="outline" asChild>
-                  <label className="cursor-pointer">
-                    <Camera className="h-4 w-4 mr-2" /> Choose photo
-                    <input type="file" accept="image/*" className="hidden"
-                      onChange={(e) => onPickPhoto(e.target.files?.[0])} />
-                  </label>
-                </Button>
-                {imageDataUrl && <img src={imageDataUrl} alt="space" className="h-16 w-16 rounded object-cover border" />}
+          <div className="space-y-5">
+            {/* 1. The photo — the whole flow starts with the camera */}
+            {imageDataUrl ? (
+              <div className="relative rounded-lg overflow-hidden border">
+                <img src={imageDataUrl} alt="The space being mapped" className="w-full max-h-64 object-cover" />
+                <div className="absolute bottom-2 right-2 flex gap-2">
+                  <Button type="button" size="sm" variant="secondary" asChild>
+                    <label className="cursor-pointer">
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Retake
+                      <input type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                    </label>
+                  </Button>
+                </div>
+                {aiBusy && (
+                  <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display uppercase tracking-wide text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Reading the space…
+                  </div>
+                )}
               </div>
-              {!isVisionConfigured() && (
-                <p className="text-xs text-muted-foreground">
-                  AI mapping runs on your self-hosted vision service. Until it's set up you can map spaces manually.
-                </p>
-              )}
-            </div>
+            ) : (
+              <Button type="button" variant="outline" asChild
+                className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
+                <label className="cursor-pointer">
+                  <Camera className="h-8 w-8 text-primary" />
+                  <span className="font-display uppercase tracking-wide">Snap the space</span>
+                  <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
+                    Pegboard, drawer, shelf — the AI maps it into slots
+                  </span>
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                </label>
+              </Button>
+            )}
+            {aiNote && <p className="text-sm text-muted-foreground">{aiNote}</p>}
+
+            {/* 2. Where is it? One tap. */}
             <div className="space-y-2">
-              <Label htmlFor="space-desc">Description (optional)</Label>
-              <Textarea id="space-desc" value={description} onChange={(e) => setDescription(e.target.value)} />
+              <Label>Where is it?</Label>
+              <div className="flex flex-wrap gap-2">
+                {places.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setPlaceId(placeId === p.id ? null : p.id); setNewPlaceName(""); setAddingPlace(false); }}
+                    className={cn(
+                      "label-tile px-3 py-1.5 text-xs transition-opacity",
+                      placeId === p.id ? "ring-2 ring-primary" : "opacity-60 hover:opacity-100",
+                    )}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+                {PLACE_PRESETS.filter(
+                  (n) => !places.some((p) => p.name.toLowerCase() === n.toLowerCase()),
+                ).map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => { setNewPlaceName(newPlaceName === n ? "" : n); setPlaceId(null); setAddingPlace(false); }}
+                    className={cn(
+                      "px-3 py-1.5 text-xs rounded border border-dashed transition-colors",
+                      newPlaceName === n ? "border-primary text-primary" : "text-muted-foreground hover:border-foreground/40",
+                    )}
+                  >
+                    + {n}
+                  </button>
+                ))}
+                {addingPlace ? (
+                  <Input
+                    autoFocus
+                    value={newPlaceName}
+                    onChange={(e) => { setNewPlaceName(e.target.value); setPlaceId(null); }}
+                    onKeyDown={(e) => e.key === "Enter" && setAddingPlace(false)}
+                    placeholder="Place name"
+                    className="h-8 w-36 text-xs"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setAddingPlace(true); setNewPlaceName(""); setPlaceId(null); }}
+                    className="px-3 py-1.5 text-xs rounded border border-dashed text-muted-foreground hover:border-foreground/40"
+                  >
+                    <Plus className="h-3 w-3 inline mr-1" />
+                    Other
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 3. Name + type — pre-filled, editable */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="space-name">Name</Label>
+                <Input id="space-name" value={effectiveName}
+                  onChange={(e) => { setName(e.target.value); setNameTouched(true); }}
+                  placeholder={autoName || "e.g., East wall pegboard"} />
+              </div>
+              <div className="space-y-2">
+                <Label>Type</Label>
+                <Select value={type} onValueChange={setType}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {SPACE_TYPES.map((t) => <SelectItem key={t} value={t} className="capitalize">{t}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
         )}
@@ -207,15 +324,30 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
             </div>
             <div className="space-y-2">
               <Label>Preview — {gridRows * gridCols} slots</Label>
-              <div className="grid gap-1 rounded-md border p-2 bg-muted/30"
-                style={{ gridTemplateColumns: `repeat(${Math.min(gridCols, 8)}, minmax(0, 1fr))` }}>
-                {slotDefs.slice(0, capCells).map((d) => (
-                  <div key={d.slot_index} className="text-[10px] leading-tight bg-background rounded px-1 py-1 border truncate" title={d.name}>
-                    {d.name}
+              {imageDataUrl ? (
+                <div className="relative rounded-md overflow-hidden border">
+                  <img src={imageDataUrl} alt="The space with the slot grid overlaid" className="w-full max-h-72 object-cover" />
+                  <div
+                    className="absolute inset-0 grid"
+                    style={{ gridTemplateColumns: `repeat(${gridCols}, 1fr)`, gridTemplateRows: `repeat(${gridRows}, 1fr)` }}
+                    aria-hidden
+                  >
+                    {Array.from({ length: Math.min(gridRows * gridCols, 1600) }).map((_, i) => (
+                      <div key={i} className="border border-primary/60" />
+                    ))}
                   </div>
-                ))}
-              </div>
-              {slotDefs.length > capCells && (
+                </div>
+              ) : (
+                <div className="grid gap-1 rounded-md border p-2 bg-muted/30"
+                  style={{ gridTemplateColumns: `repeat(${Math.min(gridCols, 8)}, minmax(0, 1fr))` }}>
+                  {slotDefs.slice(0, capCells).map((d) => (
+                    <div key={d.slot_index} className="text-[10px] leading-tight bg-background rounded px-1 py-1 border truncate" title={d.name}>
+                      {d.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {slotDefs.length > capCells && !imageDataUrl && (
                 <p className="text-xs text-muted-foreground">…and {slotDefs.length - capCells} more.</p>
               )}
             </div>
@@ -241,7 +373,8 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
               </div>
             </div>
             <div className="rounded-md border p-3 text-sm text-muted-foreground">
-              Creating <span className="font-medium text-foreground">{name || "(unnamed)"}</span> as a{" "}
+              Creating <span className="font-medium text-foreground">{effectiveName || "(unnamed)"}</span>
+              {placeName && <> in <span className="font-medium text-foreground">{placeName}</span></>} as a{" "}
               <span className="font-medium text-foreground">{gridRows}×{gridCols}</span> {type} —{" "}
               <span className="font-medium text-foreground">{gridRows * gridCols} slots</span>, each with its own QR label.
             </div>
@@ -252,18 +385,18 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
           {step > 1 && <Button variant="outline" onClick={() => setStep(step - 1)} disabled={creating || aiBusy}>Back</Button>}
           {step === 1 && (
             <>
-              {imageDataUrl && (
-                <Button variant="secondary" onClick={runAISuggest} disabled={aiBusy}>
-                  {aiBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
-                  Map with AI
+              {imageDataUrl && !aiBusy && (
+                <Button variant="secondary" onClick={() => runAISuggest()} disabled={aiBusy}>
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Re-run AI
                 </Button>
               )}
-              <Button onClick={() => setStep(2)} disabled={!name.trim()}>Next</Button>
+              <Button onClick={() => setStep(2)} disabled={!effectiveName.trim() || aiBusy}>Next</Button>
             </>
           )}
           {step === 2 && <Button onClick={() => setStep(3)} disabled={gridRows < 1 || gridCols < 1}>Next</Button>}
           {step === 3 && (
-            <Button onClick={create} disabled={creating || !name.trim()}>
+            <Button onClick={create} disabled={creating || !effectiveName.trim()}>
               {creating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Grid3x3 className="h-4 w-4 mr-2" />}
               Create {gridRows * gridCols} slots
             </Button>
