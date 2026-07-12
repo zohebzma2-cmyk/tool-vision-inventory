@@ -34,11 +34,21 @@ The app has three independent pieces:
      paused after **7 days of inactivity**. For a public tool this is a real
      availability risk: an idle stretch would leave sign-in and data reads
      failing until the project is manually resumed.
-   - **Mitigation:** the scheduled GitHub Actions workflow
-     `.github/workflows/keepalive.yml` pings the Supabase REST endpoint once per
-     day, which counts as activity and keeps the project awake.
+   - **Mitigation (primary):** the vision Worker's daily **cron trigger**
+     (`[triggers]` in `vision-service/wrangler.toml` plus the `scheduled`
+     handler in `worker.js`) pings the Supabase REST endpoint once per day,
+     which counts as activity and keeps the project awake. Cron triggers run on
+     Cloudflare's scheduler and reuse the Worker's existing `SUPABASE_URL` /
+     `SUPABASE_ANON_KEY` secrets — no extra configuration, no dependency on
+     GitHub Actions availability. Failed runs appear under the Worker's
+     **Cron Events** in the Cloudflare dashboard.
+   - **Mitigation (alternative):** the scheduled GitHub Actions workflow
+     `.github/workflows/keepalive.yml` does the same daily ping. Use it if you
+     deploy the frontend without the Worker, or as a second, independent
+     pinger. Note it silently stops protecting you if Actions is unavailable
+     on your account (e.g. a billing lock), so verify runs are actually green.
    - **Permanent fix:** upgrading to **Supabase Pro ($25/month)** removes the
-     inactivity auto-pause entirely. The keepalive workflow is the free-tier
+     inactivity auto-pause entirely. The keepalive pings are the free-tier
      workaround; Pro is the recommended path once the tool has steady traffic.
 
 ## Worker /health endpoint

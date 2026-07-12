@@ -9,6 +9,11 @@ name = "tool-vision"
 main = "worker.js"
 compatibility_date = "2026-07-01"
 
+# Daily Supabase keepalive (see the `scheduled` handler in worker.js): keeps the free-tier
+# Supabase project from auto-pausing after 7 idle days. Cron triggers are free on Workers.
+[triggers]
+crons = ["17 8 * * *"]
+
 [vars]
 # Free vision models (no OpenRouter credit needed → $0). Swap to "qwen/qwen-2.5-vl-7b-instruct"
 # after loading ~$5 credit for higher accuracy — one-line change, no code edits.

@@ -6,7 +6,7 @@ Thanks for your interest in improving Tool Vision Inventory. This guide covers h
 
 1. Fork and clone the repository:
    ```sh
-   git clone https://github.com/zalvi22/tool-vision-inventory.git
+   git clone https://github.com/zohebzma2-cmyk/tool-vision-inventory.git
    cd tool-vision-inventory
    ```
 2. Install dependencies:

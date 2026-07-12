@@ -243,4 +243,17 @@ export default {
       return json(502, { error: String(e?.message || e) }, cors);
     }
   },
+
+  // Daily cron ([triggers] in wrangler.toml): pings Supabase REST so the free-tier project
+  // registers activity and never hits the 7-day auto-pause. Runs on Cloudflare's scheduler —
+  // no GitHub Actions or external cron needed. Throws on a non-2xx response so failed runs
+  // surface in the Cloudflare dashboard (Workers -> tool-vision -> Cron Events).
+  async scheduled(event, env) {
+    const base = (env.SUPABASE_URL || "").replace(/\/+$/, "");
+    if (!base) return; // keepalive only matters when a Supabase project is configured
+    const res = await fetch(`${base}/rest/v1/`, {
+      headers: { apikey: env.SUPABASE_ANON_KEY || "" },
+    });
+    if (!res.ok) throw new Error(`Supabase keepalive ping failed: HTTP ${res.status}`);
+  },
 };

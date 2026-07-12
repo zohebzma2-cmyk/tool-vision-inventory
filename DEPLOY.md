@@ -63,8 +63,13 @@ Set `VITE_VISION_API_URL` on Cloudflare Pages to the Worker URL, then redeploy t
 
 - Free OpenRouter models are rate-limited. Load ~$5 credit and switch `VISION_MODEL` to
   `qwen/qwen-2.5-vl-7b-instruct` for higher accuracy + headroom.
-- Supabase free tier auto-pauses after 7 days idle — the `.github/workflows/keepalive.yml`
-  workflow prevents that (set repo secrets `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `VISION_HEALTH_URL`).
+- Supabase free tier auto-pauses after 7 days idle — the vision Worker's daily cron trigger
+  (`[triggers]` in `vision-service/wrangler.toml` + the `scheduled` handler in `worker.js`)
+  pings Supabase REST to prevent that. It reuses the Worker's existing `SUPABASE_URL` /
+  `SUPABASE_ANON_KEY` secrets, so there is nothing extra to configure. The GitHub Actions
+  workflow `.github/workflows/keepalive.yml` does the same job (set repo secrets
+  `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `VISION_HEALTH_URL`) — use it if you deploy the
+  frontend without the Worker, or as a second, independent pinger.
 - Reliability + monitoring: see `docs/RELIABILITY.md`.
 
 ## Custom domain (later)
