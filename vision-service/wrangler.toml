@@ -29,6 +29,12 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 #   wrangler secret put SUPABASE_ANON_KEY  # your Supabase anon key
 # (Do NOT also declare them under [vars] — a plain var shadows the secret of the same name.)
 
+# Self-hosted vision (flat-cost box, tried FIRST; free OpenRouter chain is the fallback).
+# SELF_VISION_BASE + SELF_VISION_KEY are secrets:
+#   wrangler secret put SELF_VISION_BASE   # e.g. https://ai.example.com/v1
+#   wrangler secret put SELF_VISION_KEY    # the LiteLLM/proxy key
+SELF_VISION_MODEL = "qwen2.5vl:7b"
+
 # Abuse limits.
 DAILY_LIMIT = "100"
 MAX_BODY_BYTES = "8388608"

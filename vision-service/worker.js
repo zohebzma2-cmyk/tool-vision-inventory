@@ -70,26 +70,19 @@ const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a 
 Respond with STRICT JSON ONLY:
 {"name": string, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string, "model": string, "text": string, "confidence": 0..1}`;
 
-async function callModel(env, apiKey, prompt, imageDataUrl) {
-  const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
-  // VISION_MODEL_FALLBACK may be a comma-separated chain; OpenRouter tries each in
-  // order, so one upstream-rate-limited free model doesn't take the feature down.
-  // OpenRouter rejects more than 3 entries in `models`, so the chain is capped.
-  const models = [
-    env.VISION_MODEL || DEFAULT_MODEL,
-    ...(env.VISION_MODEL_FALLBACK || "").split(",").map((s) => s.trim()).filter(Boolean),
-  ].slice(0, 3);
-  const res = await fetch(`${base}/chat/completions`, {
+async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs) {
+  const res = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/zalvi22/tool-vision-inventory",
+      "HTTP-Referer": "https://github.com/zohebzma2-cmyk/tool-vision-inventory",
       "X-Title": "Tool Vision Inventory",
     },
     body: JSON.stringify({
       model: models[0],
-      models, // OpenRouter falls back across these in order on error
+      ...(models.length > 1 ? { models } : {}), // OpenRouter-style in-request fallback
       temperature: 0.2,
       response_format: { type: "json_object" },
       messages: [
@@ -97,16 +90,44 @@ async function callModel(env, apiKey, prompt, imageDataUrl) {
       ],
     }),
   });
-  if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Vision provider ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = await res.json();
   return parseJson(data?.choices?.[0]?.message?.content ?? "{}");
 }
 
+/** Providers in order: the self-hosted box first (flat cost, stronger model), then
+ * the free OpenRouter chain — so the box being down degrades quality, not the feature. */
+function providers(env, apiKey) {
+  const list = [];
+  if (env.SELF_VISION_BASE && env.SELF_VISION_KEY) {
+    list.push({
+      base: env.SELF_VISION_BASE,
+      key: env.SELF_VISION_KEY,
+      models: [env.SELF_VISION_MODEL || "qwen2.5vl:7b"],
+      retries: 1,
+      timeoutMs: 120000, // CPU inference on the box is slow but bounded
+    });
+  }
+  list.push({
+    base: env.OPENROUTER_BASE || "https://openrouter.ai/api/v1",
+    key: apiKey,
+    models: [
+      env.VISION_MODEL || DEFAULT_MODEL,
+      ...(env.VISION_MODEL_FALLBACK || "").split(",").map((s) => s.trim()).filter(Boolean),
+    ].slice(0, 3), // OpenRouter rejects more than 3 entries
+    retries: 2,
+    timeoutMs: 60000,
+  });
+  return list;
+}
+
 async function callModelResilient(env, apiKey, prompt, imageDataUrl) {
   let lastErr;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try { return await callModel(env, apiKey, prompt, imageDataUrl); }
-    catch (e) { lastErr = e; await sleep(300 * (attempt + 1)); }
+  for (const p of providers(env, apiKey)) {
+    for (let attempt = 0; attempt <= p.retries; attempt++) {
+      try { return await callProvider(p.base, p.key, p.models, prompt, imageDataUrl, p.timeoutMs); }
+      catch (e) { lastErr = e; await sleep(300 * (attempt + 1)); }
+    }
   }
   throw lastErr;
 }
@@ -196,7 +217,10 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/health") {
-      return json(200, { ok: true, model: env.VISION_MODEL || DEFAULT_MODEL }, cors);
+      return json(200, {
+        ok: true,
+        model: env.SELF_VISION_BASE ? `${env.SELF_VISION_MODEL || "qwen2.5vl:7b"} (self-hosted)` : (env.VISION_MODEL || DEFAULT_MODEL),
+      }, cors);
     }
 
     if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin"].includes(url.pathname)) {
