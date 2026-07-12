@@ -97,6 +97,49 @@ export function canvasToQLJob(canvas: HTMLCanvasElement, widthMm = 62): number[]
   return qlr.getData();
 }
 
+/** True when this device can print at all — over WebUSB or via the system share sheet. */
+export function isLabelOutputSupported(): boolean {
+  return isPrintingSupported() || typeof navigator.share === "function";
+}
+
+/** Render a label and hand it to the system share sheet (AirPrint / Brother iPrint&Label on
+ * iOS, where WebUSB does not exist). Falls back to a PNG download on desktop browsers. */
+export async function shareLabelImage(
+  template: LabelTemplate,
+  data: LabelData,
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const canvas = await rasterizeTemplate(template, data, 696);
+    const blob: Blob = await new Promise((res, rej) =>
+      canvas.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't render label"))), "image/png"),
+    );
+    const file = new File([blob], `${(data.name || "label").replace(/[^\w-]+/g, "_")}.png`, { type: "image/png" });
+    if (typeof navigator.share === "function" && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: data.name || "Label" });
+      return { success: true, message: "Label sent to the share sheet — pick Print or your Brother app." };
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name;
+    a.click();
+    URL.revokeObjectURL(url);
+    return { success: true, message: "Label image downloaded." };
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") return { success: true, message: "Share canceled." };
+    return { success: false, message: `Couldn't export label: ${(e as Error)?.message || e}` };
+  }
+}
+
+/** Print via WebUSB when available, otherwise fall back to the share sheet / download. */
+export async function outputLabel(
+  template: LabelTemplate,
+  data: LabelData,
+): Promise<{ success: boolean; message: string }> {
+  if (isPrintingSupported()) return printTemplateLabel(template, data);
+  return shareLabelImage(template, data);
+}
+
 /** Render + print one label from a template. Connects to a Brother printer on demand. */
 export async function printTemplateLabel(
   template: LabelTemplate,

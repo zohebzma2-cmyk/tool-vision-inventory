@@ -60,6 +60,10 @@ The photo shows a pegboard, drawer organizer, parts-bin wall, shelf unit, or soc
 ${hint ? `User hint: "${hint}". Trust it if it conflicts with the image.\n` : ""}Respond with STRICT JSON ONLY:
 {"type": one of ${JSON.stringify(LOCATION_TYPES)}, "gridRows": int 1-40, "gridCols": int 1-40, "notes": short string, "confidence": 0..1}`;
 
+const IDENTIFY_MANY_PROMPT = `This photo shows the contents of one storage bin in a garage inventory. List EVERY distinct item you can identify. Read visible brand/model text. Group identical items with a count instead of repeating them.
+Respond with STRICT JSON ONLY:
+{"items": [{"name": short specific name, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string or "", "model": string or "", "quantity": int >= 1, "confidence": 0..1}]}`;
+
 const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a garage inventory. Read visible brand/model text.
 Respond with STRICT JSON ONLY:
 {"name": string, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string, "model": string, "text": string, "confidence": 0..1}`;
@@ -193,7 +197,7 @@ export default {
       return json(200, { ok: true, model: env.VISION_MODEL || DEFAULT_MODEL }, cors);
     }
 
-    if (request.method !== "POST" || !["/map-space", "/identify-item"].includes(url.pathname)) {
+    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -231,6 +235,22 @@ export default {
           confidence: clamp01(out.confidence ?? 0.6),
         }, cors);
       }
+      if (url.pathname === "/identify-bin") {
+        const out = await callModelResilient(env, apiKey, IDENTIFY_MANY_PROMPT, body.imageDataUrl);
+        const items = (Array.isArray(out.items) ? out.items : []).slice(0, 40).map((it) => {
+          const cat = String(it?.category || "").toLowerCase();
+          return {
+            name: typeof it?.name === "string" && it.name.trim() ? it.name.trim() : "Unknown item",
+            category: CATEGORIES.includes(cat) ? cat : "other",
+            brand: typeof it?.brand === "string" ? it.brand : "",
+            model: typeof it?.model === "string" ? it.model : "",
+            quantity: clampInt(it?.quantity, 1, 999, 1),
+            confidence: clamp01(it?.confidence ?? 0.6),
+          };
+        });
+        return json(200, { items }, cors);
+      }
+
       const out = await callModelResilient(env, apiKey, IDENTIFY_PROMPT, body.imageDataUrl);
       const cat = String(out.category || "").toLowerCase();
       const ident = {

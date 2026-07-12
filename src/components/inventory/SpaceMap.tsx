@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Grid3x3, Printer, Loader2, Package } from "lucide-react";
+import { Grid3x3, Printer, Loader2, Package, Camera, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,13 +7,15 @@ import { useToast } from "@/hooks/use-toast";
 import { type LabelData } from "@/lib/labelTemplates";
 import { resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
-import { printTemplateLabel } from "@/lib/brotherPrint";
+import { printTemplateLabel, outputLabel, isLabelOutputSupported } from "@/lib/brotherPrint";
 import { isPrintingSupported } from "./PrinterService";
+import { BinFillDialog } from "./BinFillDialog";
 
 interface SpaceLocation {
   id: string;
   name: string;
   type: string;
+  parent_location_id?: string | null;
   grid_rows?: number | null;
   grid_cols?: number | null;
   image_path?: string | null;
@@ -42,11 +44,26 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Slot | null>(null);
   const [printingAll, setPrintingAll] = useState(false);
+  const [fillOpen, setFillOpen] = useState(false);
+  const [placeName, setPlaceName] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const templateId = location?.layout?.labelTemplateId;
   const template = useMemo(() => resolveTemplate(templateId), [templateId]);
   const rows = location?.grid_rows ?? 0;
   const cols = location?.grid_cols ?? 0;
+
+  // The place (garage / shed) this space lives in — used on location labels.
+  useEffect(() => {
+    setPlaceName(null);
+    if (!open || !location?.parent_location_id) return;
+    supabase
+      .from("locations")
+      .select("name")
+      .eq("id", location.parent_location_id)
+      .maybeSingle()
+      .then(({ data }) => setPlaceName((data as { name: string } | null)?.name ?? null));
+  }, [open, location]);
 
   useEffect(() => {
     if (!open || !location) return;
@@ -84,7 +101,10 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
         });
 
         if (active) {
-          setSlots((slotRows ?? []).map((s) => ({ ...s, items: byLoc.get(s.id) ?? [] })));
+          const next = (slotRows ?? []).map((s) => ({ ...s, items: byLoc.get(s.id) ?? [] }));
+          setSlots(next);
+          // Keep the open slot panel in sync after a refetch (e.g. bin just filled).
+          setSelected((prev) => (prev ? next.find((s) => s.id === prev.id) ?? prev : prev));
         }
       } catch (e) {
         toast({ title: "Couldn't load map", description: String((e as Error)?.message || e), variant: "destructive" });
@@ -93,7 +113,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
       }
     })();
     return () => { active = false; };
-  }, [open, location, toast]);
+  }, [open, location, toast, refreshKey]);
 
   const slotAt = (r: number, c: number) => slots.find((s) => s.slot_row === r && s.slot_col === c);
 
@@ -108,10 +128,18 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
     qr: slot.qr_code,
   });
 
-  const printOne = async (slot: Slot) => {
-    const res = await printTemplateLabel(template, labelData(slot));
+  // Bin label: the slot's own name. Location label: the full path (Garage · Bin rack · R2C3).
+  const locationLabelData = (slot: Slot): LabelData => ({
+    ...labelData(slot),
+    name: [placeName, location?.name, `R${slot.slot_row}C${slot.slot_col}`].filter(Boolean).join(" · "),
+    parent: [placeName, location?.name].filter(Boolean).join(" · "),
+  });
+
+  const printOne = async (slot: Slot, kind: "bin" | "location" = "bin") => {
+    const data = kind === "location" ? locationLabelData(slot) : labelData(slot);
+    const res = await outputLabel(template, data);
     toast({
-      title: res.success ? "Printed" : "Print failed",
+      title: res.success ? "Label ready" : "Print failed",
       description: res.message,
       variant: res.success ? undefined : "destructive",
     });
@@ -229,15 +257,25 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
 
             {selected && (
               <div className="rounded-md border p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="font-semibold">{selected.name}</div>
-                    <div className="text-xs text-muted-foreground font-mono">{selected.qr_code}</div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{selected.name}</div>
+                    <div className="text-xs text-muted-foreground font-mono truncate">{selected.qr_code}</div>
                   </div>
-                  {isPrintingSupported() && (
-                    <Button size="sm" variant="outline" onClick={() => printOne(selected)}>
-                      <Printer className="h-4 w-4 mr-2" /> Print label
-                    </Button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setFillOpen(true)}>
+                    <Camera className="h-4 w-4 mr-2" /> Fill bin with camera
+                  </Button>
+                  {isLabelOutputSupported() && (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => printOne(selected, "bin")}>
+                        <Printer className="h-4 w-4 mr-2" /> Bin label
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => printOne(selected, "location")}>
+                        <MapPin className="h-4 w-4 mr-2" /> Location label
+                      </Button>
+                    </>
                   )}
                 </div>
                 <div className="text-sm">
@@ -256,6 +294,13 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
             )}
           </div>
         )}
+
+        <BinFillDialog
+          open={fillOpen}
+          onOpenChange={setFillOpen}
+          bin={selected ? { id: selected.id, name: selected.name } : null}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
       </DialogContent>
     </Dialog>
   );

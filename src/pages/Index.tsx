@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, LogOut, Wrench } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
@@ -7,6 +7,7 @@ import { ItemsList } from "@/components/inventory/ItemsList";
 import { LocationsList } from "@/components/inventory/LocationsList";
 import { QRScanner } from "@/components/inventory/QRScanner";
 import { Onboarding } from "@/components/onboarding/Onboarding";
+import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { cn } from "@/lib/utils";
 
@@ -14,10 +15,11 @@ type Tab = "items" | "locations" | "overview";
 
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [tab, setTab] = useState<Tab>("items");
   const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const stats = useInventoryStats();
 
   // First-run onboarding: once per account, and only while the wall is empty.
@@ -97,25 +99,25 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={signOut}
-                title={user?.email ? `Sign out ${user.email}` : "Sign out"}
+                onClick={() => setShowSettings(true)}
+                title="Settings"
                 className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
               >
-                <LogOut className="h-4 w-4" />
-                <span className="sr-only">Sign out</span>
+                <Settings className="h-4 w-4" />
+                <span className="sr-only">Settings</span>
               </Button>
             </div>
 
-            {/* Mobile: sign out only — actions live in the bottom bar */}
+            {/* Mobile: settings only — actions live in the bottom bar */}
             <Button
               variant="ghost"
               size="icon"
-              onClick={signOut}
-              title="Sign out"
+              onClick={() => setShowSettings(true)}
+              title="Settings"
               className="md:hidden text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
             >
-              <LogOut className="h-4 w-4" />
-              <span className="sr-only">Sign out</span>
+              <Settings className="h-4 w-4" />
+              <span className="sr-only">Settings</span>
             </Button>
           </div>
 
@@ -224,6 +226,8 @@ const Index = () => {
       />
 
       <QRScanner open={showQRScanner} onOpenChange={setShowQRScanner} />
+
+      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
 
       {showOnboarding && <Onboarding onFinish={finishOnboarding} />}
     </div>
