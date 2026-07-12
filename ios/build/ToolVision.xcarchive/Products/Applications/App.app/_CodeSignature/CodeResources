@@ -38,7 +38,7 @@
 		</data>
 		<key>Frameworks/Capacitor.framework/Capacitor</key>
 		<data>
-		ZdkYFNXfA9pGSZCWvAC5lVpTW5A=
+		IVaPmhVkSIU2OvI5LQqoOKGfMAY=
 		</data>
 		<key>Frameworks/Capacitor.framework/Info.plist</key>
 		<data>
@@ -58,7 +58,7 @@
 		</data>
 		<key>Frameworks/Cordova.framework/Cordova</key>
 		<data>
-		HWpqmpleslOfE5JrSn4wulZ1txI=
+		xzenZWQb6BKbkjELc605585rG7Y=
 		</data>
 		<key>Frameworks/Cordova.framework/Info.plist</key>
 		<data>
@@ -74,7 +74,7 @@
 		</data>
 		<key>Frameworks/IONCameraLib.framework/IONCameraLib</key>
 		<data>
-		WXzHafJ9l0f80/m5ZZea+wVpzo8=
+		VKYAfavIwHfgDuO+Jq8/hFlsiHQ=
 		</data>
 		<key>Frameworks/IONCameraLib.framework/Info.plist</key>
 		<data>
@@ -102,7 +102,7 @@
 		</data>
 		<key>capacitor.config.json</key>
 		<data>
-		8776vb95/V4IIw7/rbxYdOTHfKY=
+		jGGOU2MiWzSD8AGKI3B7oKtSXPg=
 		</data>
 		<key>config.xml</key>
 		<data>
@@ -340,13 +340,13 @@
 		<data>
 		7VDjg0E2ggd9c0kJDHNRh+Fu5E0=
 		</data>
-		<key>public/assets/index--C7q4rX4.js</key>
+		<key>public/assets/index-BtMDCyUp.js</key>
 		<data>
-		rM3yg5S2GRD98A6bEUybApbypQ0=
+		9Z9UXlpiTF87jMKWh5eto7pxZwo=
 		</data>
-		<key>public/assets/index-BEgnSTkN.css</key>
+		<key>public/assets/index-DdMcZJRn.css</key>
 		<data>
-		kvas1NRzqr2g6VkMNLYyHcgZzlQ=
+		Z7+PEVpBcef8MJIOUlZWci/s5HY=
 		</data>
 		<key>public/cordova.js</key>
 		<data>
@@ -362,7 +362,7 @@
 		</data>
 		<key>public/index.html</key>
 		<data>
-		8gLD1Iy9nXmpcWkUKdiZ3jfOj4c=
+		Xx0NXVqFt1YJijyccdyEChsXEcE=
 		</data>
 		<key>public/placeholder.svg</key>
 		<data>
@@ -435,7 +435,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			KCDkSyWPN6PFA/bPMPY168h5c2lEDN8mQYlhBM9MQGo=
+			PtKk0Gvtn/sNBt6rMNQTv37405TdfwdI8ttOoTio+pQ=
 			</data>
 		</dict>
 		<key>Frameworks/Capacitor.framework/Info.plist</key>
@@ -470,7 +470,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			T+h+KNc7h6DNhnal73Lrd1yJ6+NlaN4tuMLt7dFoC0M=
+			5d8eWfwq7bUkovMlBzSApC3k6jJBxXDUf6w1x/XoBno=
 			</data>
 		</dict>
 		<key>Frameworks/Cordova.framework/Info.plist</key>
@@ -498,7 +498,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			8anPJpjEPn5iSPIOWEGwt0mArYbJ3zkrSTDkUyS5ATU=
+			WWseXaPZZEDWFuSj+D0CsJhSfkxjgukUCE7dGcSPHPk=
 			</data>
 		</dict>
 		<key>Frameworks/IONCameraLib.framework/Info.plist</key>
@@ -533,7 +533,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			mVPhLhAHeS7cdznh2pNTgS5vFwunFQoyS/6jfYeg/ic=
+			FAHSanirbimWj2dVSxMY2L2/XHo83K6iRANgrmW5v/w=
 			</data>
 		</dict>
 		<key>config.xml</key>
@@ -949,18 +949,18 @@
 			eBYz2V3ogED7dxQdHmXZKMh8AURpH7x02lpk0Ten6RA=
 			</data>
 		</dict>
-		<key>public/assets/index--C7q4rX4.js</key>
+		<key>public/assets/index-BtMDCyUp.js</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			aphFtttdA3lrIyrBySJgJphXPoxRAqxGv/jImqCgtPw=
+			hGMU4MwmtjPeadAkONxuBucq63ZclgXLUx+m5gWVMF4=
 			</data>
 		</dict>
-		<key>public/assets/index-BEgnSTkN.css</key>
+		<key>public/assets/index-DdMcZJRn.css</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			xu5HZpWu8PuvYHzLNheAyOeSLHIJG96mUEN3l2UvUwA=
+			Bdu9ltAqV/nrE8IqzDFXyiuEp1iqLoLln5zOuaQZQoM=
 			</data>
 		</dict>
 		<key>public/cordova.js</key>
@@ -988,7 +988,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			4ikujqXsCeB6KwijICbvaH3RZ+MGjYQXc+ZAm0DpRKY=
+			LEJzxiLpe7DR4wGuiRKDdHP6OjcvD2NecsAwu4V2sxw=
 			</data>
 		</dict>
 		<key>public/placeholder.svg</key>

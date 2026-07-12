@@ -15,10 +15,11 @@ compatibility_date = "2026-07-01"
 crons = ["17 8 * * *"]
 
 [vars]
-# Free vision models (no OpenRouter credit needed → $0). Swap to "qwen/qwen-2.5-vl-7b-instruct"
-# after loading ~$5 credit for higher accuracy — one-line change, no code edits.
+# Free vision models only ($0, no credit). VISION_MODEL_FALLBACK is a comma-separated
+# chain tried in order when a free model is rate-limited upstream; "openrouter/free"
+# last = route to whatever free model currently has capacity.
 VISION_MODEL = "google/gemma-4-31b-it:free"
-VISION_MODEL_FALLBACK = "nvidia/nemotron-nano-12b-v2-vl:free"
+VISION_MODEL_FALLBACK = "google/gemma-4-26b-a4b-it:free,nvidia/nemotron-nano-12b-v2-vl:free,nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free,openrouter/free"
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
 # Security: lock CORS + require signed-in users of your app. These are set as SECRETS, not vars,
