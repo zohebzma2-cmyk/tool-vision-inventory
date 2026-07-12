@@ -35,6 +35,13 @@ OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 #   wrangler secret put SELF_VISION_KEY    # the LiteLLM/proxy key
 SELF_VISION_MODEL = "qwen2.5vl:7b"
 
+# Lead brain selector: "cloud" puts the paid open model (Qwen3-VL on OpenRouter) first,
+# with the self-hosted box and then the free chain as fallbacks. Anything else = box first.
+# Flip to "cloud" once the OpenRouter account has prepaid credit (keep auto-top-up OFF —
+# prepaid credit is the hard spend cap).
+VISION_PRIMARY = "self"
+VISION_MODEL_PAID = "qwen/qwen3-vl-235b-a22b-instruct"
+
 # Abuse limits.
 DAILY_LIMIT = "100"
 MAX_BODY_BYTES = "8388608"
