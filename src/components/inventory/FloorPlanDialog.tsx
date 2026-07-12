@@ -1,0 +1,298 @@
+import { useEffect, useRef, useState } from "react";
+import { Camera, Loader2, Map as MapIcon, Plus, Save } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
+import { compressImage } from "@/lib/image";
+import { cn } from "@/lib/utils";
+
+/** Normalized rect (0..1 of the plan canvas) for one space on the floor plan. */
+interface FloorRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+interface PlanSpace {
+  id: string;
+  name: string;
+  type: string;
+  layout: Record<string, unknown> | null;
+  rect: FloorRect | null;
+  slotCount: number;
+  filledCount: number;
+}
+
+interface Props {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  /** The place (garage, shed, …) whose floor plan this is. */
+  place: { id: string; name: string; layout?: Record<string, unknown> | null } | null;
+  /** Open a space's slot map from the plan. */
+  onOpenSpace?: (spaceId: string) => void;
+}
+
+const MIN_SIZE = 0.08;
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/** Birdseye floor plan of a place: spaces are draggable/resizable blocks over an
+ * optional overhead photo. Tap a block (outside edit mode) to open its slot map. */
+export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Props) {
+  const { toast } = useToast();
+  const [spaces, setSpaces] = useState<PlanSpace[]>([]);
+  const [floorImage, setFloorImage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
+
+  useEffect(() => {
+    if (!open || !place) return;
+    setLoading(true);
+    setEditMode(false);
+    setDirty(false);
+    setFloorImage(((place.layout as { floorImage?: string } | null)?.floorImage) ?? null);
+    (async () => {
+      try {
+        const { data: kids, error } = await supabase
+          .from("locations")
+          .select("id, name, type, layout, grid_rows")
+          .eq("parent_location_id", place.id)
+          .eq("is_slot", false)
+          .order("created_at");
+        if (error) throw error;
+        const spaceRows = (kids ?? []).filter((k) => k.grid_rows != null);
+        const ids = spaceRows.map((k) => k.id);
+
+        // Occupancy per space: count slots and filled slots.
+        const { data: slots } = ids.length
+          ? await supabase.from("locations").select("id, parent_location_id").in("parent_location_id", ids).eq("is_slot", true)
+          : { data: [] as { id: string; parent_location_id: string }[] };
+        const slotIds = (slots ?? []).map((s) => s.id);
+        const { data: links } = slotIds.length
+          ? await supabase.from("item_locations").select("location_id").in("location_id", slotIds).is("date_removed", null)
+          : { data: [] as { location_id: string }[] };
+        const filledSlotIds = new Set((links ?? []).map((l) => l.location_id));
+        const slotsBySpace = new Map<string, { total: number; filled: number }>();
+        (slots ?? []).forEach((s) => {
+          const agg = slotsBySpace.get(s.parent_location_id) ?? { total: 0, filled: 0 };
+          agg.total++;
+          if (filledSlotIds.has(s.id)) agg.filled++;
+          slotsBySpace.set(s.parent_location_id, agg);
+        });
+
+        setSpaces(spaceRows.map((k) => ({
+          id: k.id,
+          name: k.name,
+          type: k.type,
+          layout: (k.layout as Record<string, unknown>) ?? null,
+          rect: ((k.layout as { floorRect?: FloorRect } | null)?.floorRect) ?? null,
+          slotCount: slotsBySpace.get(k.id)?.total ?? 0,
+          filledCount: slotsBySpace.get(k.id)?.filled ?? 0,
+        })));
+      } catch (e) {
+        toast({ title: "Couldn't load the plan", description: String((e as Error)?.message || e), variant: "destructive" });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [open, place, toast]);
+
+  const placed = spaces.filter((s) => s.rect);
+  const unplaced = spaces.filter((s) => !s.rect);
+
+  const setRect = (id: string, rect: FloorRect) => {
+    setSpaces((all) => all.map((s) => (s.id === id ? { ...s, rect } : s)));
+    setDirty(true);
+  };
+
+  const addToPlan = (id: string) => {
+    // Drop new blocks in a staggered spot near the center.
+    const n = placed.length;
+    setRect(id, { x: 0.3 + (n % 3) * 0.05, y: 0.3 + (n % 4) * 0.05, w: 0.3, h: 0.18 });
+    setEditMode(true);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    const el = canvasRef.current;
+    if (!d || !el) return;
+    const r = el.getBoundingClientRect();
+    const dx = (e.clientX - d.startX) / r.width;
+    const dy = (e.clientY - d.startY) / r.height;
+    if (d.mode === "move") {
+      setRect(d.id, {
+        ...d.orig,
+        x: clamp(d.orig.x + dx, 0, 1 - d.orig.w),
+        y: clamp(d.orig.y + dy, 0, 1 - d.orig.h),
+      });
+    } else {
+      setRect(d.id, {
+        ...d.orig,
+        w: clamp(d.orig.w + dx, MIN_SIZE, 1 - d.orig.x),
+        h: clamp(d.orig.h + dy, MIN_SIZE, 1 - d.orig.y),
+      });
+    }
+  };
+
+  const startDrag = (e: React.PointerEvent, id: string, mode: "move" | "resize", orig: FloorRect) => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    drag.current = { id, mode, startX: e.clientX, startY: e.clientY, orig };
+  };
+
+  const onPickFloorPhoto = async (file?: File) => {
+    if (!file) return;
+    try {
+      setFloorImage(await compressImage(file, 1600, 0.7));
+      setDirty(true);
+    } catch (e) {
+      toast({ title: "Couldn't read the photo", description: String((e as Error)?.message || e), variant: "destructive" });
+    }
+  };
+
+  const save = async () => {
+    if (!place) return;
+    setSaving(true);
+    try {
+      const placeLayout = { ...((place.layout as Record<string, unknown>) ?? {}), floorImage };
+      const { error: pErr } = await supabase.from("locations").update({ layout: placeLayout }).eq("id", place.id);
+      if (pErr) throw pErr;
+      for (const s of spaces) {
+        const layout = { ...(s.layout ?? {}), floorRect: s.rect };
+        const { error } = await supabase.from("locations").update({ layout }).eq("id", s.id);
+        if (error) throw error;
+      }
+      setDirty(false);
+      setEditMode(false);
+      toast({ title: "Floor plan saved", description: `${placed.length} space${placed.length === 1 ? "" : "s"} placed in ${place.name}.` });
+    } catch (e) {
+      toast({ title: "Couldn't save the plan", description: String((e as Error)?.message || e), variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="font-display uppercase tracking-wide flex items-center gap-2">
+            <MapIcon className="h-5 w-5" /> {place?.name} — floor plan
+          </DialogTitle>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant={editMode ? "default" : "outline"} onClick={() => setEditMode(!editMode)}>
+                {editMode ? "Done arranging" : "Arrange"}
+              </Button>
+              <Button size="sm" variant="outline" asChild>
+                <label className="cursor-pointer">
+                  <Camera className="h-4 w-4 mr-2" /> {floorImage ? "Replace overhead photo" : "Add overhead photo"}
+                  <input type="file" accept="image/*" capture="environment" className="hidden"
+                    onChange={(e) => onPickFloorPhoto(e.target.files?.[0])} />
+                </label>
+              </Button>
+              {dirty && (
+                <Button size="sm" onClick={save} disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Save plan
+                </Button>
+              )}
+            </div>
+
+            {/* The plan canvas — 4:3, overhead photo or graph-paper background */}
+            <div
+              ref={canvasRef}
+              className="relative w-full rounded-lg border overflow-hidden select-none touch-none bg-muted/40 pegboard"
+              style={{ aspectRatio: "4 / 3" }}
+              onPointerMove={onPointerMove}
+              onPointerUp={() => { drag.current = null; }}
+              onPointerCancel={() => { drag.current = null; }}
+            >
+              {floorImage && (
+                <img src={floorImage} alt={`${place?.name} overhead`} className="absolute inset-0 w-full h-full object-cover opacity-90" draggable={false} />
+              )}
+              {placed.map((s) => (
+                <div
+                  key={s.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${s.name}: ${s.filledCount} of ${s.slotCount} slots filled`}
+                  onPointerDown={(e) => s.rect && startDrag(e, s.id, "move", s.rect)}
+                  onClick={() => { if (!editMode && !drag.current) onOpenSpace?.(s.id); }}
+                  className={cn(
+                    "absolute label-tile border flex flex-col items-center justify-center text-center px-1 overflow-hidden",
+                    editMode ? "cursor-move border-primary/70 border-dashed" : "cursor-pointer border-tile-edge hover:ring-2 hover:ring-primary",
+                  )}
+                  style={{
+                    left: `${(s.rect?.x ?? 0) * 100}%`,
+                    top: `${(s.rect?.y ?? 0) * 100}%`,
+                    width: `${(s.rect?.w ?? 0.2) * 100}%`,
+                    height: `${(s.rect?.h ?? 0.15) * 100}%`,
+                  }}
+                >
+                  <span className="text-[11px] leading-tight truncate w-full">{s.name}</span>
+                  <span className="font-mono text-[9px] text-tile-foreground/60 normal-case tracking-normal">
+                    {s.filledCount}/{s.slotCount}
+                  </span>
+                  {editMode && s.rect && (
+                    <span
+                      onPointerDown={(e) => startDrag(e, s.id, "resize", s.rect!)}
+                      className="absolute bottom-0 right-0 h-5 w-5 cursor-nwse-resize"
+                      aria-hidden
+                    >
+                      <span className="absolute bottom-0.5 right-0.5 h-2.5 w-2.5 border-b-2 border-r-2 border-primary" />
+                    </span>
+                  )}
+                </div>
+              ))}
+              {placed.length === 0 && (
+                <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground px-6 text-center">
+                  Add your spaces below, then drag them to match where they sit in the room.
+                </div>
+              )}
+            </div>
+
+            {unplaced.length > 0 && (
+              <div className="space-y-2">
+                <p className="font-display text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Not on the plan yet
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {unplaced.map((s) => (
+                    <Button key={s.id} size="sm" variant="outline" onClick={() => addToPlan(s.id)}>
+                      <Plus className="h-4 w-4 mr-1.5" /> {s.name}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {spaces.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                No mapped spaces in {place?.name} yet — use Map a Space and pick this place, then arrange them here.
+              </p>
+            )}
+            {!editMode && placed.length > 0 && (
+              <p className="text-xs text-muted-foreground">Tap a space to open its slot map. Use Arrange to move and resize.</p>
+            )}
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

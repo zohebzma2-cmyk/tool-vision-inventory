@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3 } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3, Map as MapIcon } from "lucide-react";
 import { MapSpaceDialog } from "./MapSpaceDialog";
 import { SpaceMap } from "./SpaceMap";
+import { FloorPlanDialog } from "./FloorPlanDialog";
 import { LabelTemplateEditor } from "./LabelTemplateEditor";
 import { Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +56,7 @@ export function LocationsList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openMapOnMount]);
   const [mapLoc, setMapLoc] = useState<Location | null>(null);
+  const [floorPlanPlace, setFloorPlanPlace] = useState<Location | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [printerConnected, setPrinterConnected] = useState(false);
@@ -476,10 +478,15 @@ export function LocationsList({
                         <span className="font-mono text-xs">{location.qr_code}</span>
                       </div>
                     </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       {location.grid_rows && location.grid_cols && (
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="View slot map" onClick={() => setMapLoc(location)}>
                           <Grid3x3 className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {!location.grid_rows && !location.parent_location_id && (
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Floor plan" onClick={() => setFloorPlanPlace(location)}>
+                          <MapIcon className="h-4 w-4" />
                         </Button>
                       )}
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setPreviewLoc(location); setPreviewOpen(true); }}>
@@ -751,6 +758,16 @@ export function LocationsList({
         open={!!mapLoc}
         onOpenChange={(v) => { if (!v) setMapLoc(null); }}
         location={mapLoc}
+      />
+
+      <FloorPlanDialog
+        open={!!floorPlanPlace}
+        onOpenChange={(v) => { if (!v) setFloorPlanPlace(null); }}
+        place={floorPlanPlace}
+        onOpenSpace={(spaceId) => {
+          const sp = locations.find((l) => l.id === spaceId);
+          if (sp) { setFloorPlanPlace(null); setMapLoc(sp); }
+        }}
       />
 
       <LabelTemplateEditor open={showTemplates} onOpenChange={setShowTemplates} />
