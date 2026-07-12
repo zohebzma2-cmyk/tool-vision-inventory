@@ -13,7 +13,9 @@ A free, open-source web app for small home garages to inventory their tools, usi
 
 ## Screenshots
 
-_Screenshots coming soon. Placeholder - add images of the space-mapping flow, slot grid, and label templates here._
+| Tools (desktop) | Overview (mobile) |
+| --- | --- |
+| ![Tool list on desktop](docs/screenshots/desktop-tools.png) | ![Overview tab on mobile](docs/screenshots/mobile-overview.png) |
 
 ## Tech stack
 
