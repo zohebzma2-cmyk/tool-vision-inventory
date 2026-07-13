@@ -41,6 +41,9 @@ SELF_VISION_MODEL = "qwen2.5vl:7b"
 # prepaid credit is the hard spend cap).
 VISION_PRIMARY = "cloud"
 VISION_MODEL_PAID = "qwen/qwen3-vl-235b-a22b-instruct"
+# Box/grounding calls (/detect-spots) use a model that actually emits coordinates —
+# the 235B returns an empty list when asked for boxes; the 30B-A3B grounds reliably.
+VISION_MODEL_GROUNDING = "qwen/qwen3-vl-30b-a3b-instruct"
 
 # Abuse limits.
 DAILY_LIMIT = "100"

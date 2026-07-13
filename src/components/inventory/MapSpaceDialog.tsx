@@ -8,12 +8,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { buildSlotDefs, createSpaceWithSlots, findOrCreatePlace } from "@/lib/slots";
+import { createSpaceWithSpots, spotMm, type SpotDef } from "@/lib/spots";
 import { compressImage } from "@/lib/image";
 import { supabase } from "@/integrations/supabase/client";
 import { BUILTIN_TEMPLATES, type LabelData } from "@/lib/labelTemplates";
 import { getAllTemplates, resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
-import { suggestSpaceFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
+import { suggestSpaceFromImage, detectSpotsFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_QUAD,
@@ -120,6 +121,10 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
   const [gridRows, setGridRows] = useState(4);
   const [gridCols, setGridCols] = useState(5);
   const [corners, setCorners] = useState<QuadCorners>(DEFAULT_QUAD);
+  const [mode, setMode] = useState<"grid" | "spots">("grid");
+  const [spots, setSpots] = useState<SpotDef[]>([]);
+  const [spotsBusy, setSpotsBusy] = useState(false);
+  const [realWidthMm, setRealWidthMm] = useState<string>("");
   const [namingScheme, setNamingScheme] = useState(NAMING_PRESETS[0].value);
   const [pad, setPad] = useState(true);
   const [templateId, setTemplateId] = useState(BUILTIN_TEMPLATES[0].id);
@@ -157,6 +162,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
     setStep(1); setName(""); setNameTouched(false); setType("pegboard"); setImageDataUrl(null);
     setGridRows(4); setGridCols(5); setNamingScheme(NAMING_PRESETS[0].value); setPad(true);
     setTemplateId(BUILTIN_TEMPLATES[0].id); setAiNote(null); setCorners(DEFAULT_QUAD);
+    setMode("grid"); setSpots([]); setRealWidthMm("");
     setPlaceId(null); setNewPlaceName(""); setAddingPlace(false);
   };
 
@@ -224,6 +230,26 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
     }
   };
 
+  const detectSpots = async () => {
+    if (!imageDataUrl) return;
+    setSpotsBusy(true);
+    try {
+      const found = await detectSpotsFromImage(imageDataUrl);
+      setSpots(found.map((f) => ({ label: f.label, box: f.box })));
+      setMode("spots");
+      setAiNote(
+        found.length
+          ? `AI found ${found.length} individual spots. Delete any that are wrong, or drag corners in Grid mode instead.`
+          : "No individual items detected — try Grid mode, or a closer photo.",
+      );
+    } catch (e) {
+      if (e instanceof VisionNotConfiguredError) setAiNote("AI isn't connected — use Grid mode.");
+      else toast({ title: "Couldn't detect spots", description: String((e as Error)?.message || e), variant: "destructive" });
+    } finally {
+      setSpotsBusy(false);
+    }
+  };
+
   const create = async () => {
     setCreating(true);
     try {
@@ -231,6 +257,19 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
       if (!parentLocationId && newPlaceName.trim()) {
         const place = await findOrCreatePlace(newPlaceName);
         parentLocationId = place.id;
+      }
+      if (mode === "spots") {
+        const widthMm = realWidthMm ? Number(realWidthMm) : null;
+        const { spots: made } = await createSpaceWithSpots({
+          name: effectiveName, type, imagePath: imageDataUrl, parentLocationId,
+          labelTemplateId: templateId, spots,
+          realWidthMm: widthMm,
+          realHeightMm: widthMm ? Math.round(widthMm * 0.6) : null,
+        });
+        toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${made.length} spots.` });
+        onCreated?.();
+        close(false);
+        return;
       }
       const { slots } = await createSpaceWithSlots({
         name: effectiveName, type, gridRows, gridCols, imagePath: imageDataUrl,
@@ -403,7 +442,55 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
             </div>
             <div className="space-y-2">
               <Label>Preview — {gridRows * gridCols} slots</Label>
-              {imageDataUrl ? (
+              {mode === "spots" && imageDataUrl ? (
+                <div className="space-y-3">
+                  <div className="relative rounded-md overflow-hidden border">
+                    <img src={imageDataUrl} alt="The space with detected spots" className="w-full max-h-80 object-contain bg-tile" />
+                    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                      {spots.map((sp, i) => (
+                        <rect
+                          key={i}
+                          x={sp.box.x * 100} y={sp.box.y * 100}
+                          width={sp.box.w * 100} height={sp.box.h * 100}
+                          fill="hsl(22 92% 55% / 0.18)" stroke="hsl(22 92% 55%)" strokeWidth="0.4"
+                          vectorEffect="non-scaling-stroke"
+                        >
+                          <title>{sp.label}</title>
+                        </rect>
+                      ))}
+                    </svg>
+                  </div>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {spots.map((sp, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input
+                          value={sp.label}
+                          onChange={(e) => setSpots((all) => all.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                          className="h-9"
+                        />
+                        {realWidthMm && Number(realWidthMm) > 0 && (
+                          <span className="font-mono text-[11px] text-muted-foreground shrink-0 w-24 text-right">
+                            {(() => {
+                              const m = spotMm(sp.box, Number(realWidthMm), Number(realWidthMm) * 0.6);
+                              return `${m.xMm}×${m.yMm}mm`;
+                            })()}
+                          </span>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0"
+                          onClick={() => setSpots((all) => all.filter((_, j) => j !== i))}>
+                          ×
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="real-width">Board width in mm (optional — gives every spot real coordinates)</Label>
+                    <Input id="real-width" type="number" inputMode="numeric" placeholder="e.g. 813 for a 32 in panel"
+                      value={realWidthMm} onChange={(e) => setRealWidthMm(e.target.value)} className="h-10" />
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => setMode("grid")}>Use a grid instead</Button>
+                </div>
+              ) : imageDataUrl ? (
                 <div className="space-y-2">
                   <QuadEditor
                     imageUrl={imageDataUrl}
@@ -466,19 +553,19 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
           {step === 1 && (
             <>
               {imageDataUrl && !aiBusy && (
-                <Button variant="secondary" onClick={() => runAISuggest()} disabled={aiBusy}>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Re-run AI
+                <Button variant="secondary" onClick={detectSpots} disabled={spotsBusy}>
+                  {spotsBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+                  Detect items
                 </Button>
               )}
               <Button onClick={() => setStep(2)} disabled={!effectiveName.trim() || aiBusy}>Next</Button>
             </>
           )}
-          {step === 2 && <Button onClick={() => setStep(3)} disabled={gridRows < 1 || gridCols < 1}>Next</Button>}
+          {step === 2 && <Button onClick={() => setStep(3)} disabled={mode === "spots" ? spots.length === 0 : (gridRows < 1 || gridCols < 1)}>Next</Button>}
           {step === 3 && (
             <Button onClick={create} disabled={creating || !effectiveName.trim()}>
               {creating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Grid3x3 className="h-4 w-4 mr-2" />}
-              Create {gridRows * gridCols} slots
+              Create {mode === "spots" ? `${spots.length} spots` : `${gridRows * gridCols} slots`}
             </Button>
           )}
         </DialogFooter>

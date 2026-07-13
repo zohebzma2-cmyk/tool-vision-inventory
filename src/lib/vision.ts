@@ -93,3 +93,16 @@ export async function identifyBinFromImage(imageDataUrl: string): Promise<BinIte
   const out = await postJson<{ items: BinItemSuggestion[] }>("/identify-bin", { imageDataUrl });
   return Array.isArray(out.items) ? out.items : [];
 }
+
+/** One AI-detected storage spot: an item's own place on the board. */
+export interface SpotSuggestion {
+  label: string;
+  box: { x: number; y: number; w: number; h: number };
+  confidence: number;
+}
+
+/** Ask the vision model to box every individual item on a storage surface. */
+export async function detectSpotsFromImage(imageDataUrl: string): Promise<SpotSuggestion[]> {
+  const out = await postJson<{ spots: SpotSuggestion[] }>("/detect-spots", { imageDataUrl });
+  return Array.isArray(out.spots) ? out.spots : [];
+}

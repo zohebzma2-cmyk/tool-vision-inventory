@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Map as MapIcon, Plus, Save } from "lucide-react";
+import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
 import { cn } from "@/lib/utils";
+import { isRoomScanAvailable, scanRoom, wallsToPlan, type RoomScanResult } from "@/lib/roomScan";
 
 /** Normalized rect (0..1 of the plan canvas) for one space on the floor plan. */
 interface FloorRect {
@@ -46,6 +47,10 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
+  const [lidarAvailable, setLidarAvailable] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [walls, setWalls] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
+  const [dims, setDims] = useState<{ widthMm: number; lengthMm: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
@@ -56,6 +61,10 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
     setEditMode(false);
     setDirty(false);
     setFloorImage(((place.layout as { floorImage?: string } | null)?.floorImage) ?? null);
+    const scan = (place.layout as { scan?: { walls: typeof walls; widthMm: number; lengthMm: number } } | null)?.scan;
+    setWalls(scan?.walls ?? []);
+    setDims(scan ? { widthMm: scan.widthMm, lengthMm: scan.lengthMm } : null);
+    void isRoomScanAvailable().then(setLidarAvailable);
     (async () => {
       try {
         const { data: kids, error } = await supabase
@@ -157,11 +166,37 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
     }
   };
 
+  const runScan = async () => {
+    setScanning(true);
+    try {
+      const result: RoomScanResult = await scanRoom();
+      const plan = wallsToPlan(result);
+      setWalls(plan);
+      setDims({ widthMm: result.footprint.widthMm, lengthMm: result.footprint.lengthMm });
+      setDirty(true);
+      toast({
+        title: "Room scanned",
+        description: `${result.walls.length} walls · ${(result.footprint.widthMm / 1000).toFixed(1)}m × ${(result.footprint.lengthMm / 1000).toFixed(1)}m`,
+      });
+    } catch (e) {
+      const msg = String((e as Error)?.message || e);
+      if (!/cancel/i.test(msg)) {
+        toast({ title: "Scan failed", description: msg, variant: "destructive" });
+      }
+    } finally {
+      setScanning(false);
+    }
+  };
+
   const save = async () => {
     if (!place) return;
     setSaving(true);
     try {
-      const placeLayout = { ...((place.layout as Record<string, unknown>) ?? {}), floorImage };
+      const placeLayout = {
+        ...((place.layout as Record<string, unknown>) ?? {}),
+        floorImage,
+        ...(dims ? { scan: { walls, widthMm: dims.widthMm, lengthMm: dims.lengthMm } } : {}),
+      };
       const { error: pErr } = await supabase.from("locations").update({ layout: placeLayout }).eq("id", place.id);
       if (pErr) throw pErr;
       for (const s of spaces) {
@@ -203,6 +238,12 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                     onChange={(e) => onPickFloorPhoto(e.target.files?.[0])} />
                 </label>
               </Button>
+              {lidarAvailable && (
+                <Button size="sm" variant="outline" onClick={runScan} disabled={scanning}>
+                  {scanning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Scan className="h-4 w-4 mr-2" />}
+                  Scan room (LiDAR)
+                </Button>
+              )}
               {dirty && (
                 <Button size="sm" onClick={save} disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
@@ -222,6 +263,14 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
             >
               {floorImage && (
                 <img src={floorImage} alt={`${place?.name} overhead`} className="absolute inset-0 w-full h-full object-cover opacity-90" draggable={false} />
+              )}
+              {walls.length > 0 && (
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+                  {walls.map((w, i) => (
+                    <line key={i} x1={w.x1 * 100} y1={w.y1 * 100} x2={w.x2 * 100} y2={w.y2 * 100}
+                      stroke="hsl(var(--foreground))" strokeOpacity="0.75" strokeWidth="1.2" vectorEffect="non-scaling-stroke" strokeLinecap="round" />
+                  ))}
+                </svg>
               )}
               {placed.map((s) => (
                 <div
@@ -281,6 +330,11 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
             {spaces.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 No mapped spaces in {place?.name} yet — use Map a Space and pick this place, then arrange them here.
+              </p>
+            )}
+            {dims && (
+              <p className="font-mono text-xs text-muted-foreground">
+                Scanned: {(dims.widthMm / 1000).toFixed(2)} m × {(dims.lengthMm / 1000).toFixed(2)} m
               </p>
             )}
             {!editMode && placed.length > 0 && (
