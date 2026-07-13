@@ -58,6 +58,7 @@ export function LocationsList({
   }, [openMapOnMount]);
   const [mapLoc, setMapLoc] = useState<Location | null>(null);
   const [floorPlanPlace, setFloorPlanPlace] = useState<Location | null>(null);
+  const [propReload, setPropReload] = useState(0);
   const [showTemplates, setShowTemplates] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [printerConnected, setPrinterConnected] = useState(false);
@@ -374,6 +375,7 @@ export function LocationsList({
     <>
       {/* Property site plan — places as sized blocks on a top-down lot. */}
       <PropertyPlan
+        reloadSignal={propReload}
         onOpenPlace={(place) => {
           const full = locations.find((l) => l.id === place.id);
           setFloorPlanPlace((full ?? (place as unknown as Location)));
@@ -772,7 +774,7 @@ export function LocationsList({
 
       <FloorPlanDialog
         open={!!floorPlanPlace}
-        onOpenChange={(v) => { if (!v) setFloorPlanPlace(null); }}
+        onOpenChange={(v) => { if (!v) { setFloorPlanPlace(null); setPropReload((k) => k + 1); } }}
         place={floorPlanPlace}
         onOpenSpace={(spaceId) => {
           const sp = locations.find((l) => l.id === spaceId);

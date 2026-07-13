@@ -8,6 +8,8 @@ import { compressImage } from "@/lib/image";
 import { cn } from "@/lib/utils";
 import { isRoomScanAvailable, scanRoom, wallsToPlan, type RoomScanResult } from "@/lib/roomScan";
 import { MapSpaceDialog } from "./MapSpaceDialog";
+import { BlueprintEditor } from "./BlueprintEditor";
+import { PencilRuler } from "lucide-react";
 
 /** Normalized rect (0..1 of the plan canvas) for one space on the floor plan. */
 interface FloorRect {
@@ -54,6 +56,7 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [dims, setDims] = useState<{ widthMm: number; lengthMm: number } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [addSpaceOpen, setAddSpaceOpen] = useState(false);
+  const [blueprintOpen, setBlueprintOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
@@ -244,6 +247,9 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                   {editMode ? "Done arranging" : "Arrange"}
                 </Button>
               )}
+              <Button size="sm" variant="outline" onClick={() => setBlueprintOpen(true)}>
+                <PencilRuler className="h-4 w-4 mr-2" /> Draw blueprint
+              </Button>
               <Button size="sm" variant="outline" asChild>
                 <label className="cursor-pointer">
                   <Camera className="h-4 w-4 mr-2" /> {floorImage ? "Replace sketch" : "Sketch / plan photo"}
@@ -365,6 +371,13 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           onOpenChange={setAddSpaceOpen}
           defaultPlaceId={place?.id}
           onCreated={() => { setAddSpaceOpen(false); setReloadKey((k) => k + 1); }}
+        />
+
+        <BlueprintEditor
+          open={blueprintOpen}
+          onOpenChange={setBlueprintOpen}
+          place={place}
+          onSaved={() => { setBlueprintOpen(false); setReloadKey((k) => k + 1); }}
         />
       </DialogContent>
     </Dialog>
