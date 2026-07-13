@@ -84,29 +84,49 @@ class Arm:
         print(f"[arm]{' (dry-run)' if self.dry_run else ''} {msg}", flush=True)
 
 
-def make_handler(arm: Arm, allowed_origin: str):
+def make_handler(arm: Arm, allowed_origin: str, token: str, allowed_hosts: set):
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, obj):
             body = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
+            # Never wildcard: only the paired app origin may read responses in a browser.
             self.send_header("Access-Control-Allow-Origin", allowed_origin)
-            self.send_header("Access-Control-Allow-Headers", "content-type")
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Headers", "content-type, x-arm-token")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
             self.end_headers()
             self.wfile.write(body)
+
+        def _host_ok(self) -> bool:
+            # Anti-DNS-rebinding: only serve requests whose Host is an address we expect.
+            host = (self.headers.get("host") or "").split(":")[0].lower()
+            return host in allowed_hosts
+
+        def _authed(self) -> bool:
+            # Constant-ish token check — this endpoint actuates a physical arm, so it is gated.
+            return bool(token) and self.headers.get("x-arm-token") == token
 
         def do_OPTIONS(self):
             self._send(204, {})
 
         def do_GET(self):
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
             if self.path == "/health":
-                self._send(200, {"ok": True, "dryRun": arm.dry_run, "magnetPin": arm.magnet_pin})
+                # Health needs no token so the app can probe reachability before pairing.
+                self._send(200, {"ok": True, "dryRun": arm.dry_run, "magnetPin": arm.magnet_pin, "needsToken": True})
             else:
                 self._send(404, {"error": "not found"})
 
         def do_POST(self):
+            if not self._host_ok():
+                return self._send(403, {"error": "bad host"})
+            if not self._authed():
+                return self._send(401, {"error": "bad or missing x-arm-token"})
             length = int(self.headers.get("content-length", 0))
+            if length > 1_000_000:
+                return self._send(413, {"error": "too large"})
             try:
                 payload = json.loads(self.rfile.read(length) or b"{}")
             except json.JSONDecodeError:
@@ -139,18 +159,41 @@ def make_handler(arm: Arm, allowed_origin: str):
     return Handler
 
 
+def _lan_ip() -> str:
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
 def main():
+    import os
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=842)
     ap.add_argument("--magnet-pin", type=int, default=32)
     ap.add_argument("--speed", type=int, default=3000)
-    ap.add_argument("--origin", default="*", help="CORS origin to allow (set to the app URL in prod)")
+    ap.add_argument("--origin", default="https://tool-vision.pages.dev",
+                    help="exact CORS origin allowed to read responses (the app URL); never '*'")
+    ap.add_argument("--token", default=os.environ.get("ARM_TOKEN", ""),
+                    help="shared secret the app must send as x-arm-token; auto-generated if unset")
     ap.add_argument("--dry-run", action="store_true", help="run without the arm/SDK (logs moves)")
     args = ap.parse_args()
 
+    # A physical-actuation endpoint must be authenticated. Generate a token if none was given.
+    token = args.token or __import__("secrets").token_urlsafe(16)
+    lan = _lan_ip()
+    allowed_hosts = {"localhost", "127.0.0.1", lan}
+
     arm = Arm(magnet_pin=args.magnet_pin, speed=args.speed, dry_run=args.dry_run)
-    httpd = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(arm, args.origin))
-    print(f"[host] listening on :{args.port}  (dry-run={arm.dry_run})", flush=True)
+    httpd = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(arm, args.origin, token, allowed_hosts))
+    print(f"[host] listening on http://{lan}:{args.port}  (dry-run={arm.dry_run})", flush=True)
+    print(f"[host] PAIR TOKEN (enter in the app): {token}", flush=True)
+    print(f"[host] allowed origin: {args.origin}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

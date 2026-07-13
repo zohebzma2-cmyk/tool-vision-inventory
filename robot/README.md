@@ -45,13 +45,20 @@ their magnets self-center a socket dropped within a few mm, so placement only ne
 
 ## Run the host
 ```bash
-pip install uarm-python-sdk flask        # flask optional; the script uses stdlib http.server
-python3 arm_host.py --port 842           # add --dry-run to test with no arm (logs every move)
+pip install uarm-python-sdk             # the script otherwise uses only the Python stdlib
+python3 arm_host.py --port 842          # add --dry-run to test with no arm (logs every move)
 ```
-Then in the app, pair to `http://<host-ip>:842`.
+On start it prints a **PAIR TOKEN** and the LAN URL. In the app, enter that URL + token to pair.
+
+**Security (this endpoint actuates a physical arm, so it is locked down):**
+- Every command requires the `x-arm-token` header = the printed token (401 otherwise).
+- Host-header allowlist (localhost / this machine's LAN IP) blocks DNS-rebinding attacks.
+- CORS is a single exact origin (`--origin`, default the app URL) — never `*`.
+- Keep the host on a trusted LAN; the token is your pairing secret.
 
 ## HTTP protocol
-- `GET /health` → `{ ok, dryRun, magnetPin }`
+All POSTs require header `x-arm-token: <printed token>`.
+- `GET /health` → `{ ok, dryRun, magnetPin, needsToken }` (no token needed — reachability probe)
 - `POST /home` → re-home the arm
 - `POST /sort` with:
   ```json
