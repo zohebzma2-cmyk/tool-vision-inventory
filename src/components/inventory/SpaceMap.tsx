@@ -23,6 +23,8 @@ interface SpaceLocation {
   layout?: {
     labelTemplateId?: string;
     region?: { corners: { x: number; y: number }[] } | null;
+    mode?: string;
+    realWidthMm?: number | null;
   } | null;
 }
 
@@ -33,6 +35,7 @@ interface Slot {
   slot_row: number | null;
   slot_col: number | null;
   slot_index: number | null;
+  box?: { x: number; y: number; w: number; h: number } | null;
   items: string[];
 }
 
@@ -78,7 +81,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
       try {
         const { data: slotRows, error } = await supabase
           .from("locations")
-          .select("id, name, qr_code, slot_row, slot_col, slot_index")
+          .select("id, name, qr_code, slot_row, slot_col, slot_index, layout")
           .eq("parent_location_id", location.id)
           .eq("is_slot", true)
           .order("slot_index");
@@ -105,7 +108,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
         });
 
         if (active) {
-          const next = (slotRows ?? []).map((s) => ({ ...s, items: byLoc.get(s.id) ?? [] }));
+          const next = (slotRows ?? []).map((s) => ({ ...s, box: (s.layout as { box?: { x: number; y: number; w: number; h: number } } | null)?.box ?? null, items: byLoc.get(s.id) ?? [] }));
           setSlots(next);
           // Keep the open slot panel in sync after a refetch (e.g. bin just filled).
           setSelected((prev) => (prev ? next.find((s) => s.id === prev.id) ?? prev : prev));
@@ -194,7 +197,34 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
               )}
             </div>
 
-            {location?.image_path ? (
+            {location?.image_path && location.layout?.mode === "spots" ? (
+              /* Spot view: each item's own box drawn on the photo. Tap to open. */
+              <div className="relative rounded-md overflow-hidden border">
+                <img src={location.image_path} alt={`${location.name} photo`} className="w-full object-contain bg-tile" />
+                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  {slots.filter((s) => s.box).map((s) => {
+                    const filled = s.items.length > 0;
+                    const isSel = selected?.id === s.id;
+                    const b = s.box!;
+                    return (
+                      <rect
+                        key={s.id}
+                        x={b.x * 100} y={b.y * 100} width={b.w * 100} height={b.h * 100}
+                        rx="0.8"
+                        className="cursor-pointer"
+                        fill={isSel ? "hsl(22 92% 55% / 0.5)" : filled ? "hsl(22 92% 55% / 0.28)" : "hsl(22 92% 55% / 0.08)"}
+                        stroke={isSel ? "hsl(22 92% 55%)" : "rgba(255,255,255,0.7)"}
+                        strokeWidth={isSel ? 0.8 : 0.4}
+                        vectorEffect="non-scaling-stroke"
+                        onClick={() => setSelected(s)}
+                      >
+                        <title>{s.name}{filled ? `: ${s.items.join(", ")}` : ""}</title>
+                      </rect>
+                    );
+                  })}
+                </svg>
+              </div>
+            ) : location?.image_path ? (
               /* Photo view: the slot grid drawn over the actual space (pinned to the
                  mapped quad when one was set, so cells sit on the real bins). */
               <div className="relative rounded-md overflow-hidden border">
