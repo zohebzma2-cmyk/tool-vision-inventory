@@ -219,6 +219,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         ((formData.size_specs || '').toLowerCase().includes('inch') && /2[5-9]|[3-9]\d/.test(formData.size_specs || ''));
 
       const fits = (loc: any) => {
+        // Never auto-place a tool into a place/space (Garage, Shed…) — only into real storage.
+        if (String(loc.type).toLowerCase() === 'space') return false;
         const cap = (loc.capacity as number | null) ?? null;
         const occ = occMap.get(loc.id) || 0;
         return cap === null || occ < cap;
@@ -258,7 +260,9 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     try {
       const finalCategory = formData.category || 'Other';
       const safePurchaseDate = normalizeDate(formData.purchase_date) || null;
-      const itemQr = generateItemQrCode();
+      // Reuse the QR already shown in the label preview so a printed label always resolves to
+      // the saved item (minting a fresh one here made the printed QR a dead code).
+      const itemQr = previewItemQr ?? generateItemQrCode();
 
       const { data: item, error } = await supabase
         .from('items')
@@ -334,6 +338,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
               ((formData.size_specs || '').toLowerCase().includes('inch') && /2[5-9]|[3-9]\d/.test(formData.size_specs || ''));
 
             const fits = (loc: any) => {
+              // Never auto-place a tool into a place/space (Garage, Shed…) — only real storage.
+              if (String(loc.type).toLowerCase() === 'space') return false;
               const cap = (loc.capacity as number | null) ?? null;
               const occ = occMap.get(loc.id) || 0;
               return cap === null || occ < cap;

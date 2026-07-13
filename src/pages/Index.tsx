@@ -185,7 +185,9 @@ const Index = () => {
 
       <main className="relative flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-[calc(env(safe-area-inset-bottom)+88px)] md:pb-8">
-        <div key={tab} className="bg-card rounded-lg shadow-soft border animate-in-up">
+        {/* No per-tab entrance animation — a native tab bar swaps content instantly, not with
+            a fade-up on every tap (that reads web-y). */}
+        <div className="bg-card rounded-lg shadow-soft border">
           {tab === "items" && (
             <ItemsList key={`items-${syncTick}`} />
           )}

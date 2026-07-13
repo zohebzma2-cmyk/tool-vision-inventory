@@ -17,8 +17,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
-import { PaperTypeConfig } from "./PaperTypeConfig";
-import { ImageRecognition } from "./ImageRecognition";
 import { LabelPreview } from "@/components/inventory/LabelPreview";
 
 interface Location {
@@ -440,31 +438,8 @@ export function LocationsList({
           </div>
         </div>
 
-        {/* Configuration and Tools Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-          {isPrintingSupported() && (
-            <PaperTypeConfig onPaperTypeChange={(paperType) => {
-              console.log('Paper type changed to:', paperType);
-            }} />
-          )}
-          
-          <ImageRecognition 
-            onToolIdentified={(toolInfo) => {
-              console.log('Tool identified:', toolInfo);
-              toast({
-                title: "Tool Identified",
-                description: `Found: ${toolInfo.name} (${Math.round(toolInfo.confidence * 100)}% confidence)`,
-              });
-            }}
-            onTextExtracted={(text) => {
-              console.log('Text extracted:', text);
-              toast({
-                title: "Text Extracted",
-                description: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
-              });
-            }}
-          />
-        </div>
+        {/* Paper config lives in Settings; tool identification lives in the Add-tool flow —
+            keeping them out of the Spaces tab so it stays focused on locations. */}
 
         {locations.length === 0 ? (
           <div className="text-center py-12">
