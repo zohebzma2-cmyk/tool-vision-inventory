@@ -9,56 +9,55 @@
 
 @layer base {
   :root {
-    /* Concrete wall */
-    --background: 210 12% 97%;
-    --foreground: 220 14% 14%;
+    /* Clean, cool-neutral canvas — a professional facility-software feel. */
+    --background: 216 24% 98%;
+    --foreground: 222 20% 13%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 14% 14%;
+    --card-foreground: 222 20% 13%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 14% 14%;
+    --popover-foreground: 222 20% 13%;
 
-    /* Safety orange — the single accent. Reserved for primary actions. */
-    --primary: 22 92% 50%;
+    /* Signal orange — the single accent, used sparingly for primary actions. */
+    --primary: 20 90% 50%;
     --primary-foreground: 0 0% 100%;
 
-    /* Steel */
-    --secondary: 215 14% 92%;
-    --secondary-foreground: 220 14% 22%;
+    --secondary: 216 18% 93%;
+    --secondary-foreground: 222 18% 22%;
 
-    --muted: 214 12% 94%;
-    --muted-foreground: 215 10% 44%;
+    --muted: 216 18% 95%;
+    --muted-foreground: 218 12% 46%;
 
-    /* Graphite tile — the signature surface */
-    --accent: 220 14% 15%;
-    --accent-foreground: 40 20% 96%;
+    /* Ink — the deep slate used for the header rail and dark chips. */
+    --accent: 222 22% 13%;
+    --accent-foreground: 210 20% 98%;
 
-    --destructive: 0 72% 45%;
+    --destructive: 0 70% 46%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 214 14% 88%;
-    --input: 214 14% 86%;
-    --ring: 22 92% 50%;
+    --border: 216 18% 91%;
+    --input: 216 18% 88%;
+    --ring: 20 90% 50%;
 
-    --warning: 42 96% 45%;
-    --warning-foreground: 40 20% 96%;
+    --warning: 38 92% 48%;
+    --warning-foreground: 222 22% 13%;
 
-    --success: 145 55% 36%;
+    --success: 152 52% 38%;
     --success-foreground: 0 0% 100%;
 
-    --info: 215 60% 45%;
+    --info: 214 70% 48%;
     --info-foreground: 0 0% 100%;
 
-    /* Tile surfaces (label-tile signature element) */
-    --tile: 220 14% 15%;
-    --tile-foreground: 40 20% 96%;
-    --tile-edge: 220 12% 28%;
+    /* Ink surfaces (header rail, dark chips) */
+    --tile: 222 22% 13%;
+    --tile-foreground: 210 20% 98%;
+    --tile-edge: 222 16% 24%;
 
-    --radius: 0.625rem;
+    --radius: 0.75rem;
 
-    --shadow-tile: inset 0 1px 0 hsl(220 12% 32%), 0 1px 2px hsl(220 14% 14% / 0.35);
-    --shadow-soft: 0 1px 2px hsl(220 14% 14% / 0.06), 0 4px 12px -4px hsl(220 14% 14% / 0.08);
+    --shadow-tile: 0 1px 2px hsl(222 22% 8% / 0.28);
+    --shadow-soft: 0 1px 2px hsl(222 22% 13% / 0.05), 0 8px 24px -8px hsl(222 22% 13% / 0.10);
 
     --sidebar-background: 214 12% 94%;
     --sidebar-foreground: 220 14% 22%;
@@ -174,26 +173,30 @@
 }
 
 @layer components {
-  /* Signature: the label tile. Mirrors the 3D-printed name plates on the tool wall —
-     graphite plate, raised light lettering, condensed and tracked. */
+  /* Ink chip — a clean solid dark chip for wordmark, category tags, and stat tiles.
+     Refined (flat, hairline) rather than the old "engraved plate" look. */
   .label-tile {
     background: hsl(var(--tile));
     color: hsl(var(--tile-foreground));
     box-shadow: var(--shadow-tile);
-    border-radius: 0.25rem;
+    border-radius: 0.5rem;
     font-family: theme("fontFamily.display");
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.01em;
   }
 
-  /* Faint pegboard dot grid, spaced like 1" pegboard holes. */
+  /* Whisper-subtle blueprint grid — professional, not a gritty pegboard texture.
+     Barely-there so it reads as "engineered surface," not decoration. */
   .pegboard {
-    background-image: radial-gradient(hsl(220 14% 14% / 0.055) 1.5px, transparent 1.5px);
-    background-size: 26px 26px;
+    background-image:
+      linear-gradient(hsl(218 20% 50% / 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(218 20% 50% / 0.035) 1px, transparent 1px);
+    background-size: 48px 48px;
   }
   .dark .pegboard {
-    background-image: radial-gradient(hsl(214 14% 90% / 0.05) 1.5px, transparent 1.5px);
+    background-image:
+      linear-gradient(hsl(214 14% 90% / 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(214 14% 90% / 0.03) 1px, transparent 1px);
   }
 
   .shadow-soft {

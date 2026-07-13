@@ -3,6 +3,7 @@ import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, G
 import { MapSpaceDialog } from "./MapSpaceDialog";
 import { SpaceMap } from "./SpaceMap";
 import { FloorPlanDialog } from "./FloorPlanDialog";
+import { PropertyPlan } from "./PropertyPlan";
 import { LabelTemplateEditor } from "./LabelTemplateEditor";
 import { Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -371,11 +372,20 @@ export function LocationsList({
 
   return (
     <>
+      {/* Property site plan — places as sized blocks on a top-down lot. */}
+      <PropertyPlan
+        onOpenPlace={(place) => {
+          const full = locations.find((l) => l.id === place.id);
+          setFloorPlanPlace((full ?? (place as unknown as Location)));
+        }}
+      />
+      <div className="border-t" />
+
       <div className="p-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div className="flex items-baseline gap-2">
-            <h2 className="font-display text-xl font-semibold uppercase tracking-wide text-foreground">
-              Spaces
+            <h2 className="font-display text-xl font-semibold text-foreground">
+              All spaces
             </h2>
             <span className="font-mono text-sm text-muted-foreground">({locations.length})</span>
           </div>

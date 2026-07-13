@@ -77,7 +77,7 @@ const Index = () => {
                 <Wrench className="h-5 w-5" aria-hidden />
               </div>
               <div className="min-w-0">
-                <h1 className="font-display text-2xl md:text-3xl font-bold uppercase tracking-[0.08em] leading-none truncate">
+                <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight leading-none truncate">
                   Tool Vision
                 </h1>
                 <p className="font-mono text-[11px] md:text-xs text-tile-foreground/60 mt-1 truncate">
@@ -145,7 +145,7 @@ const Index = () => {
                 onClick={() => setTab(id)}
                 aria-current={tab === id ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-2 px-4 py-2 font-display uppercase tracking-[0.08em] text-sm font-semibold rounded-t border-b-2 transition-colors",
+                  "flex items-center gap-2 px-4 py-2 font-display text-[15px] font-semibold rounded-t border-b-2 transition-colors",
                   tab === id
                     ? "border-primary text-tile-foreground"
                     : "border-transparent text-tile-foreground/55 hover:text-tile-foreground"
@@ -214,7 +214,7 @@ const Index = () => {
                 <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
                   <ScanLine className="h-5 w-5" aria-hidden />
                 </span>
-                <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+                <span className="font-display text-[11px] font-medium tracking-tight">
                   Scan
                 </span>
               </button>
@@ -230,7 +230,7 @@ const Index = () => {
                 <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
                   <Plus className="h-5 w-5" aria-hidden />
                 </span>
-                <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+                <span className="font-display text-[11px] font-medium tracking-tight">
                   Add
                 </span>
               </button>
@@ -280,7 +280,7 @@ function MobileTab(props: {
       )}
     >
       <Icon className="h-5 w-5" aria-hidden />
-      <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+      <span className="font-display text-[11px] font-medium tracking-tight">
         {props.label}
       </span>
     </button>
