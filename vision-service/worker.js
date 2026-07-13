@@ -108,9 +108,10 @@ ${hint ? `User hint: "${hint}". Trust it if it conflicts with the image.\n` : ""
 
 const ITEM_KINDS = ["part", "tool", "set", "consumable"];
 
-const IDENTIFY_MANY_PROMPT = `This photo shows the contents of one storage bin in a garage inventory. List EVERY distinct item you can identify. Read visible brand/model text. Group identical items with a count instead of repeating them.
+const IDENTIFY_MANY_PROMPT = `This photo shows the contents of one storage bin/tote in a garage inventory. List EVERY distinct item you can identify. Read visible brand/model text. Group identical items with a count instead of repeating them.
+Also estimate the tote's size from visual cues (the bin walls, proportions, and any items of known scale) and write one short general phrase describing what the bin holds overall.
 Respond with STRICT JSON ONLY:
-{"items": [{"name": short specific name, "category": one of ${JSON.stringify(CATEGORIES)}, "kind": one of ${JSON.stringify(ITEM_KINDS)} (part = component/hardware, tool = works on things, set = multi-piece kit, consumable = gets used up), "brand": string or "", "model": string or "", "quantity": int >= 1, "confidence": 0..1}]}`;
+{"items": [{"name": short specific name, "category": one of ${JSON.stringify(CATEGORIES)}, "kind": one of ${JSON.stringify(ITEM_KINDS)} (part = component/hardware, tool = works on things, set = multi-piece kit, consumable = gets used up), "brand": string or "", "model": string or "", "quantity": int >= 1, "confidence": 0..1}], "tote": {"sizeGuess": one of ["small","medium","large"], "gallonsGuess": number 1-55}, "summary": short phrase (<= 8 words) describing the bin's overall contents}`;
 
 const DETECT_SPOTS_PROMPT = `Locate EVERY distinct physical item in this tool-storage photo: each tool, bin, box, bag, or piece of equipment gets its OWN tight bounding box — these become labeled storage spots. Use pixel-style coordinates on a 0-1000 scale: [x1, y1, x2, y2].
 Respond with STRICT JSON ONLY:
@@ -420,7 +421,14 @@ export default {
             confidence: clamp01(it?.confidence ?? 0.6),
           };
         });
-        return json(200, { items }, cors);
+        // Tote-size estimate + summary (for Sort-a-bin). Rough by design — the user confirms size.
+        const TOTE_SIZES = ["small", "medium", "large"];
+        const sizeGuess = TOTE_SIZES.includes(String(out?.tote?.sizeGuess)) ? out.tote.sizeGuess : null;
+        const gallonsGuess = out?.tote?.gallonsGuess != null
+          ? clampNum(out.tote.gallonsGuess, 1, 55, 12)
+          : null;
+        const summary = typeof out?.summary === "string" ? out.summary.trim().slice(0, 80) : "";
+        return json(200, { items, tote: (sizeGuess || gallonsGuess) ? { sizeGuess, gallonsGuess } : null, summary }, cors);
       }
 
       const out = await callModelResilient(env, apiKey, IDENTIFY_PROMPT, body.imageDataUrl);
