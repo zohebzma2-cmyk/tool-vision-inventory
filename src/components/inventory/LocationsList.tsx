@@ -423,19 +423,19 @@ export function LocationsList({
               Templates
             </Button>
             <Button
-              variant="secondary"
               onClick={() => setShowMapDialog(true)}
               className="shadow-soft"
             >
               <Grid3x3 className="h-4 w-4 mr-2" />
-              Add location
+              Map with camera
             </Button>
             <Button
+              variant="secondary"
               onClick={() => setShowAddDialog(true)}
               className="shadow-soft"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add location
+              Add by hand
             </Button>
           </div>
         </div>
@@ -471,10 +471,10 @@ export function LocationsList({
             <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
               <MapPin className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h3 className="font-display text-lg font-semibold mb-2">No spaces mapped</h3>
+            <h3 className="font-display text-lg font-semibold mb-2">No locations yet</h3>
             <p className="text-muted-foreground max-w-sm mx-auto">
-              Point the camera at a pegboard, drawer, or shelf and it turns it
-              into a labeled grid of slots.
+              A location is a storage unit inside a space. Point the camera at a
+              pegboard, drawer, or shelf and it turns into a labeled grid of slots.
             </p>
           </div>
         ) : (
