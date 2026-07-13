@@ -572,7 +572,14 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                   Detect items
                 </Button>
               )}
-              <Button onClick={() => setStep(2)} disabled={!effectiveName.trim() || aiBusy || spotsBusy}>Next</Button>
+              <Button
+                onClick={() => setStep(2)}
+                // Require a place — a location with no parent place is orphaned (invisible in the
+                // property plan and floor plan). defaultPlaceId means we're already inside a space.
+                disabled={!effectiveName.trim() || aiBusy || spotsBusy || !(defaultPlaceId || placeId || newPlaceName.trim())}
+              >
+                Next
+              </Button>
             </>
           )}
           {step === 2 && <Button onClick={() => setStep(3)} disabled={mode === "spots" ? spots.length === 0 : (gridRows < 1 || gridCols < 1)}>Next</Button>}

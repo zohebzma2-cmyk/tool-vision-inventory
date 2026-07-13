@@ -240,9 +240,11 @@ export function ItemsList() {
 
       if (error) throw error;
 
-      // Update location assignment if changed
+      // Keep the item↔location junction in sync.
+      const newQty = Number(editFormData.quantity) || 1;
       try {
         if (editLocationId !== initialEditLocationId) {
+          // Retire the current active placement(s).
           await supabase
             .from('item_locations')
             .update({ date_removed: new Date().toISOString() })
@@ -250,13 +252,28 @@ export function ItemsList() {
             .is('date_removed', null);
 
           if (editLocationId) {
-            await supabase.from('item_locations').insert([
-              { item_id: editingId, location_id: editLocationId, quantity: Number(editFormData.quantity) || 1 }
-            ]);
+            // Reactivate-or-create the (item, location) row. A plain insert fails the
+            // UNIQUE(item_id, location_id) constraint when the item was ever in this location
+            // before (soft-deleted row still exists) — upsert reactivates it (date_removed: null).
+            const { error: upErr } = await supabase
+              .from('item_locations')
+              .upsert(
+                { item_id: editingId, location_id: editLocationId, quantity: newQty, date_removed: null },
+                { onConflict: 'item_id,location_id' },
+              );
+            if (upErr) throw upErr;
           }
+        } else if (editLocationId) {
+          // Same location — keep the active row's quantity in sync (was previously left stale).
+          await supabase
+            .from('item_locations')
+            .update({ quantity: newQty })
+            .eq('item_id', editingId)
+            .eq('location_id', editLocationId)
+            .is('date_removed', null);
         }
       } catch (e) {
-        toast({ title: 'Location update issue', description: 'Item saved, but location change may not have been applied.', variant: 'destructive' });
+        toast({ title: "Couldn't update location", description: "The item saved, but its location change didn't apply. Try again.", variant: 'destructive' });
       }
 
       const newLocName = editLocationId ? (locations.find((l:any) => (l as any).id === editLocationId)?.name || null) : null;

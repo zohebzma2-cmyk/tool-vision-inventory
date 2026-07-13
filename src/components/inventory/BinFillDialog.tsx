@@ -115,18 +115,20 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
         quantity: d.quantity || 1,
         quantity_unit: "piece",
       }));
-      let { data: created, error } = await supabase.from("items").insert(rows).select("id");
+      // Select quantity back so each junction row uses ITS OWN row's quantity — never a
+      // selected[index] lookup, since PostgREST doesn't guarantee returned-row order.
+      let { data: created, error } = await supabase.from("items").insert(rows).select("id, quantity");
       if (error && /kind/.test(error.message)) {
         // items.kind migration not applied yet — save everything else rather than failing.
         const withoutKind = rows.map(({ kind: _kind, ...r }) => r);
-        ({ data: created, error } = await supabase.from("items").insert(withoutKind).select("id"));
+        ({ data: created, error } = await supabase.from("items").insert(withoutKind).select("id, quantity"));
       }
       if (error) throw error;
 
-      const links = (created || []).map((it, i) => ({
+      const links = (created || []).map((it) => ({
         item_id: it.id,
         location_id: bin.id,
-        quantity: selected[i]?.quantity || 1,
+        quantity: (it as { quantity?: number }).quantity || 1,
       }));
       const { error: linkErr } = await supabase.from("item_locations").insert(links);
       if (linkErr) throw linkErr;
