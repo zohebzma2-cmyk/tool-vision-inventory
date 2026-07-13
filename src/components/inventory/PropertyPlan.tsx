@@ -410,8 +410,8 @@ function AddPlaceDialog(props: {
                 {props.lidar && (
                   <MethodCard icon={Scan} title="3D scan" sub="Walk it with LiDAR" onClick={scan} disabled={busy || !name.trim()} />
                 )}
-                <MethodCard icon={Camera} title="From image" sub="Overhead photo" asUpload onFile={fromImage} disabled={busy || !name.trim()} />
-                <MethodCard icon={PencilRuler} title="Manual" sub="Enter dimensions" onClick={() => setMethod("manual")} disabled={busy || !name.trim()} />
+                <MethodCard icon={Camera} title="Sketch photo" sub="Snap a paper sketch" asUpload onFile={fromImage} disabled={busy || !name.trim()} />
+                <MethodCard icon={PencilRuler} title="Manual" sub="Enter size in feet" onClick={() => setMethod("manual")} disabled={busy || !name.trim()} />
               </div>
               {!name.trim() && <p className="text-xs text-muted-foreground mt-2">Name the place first.</p>}
             </div>

@@ -110,9 +110,11 @@ interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreated?: () => void;
+  /** Pre-scope the new space to a place (opened from that place's interior). */
+  defaultPlaceId?: string | null;
 }
 
-export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
+export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }: Props) {
   const { toast } = useToast();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
@@ -150,8 +152,9 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
         .is("grid_rows", null)
         .order("name");
       setPlaces((data as Place[]) || []);
+      if (defaultPlaceId) setPlaceId(defaultPlaceId);
     })();
-  }, [open]);
+  }, [open, defaultPlaceId]);
 
   const placeName = places.find((p) => p.id === placeId)?.name ?? newPlaceName.trim();
 
