@@ -54,11 +54,13 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
 
 interface Props {
   onOpenPlace: (place: { id: string; name: string; layout?: Record<string, unknown> | null }) => void;
+  /** Bumped by the parent to force a reload (e.g. after a place's blueprint changes). */
+  reloadSignal?: number;
 }
 
 /** Property site plan: every place (garage, shed, basement…) is a sized block on a
  * top-down plot. Add one by 3D scan, photo, or by hand; tap a block to open its interior. */
-export function PropertyPlan({ onOpenPlace }: Props) {
+export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
   const { toast } = useToast();
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,6 +114,8 @@ export function PropertyPlan({ onOpenPlace }: Props) {
   };
 
   useEffect(() => { load(); void isRoomScanAvailable().then(setLidar); /* eslint-disable-next-line */ }, []);
+  // Reload when the parent signals a change (blueprint saved, space added, etc.).
+  useEffect(() => { if (reloadSignal) load(); /* eslint-disable-next-line */ }, [reloadSignal]);
 
   // Shared feet→canvas scale so blocks are drawn to real proportion. The largest
   // real dimension across placed spaces maps to ~30% of the canvas width.
@@ -246,9 +250,17 @@ export function PropertyPlan({ onOpenPlace }: Props) {
                   width: `${size.w * 100}%`, height: `${size.h * 100}%`,
                 }}
               >
-                {/* Generated top-down: a LiDAR wall outline, an overhead photo, or the
-                    place icon as a clean footprint glyph. */}
-                {walls?.walls?.length && walls.footprint ? (
+                {/* Generated top-down: a drawn blueprint, a LiDAR wall outline, an
+                    overhead photo, or the place icon as a clean footprint glyph. */}
+                {(p.layout?.blueprint as { zones?: { rect: { x: number; y: number; w: number; h: number }; type: string }[] } | undefined)?.zones?.length ? (
+                  <svg className="absolute inset-1 w-[calc(100%-0.5rem)] h-[calc(100%-0.5rem)]" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+                    <rect x="1" y="1" width="98" height="98" fill="none" stroke="hsl(var(--foreground))" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                    {(p.layout!.blueprint as { zones: { rect: { x: number; y: number; w: number; h: number }; type: string }[] }).zones.map((z, i) => (
+                      <rect key={i} x={z.rect.x * 100} y={z.rect.y * 100} width={z.rect.w * 100} height={z.rect.h * 100}
+                        fill="hsl(20 90% 50% / 0.25)" stroke="hsl(20 90% 50%)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                    ))}
+                  </svg>
+                ) : walls?.walls?.length && walls.footprint ? (
                   <svg className="absolute inset-1 w-[calc(100%-0.5rem)] h-[calc(100%-0.5rem)] opacity-70" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden>
                     {walls.walls.map((w, i) => {
                       const fp = walls.footprint!;
