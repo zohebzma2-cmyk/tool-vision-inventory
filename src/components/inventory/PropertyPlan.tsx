@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { generateQRCode } from "@/lib/slots";
 import { compressImage } from "@/lib/image";
 import { isRoomScanAvailable, scanRoom } from "@/lib/roomScan";
+import { GuideTip } from "@/components/inventory/GuideTip";
 import { cn } from "@/lib/utils";
 
 // A recognizable top-down icon per place kind — the "generated overhead" glyph.
@@ -217,6 +218,10 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
             to match your lot.
           </p>
           <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-2" /> Add your first space</Button>
+          <GuideTip tipKey="property-blueprint" className="mx-auto mt-6 max-w-md text-left">
+            Once a space exists, tap it to draw its blueprint — or let <strong>AI draft it</strong> from
+            a hand-drawn sketch or a quick description of the room.
+          </GuideTip>
         </div>
       ) : (
         <div

@@ -79,6 +79,27 @@ function parseJson(text) {
 }
 const clamp01 = (n) => { const v = Number(n); return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0; };
 const clampInt = (n, lo, hi, fb) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fb; };
+const clampNum = (n, lo, hi, fb) => { const v = Number(n); return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fb; };
+
+const ZONE_MIN = 0.05; // smallest zone as a fraction of the room (matches the editor)
+
+/** Sanitize a model's blueprint draft into the exact { roomFt, zones } shape the app renders. */
+function normalizeBlueprint(out) {
+  const w = clampNum(out?.roomFt?.w, 1, 200, 20);
+  const d = clampNum(out?.roomFt?.d, 1, 200, 20);
+  const rawZones = Array.isArray(out?.zones) ? out.zones : [];
+  const zones = rawZones.slice(0, 20).map((z, i) => {
+    const type = ZONE_TYPES.includes(String(z?.type)) ? z.type : "shelf";
+    const rx = clamp01(z?.rect?.x), ry = clamp01(z?.rect?.y);
+    const rw = Math.max(ZONE_MIN, clamp01(z?.rect?.w));
+    const rh = Math.max(ZONE_MIN, clamp01(z?.rect?.h));
+    // Keep the zone inside the room: pull the corner back if it would overflow.
+    const x = Math.min(rx, 1 - rw), y = Math.min(ry, 1 - rh);
+    const name = typeof z?.name === "string" && z.name.trim() ? z.name.trim() : `Zone ${i + 1}`;
+    return { name, type, rect: { x, y, w: rw, h: rh } };
+  });
+  return { roomFt: { w, d }, zones };
+}
 
 const MAP_PROMPT = (hint) => `You are mapping a physical tool-storage space into a grid of slots.
 The photo shows a pegboard, drawer organizer, parts-bin wall, shelf unit, or socket rail.
@@ -98,6 +119,15 @@ Respond with STRICT JSON ONLY:
 const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a garage inventory. Read visible brand/model text.
 Respond with STRICT JSON ONLY:
 {"name": string, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string, "model": string, "text": string, "confidence": 0..1}`;
+
+// Blueprint zones are a subset of location types — the furniture strips that live inside a room.
+const ZONE_TYPES = ["pegboard", "shelf", "cabinet", "rack", "drawer", "bin"];
+
+const BLUEPRINT_PROMPT = (description) => `You are drafting a to-scale, top-down floor plan (blueprint) of a garage or workshop for a tool-inventory app.
+${description ? `The user describes the space: "${description}".\n` : `A hand-drawn sketch of the space is provided. Read its rooms, walls, and labeled storage.\n`}Lay out the room as a rectangle (width x depth in FEET) and place labeled storage zones against the walls. Each zone is one piece of storage furniture.
+Respond with STRICT JSON ONLY:
+{"roomFt": {"w": number feet 1-200, "d": number feet 1-200}, "zones": [{"name": short label (e.g. "North pegboard"), "type": one of ${JSON.stringify(ZONE_TYPES)}, "rect": {"x": 0..1, "y": 0..1, "w": 0..1, "h": 0..1}}]}
+Coordinates are normalized to the room footprint: x,y = top-left corner (0,0 = back-left), w,h = size as a fraction of room width/depth. Push zones flush against walls the way real storage sits. Include only storage the user mentions or that is drawn; do not invent a full room of furniture. Max 20 zones.`;
 
 async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs, opts = {}) {
   const isOpenRouter = base.includes("openrouter.ai");
@@ -120,7 +150,13 @@ async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs, 
       // Grounding prompts work better without forced json_object on some hosts.
       ...(opts.noJsonMode ? {} : { response_format: { type: "json_object" } }),
       messages: [
-        { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageDataUrl } }] },
+        {
+          role: "user",
+          // Text-only calls (e.g. a described-but-not-photographed blueprint) omit the image part.
+          content: imageDataUrl
+            ? [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageDataUrl } }]
+            : prompt,
+        },
       ],
     }),
   });
@@ -278,7 +314,7 @@ export default {
       }, cors);
     }
 
-    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin", "/detect-spots"].includes(url.pathname)) {
+    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin", "/detect-spots", "/generate-blueprint"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -303,9 +339,21 @@ export default {
     const raw = await request.text();
     if (raw.length > maxBytes) return json(413, { error: "payload too large" }, cors);
     const body = parseJson(raw);
-    if (!body.imageDataUrl) return json(400, { error: "missing imageDataUrl" }, cors);
+    // Every route needs an image EXCEPT /generate-blueprint, which also accepts a text description.
+    const hasDescription = typeof body.description === "string" && body.description.trim();
+    if (!body.imageDataUrl && !(url.pathname === "/generate-blueprint" && hasDescription)) {
+      return json(400, { error: "missing imageDataUrl" }, cors);
+    }
 
     try {
+      if (url.pathname === "/generate-blueprint") {
+        const out = await callModelResilient(
+          env, apiKey,
+          BLUEPRINT_PROMPT(hasDescription ? body.description.trim() : ""),
+          body.imageDataUrl || null,
+        );
+        return json(200, normalizeBlueprint(out), cors);
+      }
       if (url.pathname === "/map-space") {
         const out = await callModelResilient(env, apiKey, MAP_PROMPT(body.hint || ""), body.imageDataUrl);
         const r = out.region;

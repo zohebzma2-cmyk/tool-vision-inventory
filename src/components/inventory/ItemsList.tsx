@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCategories } from "@/hooks/useCategories";
 import { LabelPreview } from "@/components/inventory/LabelPreview";
+import { GuideTip } from "@/components/inventory/GuideTip";
 
 interface Item {
   id: string;
@@ -328,6 +329,13 @@ export function ItemsList() {
               ? "Clear the search or pick a different category."
               : "Add your first tool — point the camera at it and the app fills in the details."}
           </p>
+          {!searchTerm && selectedCategory === "all" && (
+            <GuideTip tipKey="items-empty" className="mx-auto mt-6 max-w-md text-left">
+              New here? The smoothest path is to <strong>map a space</strong> in the Spaces tab first
+              (snap your pegboard or shelf), then fill it — but you can also add a tool right now and
+              assign it a home later.
+            </GuideTip>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger">

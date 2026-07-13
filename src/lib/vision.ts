@@ -6,6 +6,7 @@
 // throws `VisionNotConfiguredError` and callers fall back to fully-manual flows.
 
 import { supabase } from "@/integrations/supabase/client";
+import type { Blueprint } from "@/lib/blueprint";
 
 export class VisionNotConfiguredError extends Error {
   constructor() {
@@ -105,4 +106,27 @@ export interface SpotSuggestion {
 export async function detectSpotsFromImage(imageDataUrl: string): Promise<SpotSuggestion[]> {
   const out = await postJson<{ spots: SpotSuggestion[] }>("/detect-spots", { imageDataUrl });
   return Array.isArray(out.spots) ? out.spots : [];
+}
+
+/**
+ * Draft a to-scale storage blueprint for a place from a hand-drawn sketch photo and/or a text
+ * description. Returns the same { roomFt, zones } shape the BlueprintEditor edits, so the result
+ * loads straight into the editor for review. At least one of imageDataUrl / description is required.
+ */
+export async function generateBlueprint(
+  input: { imageDataUrl?: string; description?: string },
+): Promise<Blueprint> {
+  const body: { imageDataUrl?: string; description?: string } = {};
+  if (input.imageDataUrl) body.imageDataUrl = input.imageDataUrl;
+  if (input.description?.trim()) body.description = input.description.trim();
+  const out = await postJson<{ roomFt: { w: number; d: number }; zones: Blueprint["zones"] }>(
+    "/generate-blueprint",
+    body,
+  );
+  // The worker returns zones without client ids; the editor keys zones by id, so mint them here.
+  const zones = (Array.isArray(out.zones) ? out.zones : []).map((z, i) => ({
+    ...z,
+    id: `ai${Date.now().toString(36)}${i}`,
+  }));
+  return { roomFt: out.roomFt, zones };
 }
