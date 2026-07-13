@@ -201,7 +201,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
             </Button>
           )}
           <Button size="sm" onClick={() => setAddOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Add place
+            <Plus className="h-4 w-4 mr-2" /> Add space
           </Button>
         </div>
       </div>
@@ -213,10 +213,10 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
           <PencilRuler className="h-9 w-9 mx-auto text-muted-foreground mb-3" aria-hidden />
           <h3 className="font-display text-lg font-semibold mb-1">Map your property</h3>
           <p className="text-sm text-muted-foreground max-w-sm mx-auto mb-5">
-            Add each place you store things — a garage, a shed, the basement — then arrange them
+            Add each space you store things — a garage, a shed, the basement — then arrange them
             to match your lot.
           </p>
-          <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-2" /> Add your first place</Button>
+          <Button onClick={() => setAddOpen(true)}><Plus className="h-4 w-4 mr-2" /> Add your first space</Button>
         </div>
       ) : (
         <div
@@ -240,7 +240,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
                 onPointerDown={(e) => startDrag(e, p.id, "move", { x, y, ...size })}
                 onClick={() => { if (!arrange && !drag.current) onOpenPlace(p); }}
                 className={cn(
-                  "absolute rounded-lg border-2 flex flex-col p-2.5 overflow-hidden transition-shadow",
+                  "absolute rounded-lg border-2 flex flex-col p-2.5 overflow-hidden transition-shadow animate-pop press",
                   arrange
                     ? "cursor-move border-dashed border-primary/70 bg-card/95"
                     : "cursor-pointer border-tile bg-card shadow-soft hover:shadow-md hover:border-primary",
@@ -284,7 +284,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
                     <span className="font-mono text-[10px] text-muted-foreground bg-card/70 rounded px-1">{p.widthFt}×{p.depthFt} ft</span>
                   ) : <span />}
                   <span className="text-[10px] font-medium text-muted-foreground shrink-0 bg-card/70 rounded px-1">
-                    {p.spaceCount} space{p.spaceCount === 1 ? "" : "s"}
+                    {p.spaceCount} location{p.spaceCount === 1 ? "" : "s"}
                   </span>
                 </div>
               </div>
@@ -293,7 +293,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
         </div>
       )}
       {!arrange && places.length > 0 && (
-        <p className="text-xs text-muted-foreground">Tap a place to open its interior. Use Arrange to move and size the blocks.</p>
+        <p className="text-xs text-muted-foreground">Tap a space to open its storage locations. Use Arrange to move and size the blocks.</p>
       )}
 
       <AddPlaceDialog
@@ -328,7 +328,7 @@ function AddPlaceDialog(props: {
     // The DB type column is constrained; places always use the allowed "space" type
     // and carry their friendly kind (garage, shed, …) in the layout.
     const { error } = await supabase.from("locations").insert([{
-      name: name.trim() || "New place",
+      name: name.trim() || "New space",
       type: "space",
       qr_code: generateQRCode(),
       is_slot: false,
@@ -386,7 +386,7 @@ function AddPlaceDialog(props: {
     <Dialog open={props.open} onOpenChange={close}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-display">Add a place</DialogTitle>
+          <DialogTitle className="font-display">Add a space</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-3">

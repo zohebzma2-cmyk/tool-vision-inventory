@@ -161,7 +161,7 @@ const Index = () => {
 
       <main className="relative flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-[calc(env(safe-area-inset-bottom)+88px)] md:pb-8">
-        <div className="bg-card rounded-lg shadow-soft border">
+        <div key={tab} className="bg-card rounded-lg shadow-soft border animate-in-up">
           {tab === "items" && (
             <ItemsList key={`items-${syncTick}`} />
           )}

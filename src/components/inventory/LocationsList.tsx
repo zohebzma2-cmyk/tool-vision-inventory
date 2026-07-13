@@ -387,7 +387,7 @@ export function LocationsList({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div className="flex items-baseline gap-2">
             <h2 className="font-display text-xl font-semibold text-foreground">
-              All spaces
+              All locations
             </h2>
             <span className="font-mono text-sm text-muted-foreground">({locations.length})</span>
           </div>
@@ -428,14 +428,14 @@ export function LocationsList({
               className="shadow-soft"
             >
               <Grid3x3 className="h-4 w-4 mr-2" />
-              Map a Space
+              Add location
             </Button>
             <Button
               onClick={() => setShowAddDialog(true)}
               className="shadow-soft"
             >
               <Plus className="h-4 w-4 mr-2" />
-              Add space
+              Add location
             </Button>
           </div>
         </div>
@@ -473,7 +473,7 @@ export function LocationsList({
             </div>
             <h3 className="font-display text-lg font-semibold mb-2">No spaces mapped</h3>
             <p className="text-muted-foreground max-w-sm mx-auto">
-              Point the camera at a pegboard, drawer, or shelf and Map a Space turns it
+              Point the camera at a pegboard, drawer, or shelf and it turns it
               into a labeled grid of slots.
             </p>
           </div>
@@ -659,7 +659,7 @@ export function LocationsList({
                 Cancel
               </Button>
               <Button type="submit" disabled={!formData.name || !formData.type}>
-                Add space
+                Add location
               </Button>
             </DialogFooter>
           </form>
