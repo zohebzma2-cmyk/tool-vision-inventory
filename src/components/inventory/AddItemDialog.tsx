@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Camera, Upload, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/adaptive-dialog";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,6 @@ interface AddItemDialogProps {
 
 export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -40,9 +38,6 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const [previewItemQr, setPreviewItemQr] = useState<string | null>(null);
   const [previewLocation, setPreviewLocation] = useState<any | null>(null);
   
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
 
   const [dims, setDims] = useState({ length: '', width: '', height: '' });
@@ -124,59 +119,6 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
       category: fields?.category ? mapCategoryToFormCategory(String(fields.category).toLowerCase()) : prev.category,
     }));
   };
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setImageFile(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const startCamera = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } 
-      });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-    } catch (error) {
-      toast({
-        title: "Camera Error",
-        description: "Could not access camera. Please use file upload instead.",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const canvas = canvasRef.current;
-      const video = videoRef.current;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(video, 0, 0);
-      
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], 'captured-image.jpg', { type: 'image/jpeg' });
-          setImageFile(file);
-          setImagePreview(canvas.toDataURL());
-          
-          // Stop camera
-          const stream = video.srcObject as MediaStream;
-          stream?.getTracks().forEach(track => track.stop());
-        }
-      }, 'image/jpeg', 0.8);
-    }
-  };
-
   const handlePreviewLabels = async () => {
     try {
       const finalCategory = formData.category || 'Other';
@@ -451,8 +393,6 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         purchase_price: "",
         notes: ""
       });
-      setImageFile(null);
-      setImagePreview(null);
       onOpenChange(false);
     } catch (error) {
       toast({
@@ -476,58 +416,8 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         </DialogHeader>
         
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Image Capture Section */}
-          <div className="space-y-2">
-            <Label>Item Photo</Label>
-            <div className="flex gap-2">
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Upload
-              </Button>
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={startCamera}
-              >
-                <Camera className="h-4 w-4 mr-2" />
-                Camera
-              </Button>
-            </div>
-            
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleImageUpload}
-              className="hidden"
-            />
-            
-            {imagePreview && (
-              <img 
-                src={imagePreview} 
-                alt="Preview" 
-                className="w-full max-w-xs h-40 object-cover rounded border"
-              />
-            )}
-            
-            <video 
-              ref={videoRef} 
-              className="w-full max-w-xs h-40 object-cover rounded border hidden"
-              autoPlay 
-              playsInline 
-            />
-            <canvas ref={canvasRef} className="hidden" />
-            
-            {videoRef.current && (
-              <Button type="button" onClick={capturePhoto}>
-                Capture Photo
-              </Button>
-            )}
-          </div>
+          {/* Photo capture + AI identification is owned entirely by <ImageRecognition> below —
+              the old standalone capture block here was redundant and its camera stream leaked. */}
 
           {/* Image Recognition Section */}
           <ImageRecognition 
