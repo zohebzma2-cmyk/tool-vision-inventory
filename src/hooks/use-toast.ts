@@ -1,4 +1,5 @@
 import * as React from "react"
+import { haptic } from "@/lib/haptics"
 
 import type {
   ToastActionElement,
@@ -141,6 +142,12 @@ type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
   const id = genId()
+
+  // Every notification also speaks in haptics on device — success/warning/error
+  // get their matching buzz so feedback is felt, not just seen.
+  if (props.variant === "destructive") haptic.error()
+  else if (props.variant === "success") haptic.success()
+  else if (props.variant === "warning") haptic.warning()
 
   const update = (props: ToasterToast) =>
     dispatch({

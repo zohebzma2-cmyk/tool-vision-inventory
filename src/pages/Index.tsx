@@ -12,6 +12,7 @@ import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
+import { leadsWithScanner } from "@/lib/platform";
 
 type Tab = "items" | "locations" | "overview";
 
@@ -81,7 +82,7 @@ const Index = () => {
                 </h1>
                 <p className="font-mono text-[11px] md:text-xs text-tile-foreground/60 mt-1 truncate">
                   {stats.loading
-                    ? "reading the wall…"
+                    ? (leadsWithScanner ? "scan · remote" : "reading the wall…")
                     : [
                         `${stats.itemCount} tools`,
                         `${stats.locationCount} spaces`,
@@ -201,24 +202,41 @@ const Index = () => {
             icon={MapPin}
             label="Spaces"
           />
-          <button
-            onClick={() => { haptic.medium(); setShowAddItem(true); }}
-            className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
-            aria-label="Add tool"
-          >
-            <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
-              <Plus className="h-5 w-5" aria-hidden />
-            </span>
-            <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
-              Add
-            </span>
-          </button>
-          <MobileTab
-            active={false}
-            onClick={() => setShowQRScanner(true)}
-            icon={ScanLine}
-            label="Scan"
-          />
+          {/* Hero action: the iOS app leads with the scanner (field/remote use);
+              the web app leads with Add (setup). Both keep the other in the bar. */}
+          {leadsWithScanner ? (
+            <>
+              <button
+                onClick={() => { haptic.medium(); setShowQRScanner(true); }}
+                className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
+                aria-label="Scan a label"
+              >
+                <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
+                  <ScanLine className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+                  Scan
+                </span>
+              </button>
+              <MobileTab active={false} onClick={() => setShowAddItem(true)} icon={Plus} label="Add" />
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => { haptic.medium(); setShowAddItem(true); }}
+                className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
+                aria-label="Add tool"
+              >
+                <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
+                  <Plus className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="font-display uppercase tracking-[0.08em] text-[10px] font-semibold">
+                  Add
+                </span>
+              </button>
+              <MobileTab active={false} onClick={() => setShowQRScanner(true)} icon={ScanLine} label="Scan" />
+            </>
+          )}
           <MobileTab
             active={tab === "overview"}
             onClick={() => setTab("overview")}

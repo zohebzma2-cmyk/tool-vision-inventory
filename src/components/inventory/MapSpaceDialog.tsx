@@ -267,8 +267,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
           realWidthMm: widthMm,
           realHeightMm: widthMm ? Math.round(widthMm * 0.6) : null,
         });
-        haptic.success();
-        toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${made.length} spots.` });
+        toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${made.length} spots.`, variant: "success" });
         onCreated?.();
         close(false);
         return;
@@ -278,7 +277,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
         namingScheme, labelTemplateId: templateId, pad, parentLocationId,
         region: imageDataUrl ? { corners } : null,
       });
-      toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${slots.length} slots.` });
+      toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${slots.length} slots.`, variant: "success" });
       onCreated?.();
       close(false);
     } catch (e) {
