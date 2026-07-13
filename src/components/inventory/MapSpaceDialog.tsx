@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { BUILTIN_TEMPLATES, type LabelData } from "@/lib/labelTemplates";
 import { getAllTemplates, resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
+import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 import { suggestSpaceFromImage, detectSpotsFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
@@ -304,7 +305,12 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
         {step === 1 && (
           <div className="space-y-5">
             {/* 1. The photo — the whole flow starts with the camera */}
-            {imageDataUrl ? (
+            {aiBusy || spotsBusy ? (
+              <VisionProgress
+                imageDataUrl={imageDataUrl}
+                stages={aiBusy ? [...VISION_STAGES.mapSpace] : [...VISION_STAGES.detectSpots]}
+              />
+            ) : imageDataUrl ? (
               <div className="relative rounded-lg overflow-hidden border">
                 <img src={imageDataUrl} alt="The space being mapped" className="w-full max-h-64 object-cover" />
                 <div className="absolute bottom-2 right-2 flex gap-2">
@@ -316,11 +322,6 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                     </label>
                   </Button>
                 </div>
-                {aiBusy && (
-                  <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display text-sm">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Reading the space…
-                  </div>
-                )}
               </div>
             ) : (
               <Button type="button" variant="outline" asChild
@@ -556,13 +557,13 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
           {step > 1 && <Button variant="outline" onClick={() => setStep(step - 1)} disabled={creating || aiBusy}>Back</Button>}
           {step === 1 && (
             <>
-              {imageDataUrl && !aiBusy && (
-                <Button variant="secondary" onClick={detectSpots} disabled={spotsBusy}>
-                  {spotsBusy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Sparkles className="h-4 w-4 mr-2" />}
+              {imageDataUrl && !aiBusy && !spotsBusy && (
+                <Button variant="secondary" onClick={detectSpots}>
+                  <Sparkles className="h-4 w-4 mr-2" />
                   Detect items
                 </Button>
               )}
-              <Button onClick={() => setStep(2)} disabled={!effectiveName.trim() || aiBusy}>Next</Button>
+              <Button onClick={() => setStep(2)} disabled={!effectiveName.trim() || aiBusy || spotsBusy}>Next</Button>
             </>
           )}
           {step === 2 && <Button onClick={() => setStep(3)} disabled={mode === "spots" ? spots.length === 0 : (gridRows < 1 || gridCols < 1)}>Next</Button>}

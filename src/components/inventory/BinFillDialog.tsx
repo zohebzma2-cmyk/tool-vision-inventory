@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
 import { haptic } from "@/lib/haptics";
 import { identifyBinFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
+import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
 const KINDS = ["part", "tool", "set", "consumable"] as const;
 
@@ -149,7 +150,9 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
           </DialogTitle>
         </DialogHeader>
 
-        {!imageDataUrl ? (
+        {aiBusy ? (
+          <VisionProgress imageDataUrl={imageDataUrl} stages={[...VISION_STAGES.identifyBin]} />
+        ) : !imageDataUrl ? (
           <Button type="button" variant="outline" asChild
             className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
             <label className="cursor-pointer">
@@ -173,17 +176,10 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
                     onChange={(e) => onPickPhoto(e.target.files?.[0])} />
                 </label>
               </Button>
-              {!aiBusy && (
-                <Button type="button" size="sm" variant="secondary" onClick={() => runAI()}>
-                  <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Re-run AI
-                </Button>
-              )}
+              <Button type="button" size="sm" variant="secondary" onClick={() => runAI()}>
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Re-run AI
+              </Button>
             </div>
-            {aiBusy && (
-              <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" /> Cataloging the bin…
-              </div>
-            )}
           </div>
         )}
         {!isVisionConfigured() && !imageDataUrl && (

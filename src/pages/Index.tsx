@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
@@ -7,6 +7,7 @@ import { ItemsList } from "@/components/inventory/ItemsList";
 import { LocationsList } from "@/components/inventory/LocationsList";
 import { QRScanner } from "@/components/inventory/QRScanner";
 import { Onboarding } from "@/components/onboarding/Onboarding";
+import { HowItWorks } from "@/components/onboarding/HowItWorks";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
@@ -20,6 +21,7 @@ const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>("items");
   const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
   const { user } = useAuth();
@@ -109,6 +111,16 @@ const Index = () => {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={() => setShowHelp(true)}
+                title="How it works"
+                className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
+              >
+                <HelpCircle className="h-4 w-4" />
+                <span className="sr-only">How it works</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowSettings(true)}
                 title="Settings"
                 className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
@@ -118,17 +130,29 @@ const Index = () => {
               </Button>
             </div>
 
-            {/* Mobile: settings only — actions live in the bottom bar */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShowSettings(true)}
-              title="Settings"
-              className="md:hidden text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
-            >
-              <Settings className="h-4 w-4" />
-              <span className="sr-only">Settings</span>
-            </Button>
+            {/* Mobile: help + settings — primary actions live in the bottom bar */}
+            <div className="flex items-center gap-1 md:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowHelp(true)}
+                title="How it works"
+                className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
+              >
+                <HelpCircle className="h-4 w-4" />
+                <span className="sr-only">How it works</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowSettings(true)}
+                title="Settings"
+                className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
+              >
+                <Settings className="h-4 w-4" />
+                <span className="sr-only">Settings</span>
+              </Button>
+            </div>
           </div>
 
           {/* Desktop tab rail */}
@@ -257,6 +281,8 @@ const Index = () => {
       <QRScanner open={showQRScanner} onOpenChange={setShowQRScanner} />
 
       <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
+
+      <HowItWorks open={showHelp} onOpenChange={setShowHelp} />
 
       {showOnboarding && <Onboarding onFinish={finishOnboarding} />}
     </div>

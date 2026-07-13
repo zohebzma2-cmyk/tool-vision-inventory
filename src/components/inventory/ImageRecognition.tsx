@@ -1,5 +1,5 @@
 import { useState, useRef, useId } from "react";
-import { Camera, Upload, Eye, FileText, Loader2, AlertCircle } from "lucide-react";
+import { Camera, Upload, Eye, FileText, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/adaptive-dialog";
@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
 import { supabase } from "@/integrations/supabase/client";
 import { printTextLabel, isPrintingSupported, setupPrinter } from "@/components/inventory/PrinterService";
+import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
 
 interface RecognitionResult {
@@ -443,39 +444,30 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
 
             {/* Image Preview */}
             {imagePreview && (
-              <div className="space-y-4">
-                <Card className="bg-muted/20 border-0">
-                  <CardContent className="p-4">
-                    <img
-                      src={imagePreview}
-                      alt="Selected image"
-                      className="max-w-full h-auto max-h-64 mx-auto rounded-md"
-                    />
-                  </CardContent>
-                </Card>
+              isProcessing ? (
+                <VisionProgress imageDataUrl={imagePreview} stages={[...VISION_STAGES.identifyItem]} />
+              ) : (
+                <div className="space-y-4">
+                  <Card className="bg-muted/20 border-0">
+                    <CardContent className="p-4">
+                      <img
+                        src={imagePreview}
+                        alt="Selected image"
+                        className="max-w-full h-auto max-h-64 mx-auto rounded-md"
+                      />
+                    </CardContent>
+                  </Card>
 
-                <Button
-                  onClick={processImage}
-                  disabled={isProcessing}
-                  className="w-full"
-                >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      {recognitionMode === 'classify' ? 'Identifying...' : 'Extracting Text...'}
-                    </>
-                  ) : (
-                    <>
-                      {recognitionMode === 'classify' ? (
-                        <Eye className="h-4 w-4 mr-2" />
-                      ) : (
-                        <FileText className="h-4 w-4 mr-2" />
-                      )}
-                      {recognitionMode === 'classify' ? 'Identify Tool' : 'Extract Text'}
-                    </>
-                  )}
-                </Button>
-              </div>
+                  <Button onClick={processImage} className="w-full">
+                    {recognitionMode === 'classify' ? (
+                      <Eye className="h-4 w-4 mr-2" />
+                    ) : (
+                      <FileText className="h-4 w-4 mr-2" />
+                    )}
+                    {recognitionMode === 'classify' ? 'Identify Tool' : 'Extract Text'}
+                  </Button>
+                </div>
+              )
             )}
 
             {/* Results Display */}

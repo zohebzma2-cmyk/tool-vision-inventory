@@ -240,6 +240,28 @@
     background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.06), transparent);
   }
 
+  /* AI "thinking" — a scanning band sweeps down the submitted photo while the model works. */
+  @keyframes tv-scan {
+    0% { top: -12%; opacity: 0; }
+    12% { opacity: 1; }
+    88% { opacity: 1; }
+    100% { top: 100%; opacity: 0; }
+  }
+  .tv-scan-line {
+    position: absolute;
+    left: 0; right: 0;
+    height: 12%;
+    background: linear-gradient(180deg, transparent, hsl(20 90% 55% / 0.55), transparent);
+    box-shadow: 0 0 18px 2px hsl(20 90% 55% / 0.4);
+    animation: tv-scan 2.1s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  }
+  /* Faint grid that pulses when there's no photo to scan (text-only blueprint, etc.). */
+  @keyframes tv-breathe {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.8; }
+  }
+  .tv-breathe { animation: tv-breathe 1.8s ease-in-out infinite; }
+
   /* Retained for legacy references */
   .shadow-elegant {
     box-shadow: var(--shadow-soft);

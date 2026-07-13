@@ -1,28 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Plus, Trash2, Save, Grid2x2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, Grid2x2, Sparkles, Camera, PencilLine, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { ZONE_TYPES, type Rect, type Zone, type Blueprint } from "@/lib/blueprint";
+import { generateBlueprint, isVisionConfigured } from "@/lib/vision";
+import { compressImage } from "@/lib/image";
+import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
-/** Normalized rect (0..1 of the room) for one storage zone. */
-interface Rect { x: number; y: number; w: number; h: number }
-
-interface Zone {
-  id: string;
-  name: string;
-  type: string;
-  rect: Rect;
-}
-
-export interface Blueprint {
-  roomFt: { w: number; d: number };
-  zones: Zone[];
-}
+export type { Rect, Zone, Blueprint };
 
 interface Props {
   open: boolean;
@@ -32,7 +24,6 @@ interface Props {
 }
 
 // Storage-zone kinds — all valid location types, each a recognizable furniture strip.
-const ZONE_TYPES = ["pegboard", "shelf", "cabinet", "rack", "drawer", "bin"];
 const ZONE_COLOR: Record<string, string> = {
   pegboard: "hsl(20 90% 50% / 0.22)",
   shelf: "hsl(214 70% 48% / 0.20)",
@@ -54,17 +45,75 @@ export function BlueprintEditor({ open, onOpenChange, place, onSaved }: Props) {
   const [zones, setZones] = useState<Zone[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // AI generator panel state.
+  const [genOpen, setGenOpen] = useState(false);
+  const [genMode, setGenMode] = useState<"sketch" | "describe">("sketch");
+  const [genDesc, setGenDesc] = useState("");
+  const [genImage, setGenImage] = useState<string | null>(null);
+  const [genBusy, setGenBusy] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; sx: number; sy: number; orig: Rect } | null>(null);
 
   useEffect(() => {
     if (!open || !place) return;
-    const bp = (place.layout as { blueprint?: Blueprint; dims?: { widthFt?: number; depthFt?: number } } | null);
-    setRoomW(String(bp?.blueprint?.roomFt.w ?? bp?.dims?.widthFt ?? 20));
-    setRoomD(String(bp?.blueprint?.roomFt.d ?? bp?.dims?.depthFt ?? 20));
+    const bp = (place.layout as {
+      blueprint?: Blueprint;
+      dims?: { widthFt?: number; depthFt?: number };
+      scan?: { widthMm?: number; lengthMm?: number };
+    } | null);
+    // A LiDAR scan carries the room's real footprint — use it to seed the room size
+    // when the user hasn't drawn/entered one yet (1 ft = 304.8 mm).
+    const scanW = bp?.scan?.widthMm ? Math.round((bp.scan.widthMm / 304.8) * 10) / 10 : undefined;
+    const scanD = bp?.scan?.lengthMm ? Math.round((bp.scan.lengthMm / 304.8) * 10) / 10 : undefined;
+    setRoomW(String(bp?.blueprint?.roomFt.w ?? bp?.dims?.widthFt ?? scanW ?? 20));
+    setRoomD(String(bp?.blueprint?.roomFt.d ?? bp?.dims?.depthFt ?? scanD ?? 20));
     setZones(bp?.blueprint?.zones ?? []);
     setSelected(null);
+    setGenOpen(false);
+    setGenDesc("");
+    setGenImage(null);
   }, [open, place]);
+
+  const pickSketch = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-picking the same file
+    if (!file) return;
+    try {
+      setGenImage(await compressImage(file, 1200, 0.7));
+    } catch {
+      toast({ title: "Couldn't read that photo", variant: "destructive" });
+    }
+  };
+
+  const runGenerate = async () => {
+    const description = genDesc.trim();
+    if (genMode === "describe" && !description) {
+      toast({ title: "Describe the space first", description: "e.g. \"2-car garage, pegboard on the left wall, shelving across the back\".", variant: "destructive" });
+      return;
+    }
+    if (genMode === "sketch" && !genImage) {
+      toast({ title: "Add a sketch photo first", variant: "destructive" });
+      return;
+    }
+    setGenBusy(true);
+    try {
+      const bp = await generateBlueprint(
+        genMode === "sketch"
+          ? { imageDataUrl: genImage!, description: description || undefined }
+          : { description },
+      );
+      setRoomW(String(bp.roomFt.w));
+      setRoomD(String(bp.roomFt.d));
+      setZones(bp.zones);
+      setSelected(null);
+      setGenOpen(false);
+      toast({ title: "Blueprint drafted", description: `Placed ${bp.zones.length} zone${bp.zones.length === 1 ? "" : "s"}. Drag to fine-tune, then Save.`, variant: "success" });
+    } catch (err) {
+      toast({ title: "Couldn't generate a blueprint", description: String((err as Error)?.message || err), variant: "destructive" });
+    } finally {
+      setGenBusy(false);
+    }
+  };
 
   const wFt = Math.max(1, Number(roomW) || 20);
   const dFt = Math.max(1, Number(roomD) || 20);
@@ -130,6 +179,95 @@ export function BlueprintEditor({ open, onOpenChange, place, onSaved }: Props) {
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* AI generator — draft the whole blueprint from a sketch photo or a description. */}
+          {isVisionConfigured() && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5">
+              {!genOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setGenOpen(true)}
+                  className="press flex w-full items-center gap-3 p-3 text-left"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <span className="flex-1">
+                    <span className="block font-display text-sm font-semibold">Generate with AI</span>
+                    <span className="block text-xs text-muted-foreground">Snap a hand-drawn sketch or describe the space — AI drafts the layout for you.</span>
+                  </span>
+                </button>
+              ) : (
+                <div className="p-3 animate-in-up">
+                  {genBusy ? (
+                    <VisionProgress imageDataUrl={genMode === "sketch" ? genImage : null} stages={[...VISION_STAGES.generateBlueprint]} />
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-display text-sm font-semibold">Generate with AI</span>
+                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setGenOpen(false)}>
+                          <X className="h-4 w-4" /><span className="sr-only">Close</span>
+                        </Button>
+                      </div>
+                      {/* Mode toggle */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {([["sketch", Camera, "Snap sketch"], ["describe", PencilLine, "Describe it"]] as const).map(([m, Icon, label]) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => setGenMode(m)}
+                            className={cn(
+                              "press flex items-center justify-center gap-2 rounded-md border-2 py-2 text-sm font-medium",
+                              genMode === m ? "border-primary bg-primary/10" : "border-tile/60",
+                            )}
+                          >
+                            <Icon className="h-4 w-4" /> {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {genMode === "sketch" ? (
+                        <div className="space-y-2">
+                          {genImage ? (
+                            <div className="relative">
+                              <img src={genImage} alt="Sketch to analyze" className="max-h-48 w-full rounded-md border border-tile object-contain bg-card" />
+                              <Button variant="secondary" size="sm" className="absolute right-2 top-2" onClick={() => setGenImage(null)}>Retake</Button>
+                            </div>
+                          ) : (
+                            <label className="press flex cursor-pointer flex-col items-center justify-center gap-2 rounded-md border-2 border-dashed border-tile/70 py-8 text-sm text-muted-foreground">
+                              <Camera className="h-6 w-6" />
+                              Take or choose a photo of your sketch
+                              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={pickSketch} />
+                            </label>
+                          )}
+                          <Textarea
+                            value={genDesc}
+                            onChange={(e) => setGenDesc(e.target.value)}
+                            placeholder={'Optional note — e.g. "about 20 by 24 feet"'}
+                            className="min-h-[3rem] text-sm"
+                          />
+                        </div>
+                      ) : (
+                        <Textarea
+                          value={genDesc}
+                          onChange={(e) => setGenDesc(e.target.value)}
+                          placeholder={"Describe the space and its storage, e.g.\n\"2-car garage, ~20x24 ft. Pegboard on the left wall, tall shelving across the back, a rolling tool cabinet by the door.\""}
+                          className="min-h-[7rem] text-sm"
+                        />
+                      )}
+
+                      <Button className="w-full" onClick={runGenerate}>
+                        <Sparkles className="h-4 w-4 mr-2" /> Draft my blueprint
+                      </Button>
+                      {zones.length > 0 && (
+                        <p className="text-center text-xs text-muted-foreground">This replaces the current {zones.length} zone{zones.length === 1 ? "" : "s"}.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1">
               <Label htmlFor="rw" className="text-xs">Room width (ft)</Label>
