@@ -297,7 +297,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 font-display">
-            <Grid3x3 className="h-5 w-5" /> Map a space
+            <Grid3x3 className="h-5 w-5" /> Add a storage location
           </DialogTitle>
         </DialogHeader>
 
@@ -340,7 +340,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
 
             {/* 2. Where is it? One tap. */}
             <div className="space-y-2">
-              <Label>Where is it?</Label>
+              <Label>Which space?</Label>
               <div className="flex flex-wrap gap-2">
                 {places.map((p) => (
                   <button

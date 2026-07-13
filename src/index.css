@@ -203,6 +203,43 @@
     box-shadow: var(--shadow-soft);
   }
 
+  /* Motion — a small, cohesive set. Content eases up as it arrives; lists stagger. */
+  @keyframes tv-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes tv-pop {
+    0% { opacity: 0; transform: scale(0.96); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  .animate-in-up { animation: tv-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .animate-pop { animation: tv-pop 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
+  /* Stagger helper: set --i on each item for a cascading entrance. */
+  .stagger > * { animation: tv-in 0.34s cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: calc(var(--i, 0) * 40ms); }
+
+  /* Tactile press on interactive tiles. */
+  .press { transition: transform 0.1s ease, box-shadow 0.2s ease; }
+  .press:active { transform: scale(0.98); }
+
+  /* Shimmer for loading skeletons. */
+  @keyframes tv-shimmer { 100% { transform: translateX(100%); } }
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: hsl(var(--muted));
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.35), transparent);
+    animation: tv-shimmer 1.4s infinite;
+  }
+  .dark .skeleton::after {
+    background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.06), transparent);
+  }
+
   /* Retained for legacy references */
   .shadow-elegant {
     box-shadow: var(--shadow-soft);

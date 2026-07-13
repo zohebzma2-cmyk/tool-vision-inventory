@@ -303,9 +303,9 @@ export function ItemsList() {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredItems.map(item => (
-            <Card key={item.id} className="group hover:shadow-soft transition-all duration-200 border-0 shadow-sm">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 stagger">
+          {filteredItems.map((item, i) => (
+            <Card key={item.id} style={{ ["--i" as string]: i % 12 }} className="group press hover:shadow-soft transition-all duration-200 border shadow-sm">
               <CardContent className="p-5">
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex-1">
