@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
 import { cn } from "@/lib/utils";
 import { isRoomScanAvailable, scanRoom, wallsToPlan, type RoomScanResult } from "@/lib/roomScan";
+import { MapSpaceDialog } from "./MapSpaceDialog";
 
 /** Normalized rect (0..1 of the plan canvas) for one space on the floor plan. */
 interface FloorRect {
@@ -52,6 +53,8 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [walls, setWalls] = useState<{ x1: number; y1: number; x2: number; y2: number }[]>([]);
   const [dims, setDims] = useState<{ widthMm: number; lengthMm: number } | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [addSpaceOpen, setAddSpaceOpen] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
 
@@ -109,7 +112,7 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
         setLoading(false);
       }
     })();
-  }, [open, place, toast]);
+  }, [open, place, toast, reloadKey]);
 
   const placed = spaces.filter((s) => s.rect);
   const unplaced = spaces.filter((s) => !s.rect);
@@ -218,8 +221,8 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[88vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display uppercase tracking-wide flex items-center gap-2">
-            <MapIcon className="h-5 w-5" /> {place?.name} — floor plan
+          <DialogTitle className="font-display flex items-center gap-2">
+            <MapIcon className="h-5 w-5" /> {place?.name}
           </DialogTitle>
         </DialogHeader>
 
@@ -227,13 +230,23 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant={editMode ? "default" : "outline"} onClick={() => setEditMode(!editMode)}>
-                {editMode ? "Done arranging" : "Arrange"}
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-muted-foreground">
+                {spaces.length} storage location{spaces.length === 1 ? "" : "s"}
+              </p>
+              <Button size="sm" onClick={() => setAddSpaceOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Add storage location
               </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {placed.length > 0 && (
+                <Button size="sm" variant={editMode ? "default" : "outline"} onClick={() => setEditMode(!editMode)}>
+                  {editMode ? "Done arranging" : "Arrange"}
+                </Button>
+              )}
               <Button size="sm" variant="outline" asChild>
                 <label className="cursor-pointer">
-                  <Camera className="h-4 w-4 mr-2" /> {floorImage ? "Replace overhead photo" : "Add overhead photo"}
+                  <Camera className="h-4 w-4 mr-2" /> {floorImage ? "Replace sketch" : "Sketch / plan photo"}
                   <input type="file" accept="image/*" capture="environment" className="hidden"
                     onChange={(e) => onPickFloorPhoto(e.target.files?.[0])} />
                 </label>
@@ -241,13 +254,13 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
               {lidarAvailable && (
                 <Button size="sm" variant="outline" onClick={runScan} disabled={scanning}>
                   {scanning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Scan className="h-4 w-4 mr-2" />}
-                  Scan room (LiDAR)
+                  Scan with LiDAR
                 </Button>
               )}
               {dirty && (
                 <Button size="sm" onClick={save} disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-                  Save plan
+                  Save layout
                 </Button>
               )}
             </div>
@@ -307,16 +320,21 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                 </div>
               ))}
               {placed.length === 0 && (
-                <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground px-6 text-center">
-                  Add your spaces below, then drag them to match where they sit in the room.
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground px-6 text-center">
+                  <span>{spaces.length === 0 ? "No storage locations here yet." : "Drag your locations onto the plan below."}</span>
+                  {spaces.length === 0 && (
+                    <Button size="sm" onClick={() => setAddSpaceOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" /> Add a storage location
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
 
             {unplaced.length > 0 && (
               <div className="space-y-2">
-                <p className="font-display text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Not on the plan yet
+                <p className="font-display text-xs font-semibold text-muted-foreground">
+                  Not on the plan yet — tap to place
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {unplaced.map((s) => (
@@ -326,11 +344,6 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                   ))}
                 </div>
               </div>
-            )}
-            {spaces.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                No mapped spaces in {place?.name} yet — use Map a Space and pick this place, then arrange them here.
-              </p>
             )}
             {dims && (
               <p className="font-mono text-xs text-muted-foreground">
@@ -346,6 +359,13 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
+
+        <MapSpaceDialog
+          open={addSpaceOpen}
+          onOpenChange={setAddSpaceOpen}
+          defaultPlaceId={place?.id}
+          onCreated={() => { setAddSpaceOpen(false); setReloadKey((k) => k + 1); }}
+        />
       </DialogContent>
     </Dialog>
   );
