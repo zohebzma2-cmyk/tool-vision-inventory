@@ -9,7 +9,9 @@ import { QRScanner } from "@/components/inventory/QRScanner";
 import { Onboarding } from "@/components/onboarding/Onboarding";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
+import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { cn } from "@/lib/utils";
+import { haptic } from "@/lib/haptics";
 
 type Tab = "items" | "locations" | "overview";
 
@@ -21,6 +23,13 @@ const Index = () => {
   const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
   const { user } = useAuth();
   const stats = useInventoryStats();
+
+  // Live sync across every signed-in device (desktop <-> phone), instant.
+  const [syncTick, setSyncTick] = useState(0);
+  useRealtimeSync(["items", "locations", "item_locations"], () => {
+    stats.refresh();
+    setSyncTick((t) => t + 1);
+  });
 
   // First-run onboarding: once per account, and only while the wall is empty.
   const onboardKey = user ? `tv-onboarded:${user.id}` : null;
@@ -153,10 +162,11 @@ const Index = () => {
         <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-[calc(env(safe-area-inset-bottom)+88px)] md:pb-8">
         <div className="bg-card rounded-lg shadow-soft border">
           {tab === "items" && (
-            <ItemsList />
+            <ItemsList key={`items-${syncTick}`} />
           )}
           {tab === "locations" && (
             <LocationsList
+              key={`locs-${syncTick}`}
               openMapOnMount={openMapOnLocations}
               onMapOpened={() => setOpenMapOnLocations(false)}
             />
@@ -192,7 +202,7 @@ const Index = () => {
             label="Spaces"
           />
           <button
-            onClick={() => setShowAddItem(true)}
+            onClick={() => { haptic.medium(); setShowAddItem(true); }}
             className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
             aria-label="Add tool"
           >
@@ -244,7 +254,7 @@ function MobileTab(props: {
   const Icon = props.icon;
   return (
     <button
-      onClick={props.onClick}
+      onClick={() => { haptic.light(); props.onClick(); }}
       aria-current={props.active ? "page" : undefined}
       className={cn(
         "flex flex-col items-center justify-center gap-0.5 py-2 transition-[color,opacity] active:opacity-60",

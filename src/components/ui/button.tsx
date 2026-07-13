@@ -3,6 +3,7 @@ import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
+import { haptic } from "@/lib/haptics"
 
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-colors active:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
@@ -40,12 +41,19 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, onPointerDown, ...props }, ref) => {
     const Comp = asChild ? Slot : "button"
+    // Fire the haptic on pointerdown so the tap is felt the instant the finger lands —
+    // destructive actions get a heavier thud, everything else a light tick.
+    const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
+      if (!props.disabled) (variant === "destructive" ? haptic.medium() : haptic.light())
+      onPointerDown?.(e)
+    }
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
+        onPointerDown={handlePointerDown}
         {...props}
       />
     )

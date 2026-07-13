@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
+import { haptic } from "@/lib/haptics";
 import { identifyBinFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 
 const KINDS = ["part", "tool", "set", "consumable"] as const;
@@ -129,6 +130,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
       const { error: linkErr } = await supabase.from("item_locations").insert(links);
       if (linkErr) throw linkErr;
 
+      haptic.success();
       toast({ title: "Bin cataloged", description: `${links.length} items stored in ${bin.name}.` });
       onSaved?.();
       close(false);
