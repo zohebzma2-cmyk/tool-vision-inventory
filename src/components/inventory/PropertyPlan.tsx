@@ -332,15 +332,16 @@ function AddPlaceDialog(props: {
   const createPlace = async (extra: Record<string, unknown>, dims?: { widthFt: number; depthFt: number }, imagePath?: string | null) => {
     // The DB type column is constrained; places always use the allowed "space" type
     // and carry their friendly kind (garage, shed, …) in the layout.
-    const { error } = await supabase.from("locations").insert([{
+    const { data, error } = await supabase.from("locations").insert([{
       name: name.trim() || "New space",
       type: "space",
       qr_code: generateQRCode(),
       is_slot: false,
       image_path: imagePath ?? null,
       layout: { placeKind: type, ...(dims ? { dims } : {}), ...extra },
-    }]);
+    }]).select("id, name, layout").single();
     if (error) throw error;
+    return data as { id: string; name: string; layout: Record<string, unknown> };
   };
 
   const saveManual = async () => {
@@ -372,15 +373,29 @@ function AddPlaceDialog(props: {
   const scan = async () => {
     setBusy(true);
     try {
-      const r = await scanRoom();
-      const wFt = Math.round((r.footprint.widthMm / 304.8) * 10) / 10;
-      const dFt = Math.round((r.footprint.lengthMm / 304.8) * 10) / 10;
-      await createPlace(
-        { scan: { walls: r.walls, footprint: r.footprint } },
-        { widthFt: wFt, depthFt: dFt },
-      );
-      toast({ title: "Place scanned", description: `${wFt} × ${dFt} ft from LiDAR.`, variant: "success" });
-      reset(); props.onCreated();
+      if (props.lidar) {
+        // On a LiDAR iPhone/iPad: scan right here.
+        const r = await scanRoom();
+        const wFt = Math.round((r.footprint.widthMm / 304.8) * 10) / 10;
+        const dFt = Math.round((r.footprint.lengthMm / 304.8) * 10) / 10;
+        await createPlace(
+          { scan: { walls: r.walls, footprint: r.footprint } },
+          { widthFt: wFt, depthFt: dFt },
+        );
+        toast({ title: "Place scanned", description: `${wFt} × ${dFt} ft from LiDAR.`, variant: "success" });
+        reset(); props.onCreated();
+      } else {
+        // Desktop has no LiDAR: create the space now and point the user at the phone.
+        // The actual LiDAR hand-off lives inside the space (Floor plan → Scan with iPhone).
+        const place = await createPlace({});
+        reset();
+        props.onCreated();
+        toast({
+          title: `${place.name} added`,
+          description: "To 3D-scan it, open the space and tap Scan with iPhone — the scan syncs back here automatically.",
+          variant: "success",
+        });
+      }
     } catch (e) {
       const m = String((e as Error)?.message || e);
       if (!/cancel/i.test(m)) toast({ title: "Scan failed", description: m, variant: "destructive" });
@@ -424,9 +439,13 @@ function AddPlaceDialog(props: {
             <div>
               <Label className="text-xs text-muted-foreground">How do you want to map it?</Label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-                {props.lidar && (
-                  <MethodCard icon={Scan} title="3D scan" sub="Walk it with LiDAR" onClick={scan} disabled={busy || !name.trim()} />
-                )}
+                <MethodCard
+                  icon={Scan}
+                  title="3D scan"
+                  sub={props.lidar ? "Walk it with LiDAR" : "Scan on your iPhone"}
+                  onClick={scan}
+                  disabled={busy || !name.trim()}
+                />
                 <MethodCard icon={Camera} title="Sketch photo" sub="Snap a paper sketch" asUpload onFile={fromImage} disabled={busy || !name.trim()} />
                 <MethodCard icon={PencilRuler} title="Manual" sub="Enter size in feet" onClick={() => setMethod("manual")} disabled={busy || !name.trim()} />
               </div>
