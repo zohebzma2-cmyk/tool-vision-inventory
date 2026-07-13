@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Search, Package, Edit, Trash2, MapPin, Eye } from "lucide-react";
+import { Search, Package, Edit, Trash2, MapPin, Eye, ShieldCheck, Wrench } from "lucide-react";
+import { warrantyState, serviceState, todayISO } from "@/lib/upkeep";
+import { haptic } from "@/lib/haptics";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +32,9 @@ interface Item {
   date_added: string;
   last_seen?: string;
   qr_code?: string;
+  warranty_until?: string | null;
+  service_interval_months?: number | null;
+  last_serviced?: string | null;
 }
 
 export function ItemsList() {
@@ -50,6 +55,8 @@ export function ItemsList() {
     quantity_unit: "piece",
     purchase_date: "",
     purchase_price: "",
+    warranty_until: "",
+    service_interval_months: "",
     notes: "",
   });
   const { toast } = useToast();
@@ -131,6 +138,20 @@ export function ItemsList() {
     return matchesSearch && matchesCategory;
   });
 
+  // One-tap "Log service" — stamps today and clears the due badge. Degrades if the
+  // column isn't there yet (migration not applied): just tells the user.
+  const logService = async (id: string) => {
+    const stamp = todayISO();
+    const { error } = await supabase.from('items').update({ last_serviced: stamp }).eq('id', id);
+    if (error) {
+      toast({ title: "Couldn't log service", description: "Run the upkeep migration to enable this.", variant: "destructive" });
+      return;
+    }
+    haptic.success();
+    setItems(prev => prev.map(i => i.id === id ? { ...i, last_serviced: stamp } : i));
+    toast({ title: "Service logged", description: "Marked serviced today.", variant: "success" });
+  };
+
   const deleteItem = async (id: string) => {
     try {
       const { error } = await supabase
@@ -167,6 +188,8 @@ export function ItemsList() {
       quantity_unit: item.quantity_unit,
       purchase_date: item.purchase_date || '',
       purchase_price: item.purchase_price != null ? String(item.purchase_price) : '',
+      warranty_until: item.warranty_until || '',
+      service_interval_months: item.service_interval_months != null ? String(item.service_interval_months) : '',
       notes: item.notes || ''
     });
     try {
@@ -191,24 +214,28 @@ export function ItemsList() {
     e.preventDefault();
     if (!editingId) return;
     try {
-      const { data, error } = await supabase
-        .from('items')
-        .update({
-          name: editFormData.name,
-          category: editFormData.category,
-          description: editFormData.description || null,
-          brand: editFormData.brand || null,
-          model: editFormData.model || null,
-          size_specs: editFormData.size_specs || null,
-          quantity: Number(editFormData.quantity) || 1,
-          quantity_unit: editFormData.quantity_unit,
-          purchase_date: normalizeDate(editFormData.purchase_date),
-          purchase_price: editFormData.purchase_price ? parseFloat(editFormData.purchase_price) : null,
-          notes: editFormData.notes || null,
-        })
-        .eq('id', editingId)
-        .select()
-        .single();
+      const base: Record<string, unknown> = {
+        name: editFormData.name,
+        category: editFormData.category,
+        description: editFormData.description || null,
+        brand: editFormData.brand || null,
+        model: editFormData.model || null,
+        size_specs: editFormData.size_specs || null,
+        quantity: Number(editFormData.quantity) || 1,
+        quantity_unit: editFormData.quantity_unit,
+        purchase_date: normalizeDate(editFormData.purchase_date),
+        purchase_price: editFormData.purchase_price ? parseFloat(editFormData.purchase_price) : null,
+        notes: editFormData.notes || null,
+      };
+      const upkeep = {
+        warranty_until: normalizeDate(editFormData.warranty_until),
+        service_interval_months: editFormData.service_interval_months ? parseInt(editFormData.service_interval_months) : null,
+      };
+      let { data, error } = await supabase.from('items').update({ ...base, ...upkeep }).eq('id', editingId).select().single();
+      if (error && /(warranty_until|service_interval|last_serviced)/.test(error.message)) {
+        // Upkeep migration not applied yet — save everything else.
+        ({ data, error } = await supabase.from('items').update(base).eq('id', editingId).select().single());
+      }
 
       if (error) throw error;
 
@@ -363,7 +390,32 @@ export function ItemsList() {
                     <MapPin className="h-3 w-3 mr-1" />
                     <span>{(item as any).__locationName ? (item as any).__locationName : 'No location assigned'}</span>
                   </div>
-                  
+
+                  {/* Upkeep — warranty + service at a glance, one-tap to log service. */}
+                  {(() => {
+                    const w = warrantyState(item);
+                    const svc = serviceState(item);
+                    if (!w && !svc) return null;
+                    const toneCls = (t: string) =>
+                      t === "success" ? "bg-success/10 text-success"
+                        : t === "warning" ? "bg-warning/15 text-warning"
+                        : "bg-muted text-muted-foreground";
+                    return (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {w && <span className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 ${toneCls(w.tone)}`}><ShieldCheck className="h-3 w-3" />{w.label}</span>}
+                        {svc && (
+                          svc.tone === "warning" ? (
+                            <button onClick={() => logService(item.id)} className="inline-flex items-center gap-1 text-[11px] font-semibold rounded-full px-2 py-0.5 bg-warning/15 text-warning hover:bg-warning/25 press">
+                              <Wrench className="h-3 w-3" />{svc.label} — tap to log
+                            </button>
+                          ) : (
+                            <span className={`inline-flex items-center gap-1 text-[11px] font-medium rounded-full px-2 py-0.5 ${toneCls(svc.tone)}`}><Wrench className="h-3 w-3" />{svc.label}</span>
+                          )
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {item.model && (
                     <div className="text-xs text-muted-foreground">
                       Model: <span className="font-medium">{item.model}</span>
@@ -485,6 +537,18 @@ export function ItemsList() {
               <div className="space-y-2">
                 <Label htmlFor="edit-price">Purchase Price</Label>
                 <Input id="edit-price" type="number" step="0.01" min="0" value={editFormData.purchase_price} onChange={(e) => setEditFormData(p => ({ ...p, purchase_price: e.target.value }))} />
+              </div>
+            </div>
+
+            {/* Upkeep — both optional. Leave blank to skip. */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-warranty" className="flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Under warranty until</Label>
+                <Input id="edit-warranty" type="date" value={editFormData.warranty_until} onChange={(e) => setEditFormData(p => ({ ...p, warranty_until: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-service" className="flex items-center gap-1"><Wrench className="h-3.5 w-3.5" /> Service every (months)</Label>
+                <Input id="edit-service" type="number" min="1" placeholder="e.g. 6" value={editFormData.service_interval_months} onChange={(e) => setEditFormData(p => ({ ...p, service_interval_months: e.target.value }))} />
               </div>
             </div>
 
