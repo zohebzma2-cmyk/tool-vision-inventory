@@ -142,6 +142,18 @@
     /* Stop iOS rubber-band scrolling from dragging the whole app shell around.
        Scrolling happens inside the <main> pane, never on the body. */
     overscroll-behavior: none;
+    /* Native feel: no blue web tap-flash, no long-press callout / text selection
+       on controls, momentum scrolling. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+
+  /* Buttons, tabs, and links never show a text-selection or tap flash. */
+  button, a, [role="button"], [role="tab"] {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
   }
 
   /* Visible keyboard focus everywhere */

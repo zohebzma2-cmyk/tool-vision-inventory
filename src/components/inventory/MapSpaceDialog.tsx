@@ -16,6 +16,7 @@ import { getAllTemplates, resolveTemplate } from "@/lib/customTemplates";
 import { LabelTemplateRenderer } from "./LabelTemplateRenderer";
 import { suggestSpaceFromImage, detectSpotsFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 import { cn } from "@/lib/utils";
+import { haptic } from "@/lib/haptics";
 import {
   DEFAULT_QUAD,
   quadFromBox,
@@ -266,6 +267,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated }: Props) {
           realWidthMm: widthMm,
           realHeightMm: widthMm ? Math.round(widthMm * 0.6) : null,
         });
+        haptic.success();
         toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${made.length} spots.` });
         onCreated?.();
         close(false);
