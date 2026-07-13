@@ -130,8 +130,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
       const { error: linkErr } = await supabase.from("item_locations").insert(links);
       if (linkErr) throw linkErr;
 
-      haptic.success();
-      toast({ title: "Bin cataloged", description: `${links.length} items stored in ${bin.name}.` });
+      toast({ title: "Bin cataloged", description: `${links.length} items stored in ${bin.name}.`, variant: "success" });
       onSaved?.();
       close(false);
     } catch (e) {
