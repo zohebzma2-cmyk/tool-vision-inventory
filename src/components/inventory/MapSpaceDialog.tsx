@@ -330,7 +330,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                   <Camera className="h-8 w-8 text-primary" />
                   <span className="font-display">Snap the space</span>
                   <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
-                    Pegboard, drawer, shelf — the AI maps it into slots
+                    Pegboard, shelf, or messy wall — map it as a grid, or tap Detect items for a spot per tool
                   </span>
                   <input type="file" accept="image/*" capture="environment" className="hidden"
                     onChange={(e) => onPickPhoto(e.target.files?.[0])} />
@@ -339,7 +339,15 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
             )}
             {aiNote && <p className="text-sm text-muted-foreground">{aiNote}</p>}
 
-            {/* 2. Where is it? One tap. */}
+            {/* 2. Where is it? Only ask when not already scoped to a space (opened from a
+                 space's interior pre-selects it, so the picker is just clutter there). */}
+            {defaultPlaceId ? (
+              placeName && (
+                <p className="text-sm text-muted-foreground">
+                  In <span className="font-medium text-foreground">{placeName}</span>
+                </p>
+              )
+            ) : (
             <div className="space-y-2">
               <Label>Which space?</Label>
               <div className="flex flex-wrap gap-2">
@@ -392,6 +400,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                 )}
               </div>
             </div>
+            )}
 
             {/* 3. Name + type — pre-filled, editable */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

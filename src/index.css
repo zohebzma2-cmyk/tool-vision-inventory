@@ -136,6 +136,12 @@
     height: 100%;
   }
 
+  html {
+    /* Never let iOS silently re-scale text (reads as random zoom on rotation/focus). */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground font-sans antialiased;
     /* Stop iOS rubber-band scrolling from dragging the whole app shell around.
@@ -145,6 +151,13 @@
        on controls, momentum scrolling. */
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
+  }
+
+  /* Inputs still need selection + the text cursor (only controls are locked down below). */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
   }
 
   /* Buttons, tabs, and links never show a text-selection or tap flash. */
