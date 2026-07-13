@@ -56,9 +56,17 @@ export function BlueprintEditor({ open, onOpenChange, place, onSaved }: Props) {
 
   useEffect(() => {
     if (!open || !place) return;
-    const bp = (place.layout as { blueprint?: Blueprint; dims?: { widthFt?: number; depthFt?: number } } | null);
-    setRoomW(String(bp?.blueprint?.roomFt.w ?? bp?.dims?.widthFt ?? 20));
-    setRoomD(String(bp?.blueprint?.roomFt.d ?? bp?.dims?.depthFt ?? 20));
+    const bp = (place.layout as {
+      blueprint?: Blueprint;
+      dims?: { widthFt?: number; depthFt?: number };
+      scan?: { widthMm?: number; lengthMm?: number };
+    } | null);
+    // A LiDAR scan carries the room's real footprint — use it to seed the room size
+    // when the user hasn't drawn/entered one yet (1 ft = 304.8 mm).
+    const scanW = bp?.scan?.widthMm ? Math.round((bp.scan.widthMm / 304.8) * 10) / 10 : undefined;
+    const scanD = bp?.scan?.lengthMm ? Math.round((bp.scan.lengthMm / 304.8) * 10) / 10 : undefined;
+    setRoomW(String(bp?.blueprint?.roomFt.w ?? bp?.dims?.widthFt ?? scanW ?? 20));
+    setRoomD(String(bp?.blueprint?.roomFt.d ?? bp?.dims?.depthFt ?? scanD ?? 20));
     setZones(bp?.blueprint?.zones ?? []);
     setSelected(null);
     setGenOpen(false);

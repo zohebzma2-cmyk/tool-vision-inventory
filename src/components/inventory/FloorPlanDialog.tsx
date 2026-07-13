@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan } from "lucide-react";
+import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { isRoomScanAvailable, scanRoom, wallsToPlan, type RoomScanResult } from "@/lib/roomScan";
 import { MapSpaceDialog } from "./MapSpaceDialog";
 import { BlueprintEditor } from "./BlueprintEditor";
+import { ContinueOnPhone } from "./ContinueOnPhone";
 import { PencilRuler } from "lucide-react";
 
 /** Normalized rect (0..1 of the plan canvas) for one space on the floor plan. */
@@ -57,6 +58,7 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [dirty, setDirty] = useState(false);
   const [addSpaceOpen, setAddSpaceOpen] = useState(false);
   const [blueprintOpen, setBlueprintOpen] = useState(false);
+  const [phoneScanOpen, setPhoneScanOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
@@ -194,6 +196,19 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
     }
   };
 
+  // A scan done on the phone lands in this place's row; pull it in and show it on the plan.
+  const refreshPlaceScan = async () => {
+    if (!place) return;
+    const { data } = await supabase.from("locations").select("layout").eq("id", place.id).single();
+    const layout = (data?.layout as { scan?: { walls: typeof walls; widthMm: number; lengthMm: number }; floorImage?: string } | null) ?? null;
+    if (layout?.scan) {
+      setWalls(layout.scan.walls ?? []);
+      setDims({ widthMm: layout.scan.widthMm, lengthMm: layout.scan.lengthMm });
+    }
+    if (layout?.floorImage) setFloorImage(layout.floorImage);
+    toast({ title: "Room scan added", description: `${layout?.scan?.walls?.length ?? 0} walls from your iPhone.`, variant: "success" });
+  };
+
   const save = async () => {
     if (!place) return;
     setSaving(true);
@@ -257,10 +272,15 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                     onChange={(e) => onPickFloorPhoto(e.target.files?.[0])} />
                 </label>
               </Button>
-              {lidarAvailable && (
+              {lidarAvailable ? (
                 <Button size="sm" variant="outline" onClick={runScan} disabled={scanning}>
                   {scanning ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Scan className="h-4 w-4 mr-2" />}
                   Scan with LiDAR
+                </Button>
+              ) : (
+                // No sensor here (desktop / non-LiDAR) — hand the scan off to the iPhone app.
+                <Button size="sm" variant="outline" onClick={() => setPhoneScanOpen(true)}>
+                  <Smartphone className="h-4 w-4 mr-2" /> Scan with iPhone
                 </Button>
               )}
               {dirty && (
@@ -378,6 +398,13 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           onOpenChange={setBlueprintOpen}
           place={place}
           onSaved={() => { setBlueprintOpen(false); setReloadKey((k) => k + 1); }}
+        />
+
+        <ContinueOnPhone
+          open={phoneScanOpen}
+          onOpenChange={setPhoneScanOpen}
+          place={place}
+          onScanArrived={refreshPlaceScan}
         />
       </DialogContent>
     </Dialog>
