@@ -44,12 +44,12 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display uppercase tracking-wide">Settings</DialogTitle>
+          <DialogTitle className="font-display">Settings</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6">
           <section className="space-y-3">
-            <h3 className="font-display text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="font-display text-sm font-semibold text-muted-foreground">
               Label printer
             </h3>
             {isPrintingSupported() ? (
@@ -84,7 +84,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
           </section>
 
           <section className="space-y-2">
-            <h3 className="font-display text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <h3 className="font-display text-sm font-semibold text-muted-foreground">
               Account
             </h3>
             <div className="flex items-center justify-between gap-2 rounded-md border p-3">

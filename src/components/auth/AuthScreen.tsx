@@ -55,7 +55,7 @@ export function AuthScreen() {
             <Wrench className="h-5 w-5" aria-hidden />
           </span>
           <div>
-            <div className="font-display text-2xl font-bold uppercase tracking-[0.08em] leading-none">
+            <div className="font-display text-2xl font-bold tracking-tight leading-none">
               Tool Vision
             </div>
             <div className="font-mono text-[11px] text-tile-foreground/60 mt-1 normal-case tracking-normal">

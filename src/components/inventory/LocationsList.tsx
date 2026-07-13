@@ -471,7 +471,7 @@ export function LocationsList({
             <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
               <MapPin className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">No spaces mapped</h3>
+            <h3 className="font-display text-lg font-semibold mb-2">No spaces mapped</h3>
             <p className="text-muted-foreground max-w-sm mx-auto">
               Point the camera at a pegboard, drawer, or shelf and Map a Space turns it
               into a labeled grid of slots.

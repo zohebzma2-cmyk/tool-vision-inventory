@@ -296,7 +296,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 font-display uppercase tracking-wide">
+          <DialogTitle className="flex items-center gap-2 font-display">
             <Grid3x3 className="h-5 w-5" /> Map a space
           </DialogTitle>
         </DialogHeader>
@@ -317,7 +317,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                   </Button>
                 </div>
                 {aiBusy && (
-                  <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display uppercase tracking-wide text-sm">
+                  <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display text-sm">
                     <Loader2 className="h-4 w-4 animate-spin" /> Reading the space…
                   </div>
                 )}
@@ -327,7 +327,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                 className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
                 <label className="cursor-pointer">
                   <Camera className="h-8 w-8 text-primary" />
-                  <span className="font-display uppercase tracking-wide">Snap the space</span>
+                  <span className="font-display">Snap the space</span>
                   <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
                     Pegboard, drawer, shelf — the AI maps it into slots
                   </span>

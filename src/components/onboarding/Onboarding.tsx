@@ -52,7 +52,7 @@ export function Onboarding({ onFinish }: OnboardingProps) {
           <Icon className="h-10 w-10 text-primary" aria-hidden />
         </div>
 
-        <h1 className="font-display text-3xl font-bold uppercase tracking-wide mb-3">{title}</h1>
+        <h1 className="font-display text-3xl font-bold mb-3">{title}</h1>
         <p className="text-muted-foreground max-w-sm leading-relaxed">{body}</p>
 
         {/* Step dots */}
