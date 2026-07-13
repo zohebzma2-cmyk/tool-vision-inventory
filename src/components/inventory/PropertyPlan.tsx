@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus, Scan, Camera, PencilRuler, Loader2, Move, Check } from "lucide-react";
+import {
+  Plus, Scan, Camera, PencilRuler, Loader2, Move, Check,
+  Warehouse, Home, Layers, Triangle, Hammer, DoorOpen, Box,
+} from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +15,19 @@ import { generateQRCode } from "@/lib/slots";
 import { compressImage } from "@/lib/image";
 import { isRoomScanAvailable, scanRoom } from "@/lib/roomScan";
 import { cn } from "@/lib/utils";
+
+// A recognizable top-down icon per place kind — the "generated overhead" glyph.
+const PLACE_ICON: Record<string, typeof Box> = {
+  garage: Warehouse,
+  shed: Home,
+  basement: Layers,
+  attic: Triangle,
+  workshop: Hammer,
+  room: DoorOpen,
+  space: Box,
+};
+const iconFor = (kind: string) => PLACE_ICON[kind?.toLowerCase()] ?? Box;
+const CANVAS_ASPECT = 16 / 10; // matches the canvas aspect so real footprints stay in proportion
 
 interface Plot {
   x: number;
@@ -34,13 +51,6 @@ const PLACE_TYPES = ["garage", "shed", "basement", "attic", "workshop", "room", 
 const MIN = 0.06;
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 
-/** Default plot position for a place that hasn't been arranged yet — a tidy grid. */
-function autoPlot(i: number, _total: number): Plot {
-  const cols = 3;
-  const col = i % cols, row = Math.floor(i / cols);
-  const w = 0.26, h = 0.28, gap = 0.04;
-  return { x: 0.04 + col * (w + gap), y: 0.05 + row * (h + gap), w, h };
-}
 
 interface Props {
   onOpenPlace: (place: { id: string; name: string; layout?: Record<string, unknown> | null }) => void;
@@ -82,9 +92,9 @@ export function PropertyPlan({ onOpenPlace }: Props) {
         if (k.grid_rows != null)
           countByPlace.set(k.parent_location_id, (countByPlace.get(k.parent_location_id) ?? 0) + 1);
       });
-      setPlaces(rows.map((r, i) => {
+      setPlaces(rows.map((r) => {
         const layout = (r.layout as Record<string, unknown>) ?? null;
-        const plot = (layout?.plot as Plot | undefined) ?? autoPlot(i, rows.length);
+        const plot = (layout?.plot as Plot | undefined) ?? null; // null = not yet arranged; packed at render
         const dims = layout?.dims as { widthFt?: number; depthFt?: number } | undefined;
         return {
           id: r.id, name: r.name, type: (layout?.placeKind as string) || r.type, layout,
@@ -102,6 +112,35 @@ export function PropertyPlan({ onOpenPlace }: Props) {
   };
 
   useEffect(() => { load(); void isRoomScanAvailable().then(setLidar); /* eslint-disable-next-line */ }, []);
+
+  // Shared feet→canvas scale so blocks are drawn to real proportion. The largest
+  // real dimension across placed spaces maps to ~30% of the canvas width.
+  const dimsList = places.flatMap((p) => (p.widthFt && p.depthFt ? [p.widthFt, p.depthFt] : []));
+  const maxFt = Math.max(24, ...dimsList);
+  const k = 0.3 / maxFt;
+  const blockSize = (p: Place): { w: number; h: number } => {
+    if (p.widthFt && p.depthFt) {
+      return {
+        w: clamp(p.widthFt * k, 0.08, 0.6),
+        h: clamp(p.depthFt * k * CANVAS_ASPECT, 0.08, 0.9),
+      };
+    }
+    return { w: 0.18, h: 0.22 };
+  };
+
+  // Shelf-pack any place that hasn't been positioned yet, left-to-right by its real
+  // footprint, wrapping down a row when it runs off the right edge.
+  const positioned = (() => {
+    let cx = 0.04, cy = 0.05, rowH = 0;
+    return places.map((p) => {
+      if (p.plot) return { p, x: p.plot.x, y: p.plot.y };
+      const s = blockSize(p);
+      if (cx + s.w > 0.96) { cx = 0.04; cy += rowH + 0.04; rowH = 0; }
+      const pos = { p, x: cx, y: cy };
+      cx += s.w + 0.04; rowH = Math.max(rowH, s.h);
+      return pos;
+    });
+  })();
 
   const setPlot = (id: string, plot: Plot) => {
     setPlaces((all) => all.map((p) => (p.id === id ? { ...p, plot } : p)));
@@ -184,47 +223,61 @@ export function PropertyPlan({ onOpenPlace }: Props) {
           onPointerUp={() => { drag.current = null; }}
           onPointerCancel={() => { drag.current = null; }}
         >
-          {places.map((p) => (
-            <div
-              key={p.id}
-              role="button"
-              tabIndex={0}
-              onPointerDown={(e) => p.plot && startDrag(e, p.id, "move", p.plot)}
-              onClick={() => { if (!arrange && !drag.current) onOpenPlace(p); }}
-              className={cn(
-                "absolute rounded-lg border-2 flex flex-col p-2.5 overflow-hidden transition-shadow",
-                arrange
-                  ? "cursor-move border-dashed border-primary/70 bg-card/95"
-                  : "cursor-pointer border-tile bg-card shadow-soft hover:shadow-md hover:border-primary",
-              )}
-              style={{
-                left: `${(p.plot?.x ?? 0) * 100}%`, top: `${(p.plot?.y ?? 0) * 100}%`,
-                width: `${(p.plot?.w ?? 0.2) * 100}%`, height: `${(p.plot?.h ?? 0.2) * 100}%`,
-              }}
-            >
-              <div className="font-display font-semibold text-sm leading-tight truncate">{p.name}</div>
-              {p.type && p.type.toLowerCase() !== p.name.toLowerCase() && (
-                <div className="text-[11px] text-muted-foreground capitalize">{p.type}</div>
-              )}
-              <div className="mt-auto flex items-end justify-between gap-1">
-                {p.widthFt && p.depthFt ? (
-                  <span className="font-mono text-[10px] text-muted-foreground">{p.widthFt}×{p.depthFt} ft</span>
-                ) : <span />}
-                <span className="text-[10px] font-medium text-muted-foreground shrink-0">
-                  {p.spaceCount} space{p.spaceCount === 1 ? "" : "s"}
-                </span>
+          {positioned.map(({ p, x, y }) => {
+            const size = blockSize(p);
+            const Icon = iconFor(p.type);
+            const walls = (p.layout?.scan as { walls?: { x1Mm: number; z1Mm: number; x2Mm: number; z2Mm: number }[]; footprint?: { minXMm: number; minZMm: number; widthMm: number; lengthMm: number } } | undefined);
+            const overhead = (p.layout?.overheadImage as string | undefined) ?? p.layout?.floorImage as string | undefined;
+            return (
+              <div
+                key={p.id}
+                role="button"
+                tabIndex={0}
+                onPointerDown={(e) => startDrag(e, p.id, "move", { x, y, ...size })}
+                onClick={() => { if (!arrange && !drag.current) onOpenPlace(p); }}
+                className={cn(
+                  "absolute rounded-lg border-2 flex flex-col p-2.5 overflow-hidden transition-shadow",
+                  arrange
+                    ? "cursor-move border-dashed border-primary/70 bg-card/95"
+                    : "cursor-pointer border-tile bg-card shadow-soft hover:shadow-md hover:border-primary",
+                )}
+                style={{
+                  left: `${x * 100}%`, top: `${y * 100}%`,
+                  width: `${size.w * 100}%`, height: `${size.h * 100}%`,
+                }}
+              >
+                {/* Generated top-down: a LiDAR wall outline, an overhead photo, or the
+                    place icon as a clean footprint glyph. */}
+                {walls?.walls?.length && walls.footprint ? (
+                  <svg className="absolute inset-1 w-[calc(100%-0.5rem)] h-[calc(100%-0.5rem)] opacity-70" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden>
+                    {walls.walls.map((w, i) => {
+                      const fp = walls.footprint!;
+                      const sx = (v: number) => ((v - fp.minXMm) / fp.widthMm) * 100;
+                      const sy = (v: number) => ((v - fp.minZMm) / fp.lengthMm) * 100;
+                      return <line key={i} x1={sx(w.x1Mm)} y1={sy(w.z1Mm)} x2={sx(w.x2Mm)} y2={sy(w.z2Mm)} stroke="hsl(var(--foreground))" strokeWidth="2.5" strokeLinecap="round" vectorEffect="non-scaling-stroke" />;
+                    })}
+                  </svg>
+                ) : overhead ? (
+                  <img src={overhead} alt="" className="absolute inset-0 w-full h-full object-cover opacity-40" aria-hidden />
+                ) : (
+                  <Icon className="absolute right-1.5 bottom-6 h-8 w-8 text-muted-foreground/25" aria-hidden strokeWidth={1.5} />
+                )}
+
+                <div className="relative flex items-center gap-1.5 min-w-0">
+                  <Icon className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+                  <span className="font-display font-semibold text-sm leading-tight truncate">{p.name}</span>
+                </div>
+                <div className="relative mt-auto flex items-end justify-between gap-1">
+                  {p.widthFt && p.depthFt ? (
+                    <span className="font-mono text-[10px] text-muted-foreground bg-card/70 rounded px-1">{p.widthFt}×{p.depthFt} ft</span>
+                  ) : <span />}
+                  <span className="text-[10px] font-medium text-muted-foreground shrink-0 bg-card/70 rounded px-1">
+                    {p.spaceCount} space{p.spaceCount === 1 ? "" : "s"}
+                  </span>
+                </div>
               </div>
-              {arrange && p.plot && (
-                <span
-                  onPointerDown={(e) => startDrag(e, p.id, "resize", p.plot!)}
-                  className="absolute bottom-0 right-0 h-6 w-6 cursor-nwse-resize"
-                  aria-hidden
-                >
-                  <span className="absolute bottom-1 right-1 h-3 w-3 border-b-2 border-r-2 border-primary" />
-                </span>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {!arrange && places.length > 0 && (
