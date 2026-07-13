@@ -95,6 +95,31 @@ export async function identifyBinFromImage(imageDataUrl: string): Promise<BinIte
   return Array.isArray(out.items) ? out.items : [];
 }
 
+/** AI estimate of a tote's size (rough — the user confirms). */
+export interface ToteEstimate {
+  sizeGuess: "small" | "medium" | "large" | null;
+  gallonsGuess: number | null;
+}
+
+/**
+ * Sort-a-bin: one call returns the bin's contents AND a tote-size estimate + a short overall
+ * summary. Backed by the same /identify-bin endpoint; tote/summary are absent on older workers
+ * (callers fall back to letting the user pick the size and deriving a summary).
+ */
+export async function sortBinFromImage(
+  imageDataUrl: string,
+): Promise<{ items: BinItemSuggestion[]; tote: ToteEstimate | null; summary: string }> {
+  const out = await postJson<{ items: BinItemSuggestion[]; tote: ToteEstimate | null; summary: string }>(
+    "/identify-bin",
+    { imageDataUrl },
+  );
+  return {
+    items: Array.isArray(out.items) ? out.items : [],
+    tote: out.tote ?? null,
+    summary: typeof out.summary === "string" ? out.summary : "",
+  };
+}
+
 /** One AI-detected storage spot: an item's own place on the board. */
 export interface SpotSuggestion {
   label: string;
