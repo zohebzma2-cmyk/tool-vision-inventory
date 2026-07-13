@@ -12,6 +12,10 @@
         "camera",
         "photos"
       ]
+    },
+    "Keyboard": {
+      "resize": "native",
+      "resizeOnFullScreen": true
     }
   },
   "backgroundColor": "#1b1f27"
