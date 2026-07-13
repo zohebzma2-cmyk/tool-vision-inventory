@@ -45,11 +45,36 @@ function corsHeaders(request, env) {
 const json = (status, obj, cors) =>
   new Response(JSON.stringify(obj), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+/** Pull complete {...} spot objects out of a possibly-truncated grounding array. */
+/** Intersection-over-union of two normalized boxes. */
+function iou(a, b) {
+  const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
+  const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const union = a.w * a.h + b.w * b.h - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+function salvageSpots(text) {
+  const spots = [];
+  const re = /\{\s*"label"\s*:\s*"([^"]*)"\s*,\s*"bbox_1000"\s*:\s*\[([^\]]*)\](?:\s*,\s*"confidence"\s*:\s*([0-9.]+))?\s*\}/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const nums = m[2].split(",").map((n) => Number(n.trim()));
+    if (nums.length === 4 && nums.every(Number.isFinite)) {
+      spots.push({ label: m[1], bbox_1000: nums, confidence: m[3] === undefined ? 0.6 : Number(m[3]) });
+    }
+  }
+  return spots;
+}
+
 function parseJson(text) {
   if (!text) return {};
   try { return JSON.parse(text); } catch { /* salvage below */ }
   const s = text.indexOf("{"), e = text.lastIndexOf("}");
   if (s !== -1 && e > s) { try { return JSON.parse(text.slice(s, e + 1)); } catch { /* noop */ } }
+  const salvaged = salvageSpots(text);
+  if (salvaged.length) return { spots: salvaged, __salvaged: salvaged };
   return {};
 }
 const clamp01 = (n) => { const v = Number(n); return Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0; };
@@ -66,11 +91,16 @@ const IDENTIFY_MANY_PROMPT = `This photo shows the contents of one storage bin i
 Respond with STRICT JSON ONLY:
 {"items": [{"name": short specific name, "category": one of ${JSON.stringify(CATEGORIES)}, "kind": one of ${JSON.stringify(ITEM_KINDS)} (part = component/hardware, tool = works on things, set = multi-piece kit, consumable = gets used up), "brand": string or "", "model": string or "", "quantity": int >= 1, "confidence": 0..1}]}`;
 
+const DETECT_SPOTS_PROMPT = `Locate EVERY distinct physical item in this tool-storage photo: each tool, bin, box, bag, or piece of equipment gets its OWN tight bounding box — these become labeled storage spots. Use pixel-style coordinates on a 0-1000 scale: [x1, y1, x2, y2].
+Respond with STRICT JSON ONLY:
+{"spots": [{"label": short specific name, "bbox_1000": [x1, y1, x2, y2], "confidence": 0..1}]}`;
+
 const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a garage inventory. Read visible brand/model text.
 Respond with STRICT JSON ONLY:
 {"name": string, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string, "model": string, "text": string, "confidence": 0..1}`;
 
-async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs) {
+async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs, opts = {}) {
+  const isOpenRouter = base.includes("openrouter.ai");
   const res = await fetch(`${base.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
     signal: AbortSignal.timeout(timeoutMs),
@@ -83,8 +113,12 @@ async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs) 
     body: JSON.stringify({
       model: models[0],
       ...(models.length > 1 ? { models } : {}), // OpenRouter-style in-request fallback
+      // Some OpenRouter providers silently DROP images (observed: Parasail) — exclude them.
+      ...(isOpenRouter ? { provider: { ignore: ["Parasail"] } } : {}),
       temperature: 0.2,
-      response_format: { type: "json_object" },
+      ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
+      // Grounding prompts work better without forced json_object on some hosts.
+      ...(opts.noJsonMode ? {} : { response_format: { type: "json_object" } }),
       messages: [
         { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageDataUrl } }] },
       ],
@@ -99,7 +133,7 @@ async function callProvider(base, key, models, prompt, imageDataUrl, timeoutMs) 
  *  - "cloud": paid open model on OpenRouter (Qwen3-VL) first — fast + best quality —
  *    then the self-hosted box, then the free chain
  *  - anything else: self-hosted box first (flat cost), free chain as fallback */
-function providers(env, apiKey) {
+function providers(env, apiKey, overrideModel) {
   const list = [];
   const orBase = env.OPENROUTER_BASE || "https://openrouter.ai/api/v1";
   const selfHosted = env.SELF_VISION_BASE && env.SELF_VISION_KEY
@@ -116,9 +150,12 @@ function providers(env, apiKey) {
     list.push({
       base: orBase,
       key: apiKey,
-      models: [env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct"],
+      // Grounding (box output) uses a different model: the 235B reliably returns an empty
+      // list when asked for boxes, while the 30B-A3B grounds well. Everything else keeps
+      // the 235B, which is the stronger reader/identifier.
+      models: [overrideModel || env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct"],
       retries: 1,
-      timeoutMs: 60000,
+      timeoutMs: 90000,
     });
   }
   if (selfHosted) list.push(selfHosted);
@@ -135,11 +172,11 @@ function providers(env, apiKey) {
   return list;
 }
 
-async function callModelResilient(env, apiKey, prompt, imageDataUrl) {
+async function callModelResilient(env, apiKey, prompt, imageDataUrl, opts = {}) {
   let lastErr;
-  for (const p of providers(env, apiKey)) {
+  for (const p of providers(env, apiKey, opts.model)) {
     for (let attempt = 0; attempt <= p.retries; attempt++) {
-      try { return await callProvider(p.base, p.key, p.models, prompt, imageDataUrl, p.timeoutMs); }
+      try { return await callProvider(p.base, p.key, p.models, prompt, imageDataUrl, p.timeoutMs, opts); }
       catch (e) { lastErr = e; await sleep(300 * (attempt + 1)); }
     }
   }
@@ -241,7 +278,7 @@ export default {
       }, cors);
     }
 
-    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin"].includes(url.pathname)) {
+    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin", "/detect-spots"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -284,6 +321,42 @@ export default {
           confidence: clamp01(out.confidence ?? 0.6),
         }, cors);
       }
+      if (url.pathname === "/detect-spots") {
+        const out = await callModelResilient(env, apiKey, DETECT_SPOTS_PROMPT, body.imageDataUrl, {
+          noJsonMode: true,
+          maxTokens: 4000, // enough for a dense wall; salvage recovers truncated tails
+          model: env.VISION_MODEL_GROUNDING || "qwen/qwen3-vl-30b-a3b-instruct",
+        });
+        const raw = Array.isArray(out.spots) ? out.spots : [];
+        const seen = new Set();
+        const spots = raw.slice(0, 120).flatMap((sp) => {
+          const bb = Array.isArray(sp?.bbox_1000) ? sp.bbox_1000.map(Number) : null;
+          if (!bb || bb.length !== 4 || bb.some((n) => !Number.isFinite(n))) return [];
+          const [x1, y1, x2, y2] = bb;
+          const x = clamp01(Math.min(x1, x2) / 1000), y = clamp01(Math.min(y1, y2) / 1000);
+          const w = clamp01(Math.abs(x2 - x1) / 1000), h = clamp01(Math.abs(y2 - y1) / 1000);
+          if (w < 0.005 || h < 0.005) return [];
+          const conf = clamp01(sp?.confidence ?? 0.6);
+          if (conf < 0.2) return []; // models pad truncated lists with 0.0-confidence junk
+          const key = `${Math.round(x * 200)}:${Math.round(y * 200)}:${Math.round(w * 200)}:${Math.round(h * 200)}`;
+          if (seen.has(key)) return []; // identical repeated boxes
+          seen.add(key);
+          return [{
+            label: typeof sp?.label === "string" && sp.label.trim() ? sp.label.trim() : "Spot",
+            box: { x, y, w, h },
+            confidence: conf,
+          }];
+        });
+        // Non-max suppression: models emit several boxes per object; keep the most
+        // confident and drop anything overlapping it heavily.
+        const kept = [];
+        for (const sp of spots.sort((a, b) => b.confidence - a.confidence)) {
+          if (!kept.some((k) => iou(k.box, sp.box) > 0.45)) kept.push(sp);
+          if (kept.length >= 60) break;
+        }
+        return json(200, { spots: kept }, cors);
+      }
+
       if (url.pathname === "/identify-bin") {
         const out = await callModelResilient(env, apiKey, IDENTIFY_MANY_PROMPT, body.imageDataUrl);
         const items = (Array.isArray(out.items) ? out.items : []).slice(0, 40).map((it) => {
