@@ -65,7 +65,7 @@ export async function createSpaceWithSpots(input: CreateSpaceWithSpotsInput) {
 
   const rows = input.spots.map((s, i) => ({
     name: s.label?.trim() || `Spot ${i + 1}`,
-    type: "spot",
+    type: "slot",
     qr_code: generateQRCode(),
     parent_location_id: parent.id,
     is_slot: true,
