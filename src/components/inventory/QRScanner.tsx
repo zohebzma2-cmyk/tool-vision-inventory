@@ -191,7 +191,7 @@ export function QRScanner({ open, onOpenChange }: QRScannerProps) {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display uppercase tracking-wide flex items-center gap-2">
+          <DialogTitle className="font-display flex items-center gap-2">
             <ScanLine className="h-5 w-5" /> Scan a label
           </DialogTitle>
         </DialogHeader>
@@ -256,7 +256,7 @@ export function QRScanner({ open, onOpenChange }: QRScannerProps) {
 
             {(result.kind === "bin" || result.kind === "space") && (
               <div className="rounded-md border p-3">
-                <div className="font-display text-sm font-semibold uppercase tracking-wide mb-2">
+                <div className="font-display text-sm font-semibold mb-2">
                   Contents ({result.items.length})
                 </div>
                 {result.items.length > 0 ? (

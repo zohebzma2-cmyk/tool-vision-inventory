@@ -144,7 +144,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="font-display uppercase tracking-wide flex items-center gap-2">
+          <DialogTitle className="font-display flex items-center gap-2">
             <Camera className="h-5 w-5" /> Fill {bin?.name ?? "bin"}
           </DialogTitle>
         </DialogHeader>
@@ -154,7 +154,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
             className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
             <label className="cursor-pointer">
               <Camera className="h-8 w-8 text-primary" />
-              <span className="font-display uppercase tracking-wide">Snap the bin contents</span>
+              <span className="font-display">Snap the bin contents</span>
               <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
                 Lay items visibly — the AI lists everything it can see
               </span>
@@ -180,7 +180,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
               )}
             </div>
             {aiBusy && (
-              <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display uppercase tracking-wide text-sm">
+              <div className="absolute inset-0 bg-tile/60 flex items-center justify-center gap-2 text-tile-foreground font-display text-sm">
                 <Loader2 className="h-4 w-4 animate-spin" /> Cataloging the bin…
               </div>
             )}
@@ -192,7 +192,7 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
         {(drafts.length > 0 || imageDataUrl) && (
           <div className="space-y-2">
-            <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display uppercase tracking-wide px-1">
+            <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display px-1">
               <span /> <span>Item</span> <span>Kind</span> <span>Qty</span> <span />
             </div>
             {drafts.map((d, i) => (

@@ -280,7 +280,7 @@ export function ItemsList() {
       </div>
 
       <div className="mb-4 flex items-baseline gap-2">
-        <h2 className="font-display text-xl font-semibold uppercase tracking-wide text-foreground">
+        <h2 className="font-display text-xl font-semibold text-foreground">
           Tools
         </h2>
         <span className="font-mono text-sm text-muted-foreground">({filteredItems.length})</span>
@@ -291,7 +291,7 @@ export function ItemsList() {
           <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
             <Package className="h-10 w-10 text-muted-foreground" />
           </div>
-          <h3 className="font-display text-lg font-semibold uppercase tracking-wide mb-2">
+          <h3 className="font-display text-lg font-semibold mb-2">
             {searchTerm || selectedCategory !== "all"
               ? "No tools match"
               : "Empty wall"}
@@ -311,7 +311,7 @@ export function ItemsList() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-foreground text-lg mb-1">{item.name}</h3>
                     {item.brand && (
-                      <p className="text-sm text-muted-foreground font-medium uppercase tracking-wide">{item.brand}</p>
+                      <p className="text-sm text-muted-foreground font-medium">{item.brand}</p>
                     )}
                   </div>
                   <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">

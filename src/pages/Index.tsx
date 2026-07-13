@@ -308,7 +308,7 @@ function Overview(props: {
         <div className="label-tile inline-flex items-center px-4 py-2 text-sm mb-4">
           Empty wall
         </div>
-        <h2 className="font-display text-2xl font-semibold uppercase tracking-wide mb-2">
+        <h2 className="font-display text-2xl font-semibold mb-2">
           Nothing on the board yet
         </h2>
         <p className="text-muted-foreground max-w-sm mx-auto mb-6">
@@ -334,7 +334,7 @@ function Overview(props: {
         />
       </div>
 
-      <h2 className="font-display text-lg font-semibold uppercase tracking-wide mb-3">
+      <h2 className="font-display text-lg font-semibold mb-3">
         By category
       </h2>
       <ul className="space-y-2">
