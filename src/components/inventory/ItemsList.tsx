@@ -354,7 +354,7 @@ export function ItemsList() {
           </p>
           {!searchTerm && selectedCategory === "all" && (
             <GuideTip tipKey="items-empty" className="mx-auto mt-6 max-w-md text-left">
-              New here? The smoothest path is to <strong>map a space</strong> in the Spaces tab first
+              New here? The smoothest path is to <strong>map a location</strong> in the Storage tab first
               (snap your pegboard or shelf), then fill it — but you can also add a tool right now and
               assign it a home later.
             </GuideTip>

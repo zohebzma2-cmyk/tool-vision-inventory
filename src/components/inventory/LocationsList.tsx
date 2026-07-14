@@ -465,7 +465,7 @@ export function LocationsList({
         </div>
 
         {/* Paper config lives in Settings; tool identification lives in the Add-tool flow —
-            keeping them out of the Spaces tab so it stays focused on locations. */}
+            keeping them out of the Storage tab so it stays focused on locations. */}
 
         {locations.length === 0 ? (
           <div className="text-center py-12">

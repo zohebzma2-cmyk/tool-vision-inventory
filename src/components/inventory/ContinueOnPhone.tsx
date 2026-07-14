@@ -107,8 +107,8 @@ export function ContinueOnPhone({ open, onOpenChange, place, onScanArrived }: Pr
 
             <ol className="space-y-2.5 text-sm">
               {[
-                "Open the Tool Vision app on your iPhone (17 Pro / Pro Max or iPad Pro).",
-                `Go to Spaces and open “${place?.name ?? "this space"}”.`,
+                "Open the Tool Vision app on your LiDAR iPhone or iPad Pro.",
+                `Go to Storage and open “${place?.name ?? "this space"}”.`,
                 "Tap Scan with LiDAR and walk the room.",
               ].map((step, i) => (
                 <li key={i} className="flex gap-3">

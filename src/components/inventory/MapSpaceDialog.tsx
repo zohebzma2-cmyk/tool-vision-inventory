@@ -271,7 +271,7 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
           realWidthMm: widthMm,
           realHeightMm: widthMm ? Math.round(widthMm * 0.6) : null,
         });
-        toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${made.length} spots.`, variant: "success" });
+        toast({ title: "Location mapped", description: `Created "${effectiveName}" with ${made.length} spots.`, variant: "success" });
         onCreated?.();
         close(false);
         return;
@@ -281,11 +281,11 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
         namingScheme, labelTemplateId: templateId, pad, parentLocationId,
         region: imageDataUrl ? { corners } : null,
       });
-      toast({ title: "Space mapped", description: `Created "${effectiveName}" with ${slots.length} slots.`, variant: "success" });
+      toast({ title: "Location mapped", description: `Created "${effectiveName}" with ${slots.length} slots.`, variant: "success" });
       onCreated?.();
       close(false);
     } catch (e) {
-      toast({ title: "Failed to create space", description: String((e as Error)?.message || e), variant: "destructive" });
+      toast({ title: "Couldn't create location", description: String((e as Error)?.message || e), variant: "destructive" });
     } finally {
       setCreating(false);
     }
