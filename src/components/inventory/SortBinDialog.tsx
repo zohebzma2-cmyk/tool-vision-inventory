@@ -16,12 +16,21 @@ import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
 const KINDS = ["part", "tool", "set", "consumable"] as const;
 
-// Common tote sizes (US), for the one-tap size chooser.
-const SIZE_PRESETS: { label: string; gal: number }[] = [
-  { label: "Small", gal: 5 },
-  { label: "Medium", gal: 12 },
-  { label: "Large", gal: 27 },
+// Real Home Depot tote sizes (Sterilite / HDX / IRIS / Rubbermaid), for the one-tap size chooser.
+// Canonical capacity is quarts; small totes are shown in qt, larger ones in gal (4 qt = 1 gal).
+const SIZE_PRESETS: { qt: number; unit: "qt" | "gal" }[] = [
+  { qt: 6, unit: "qt" },    // shoebox
+  { qt: 16, unit: "qt" },   // storage box
+  { qt: 28, unit: "qt" },   // medium box
+  { qt: 48, unit: "gal" },  // 12 gal tough tote
+  { qt: 72, unit: "gal" },  // 18 gal large tote
+  { qt: 108, unit: "gal" }, // 27 gal tough tote
+  { qt: 160, unit: "gal" }, // 40 gal heavy-duty
 ];
+
+/** Human label for a capacity in quarts, in the given unit. */
+const sizeText = (qt: number, unit: "qt" | "gal") =>
+  unit === "gal" ? `${+(qt / 4).toFixed(1)} gal` : `${qt} qt`;
 
 interface DraftItem {
   name: string; category: string; kind: string; brand: string; model: string; quantity: number; include: boolean;
@@ -68,7 +77,8 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
-  const [gallons, setGallons] = useState<string>("");
+  const [sizeQt, setSizeQt] = useState<number>(0);       // canonical capacity in quarts
+  const [sizeUnit, setSizeUnit] = useState<"qt" | "gal">("gal"); // how the size is shown/entered
   const [summary, setSummary] = useState<string>("");
   const [analyzed, setAnalyzed] = useState(false);
   const [newName, setNewName] = useState("");
@@ -82,7 +92,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
   const resetBinFields = () => {
     setImageDataUrl(null); setDrafts([]); setAnalyzed(false);
-    setGallons(""); setSummary(""); setNewName(""); setSavedBin(null);
+    setSizeQt(0); setSizeUnit("gal"); setSummary(""); setNewName(""); setSavedBin(null);
   };
 
   useEffect(() => {
@@ -105,8 +115,9 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
       })();
     } else {
       setStep("bin");
-      const layout = bin?.layout as { gallons?: number; summary?: string; binNumber?: number } | null | undefined;
-      setGallons(layout?.gallons ? String(layout.gallons) : "");
+      const layout = bin?.layout as { gallons?: number; quarts?: number; sizeUnit?: "qt" | "gal"; summary?: string; binNumber?: number } | null | undefined;
+      setSizeQt(Number(layout?.quarts) || Math.round((Number(layout?.gallons) || 0) * 4));
+      setSizeUnit(layout?.sizeUnit ?? "gal");
       setSummary(typeof layout?.summary === "string" ? layout.summary : "");
       setBinNumber(Number(layout?.binNumber) || 0);
       setCtx({});
@@ -202,7 +213,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         name: f.name, category: f.category, kind: f.kind || "part", brand: f.brand, model: f.model,
         quantity: f.quantity || 1, include: true,
       })));
-      if (tote?.gallonsGuess) setGallons(String(tote.gallonsGuess));
+      if (tote?.gallonsGuess) { setSizeQt(Math.round(tote.gallonsGuess * 4)); setSizeUnit("gal"); }
       setSummary(aiSummary || deriveSummary(items.map((i) => i.category)));
       setAnalyzed(true);
       if (items.length === 0) toast({ title: "Nothing recognized", description: "Add rows by hand, or retake with more light." });
@@ -221,7 +232,8 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     setDrafts((d) => [...d, { name: "", category: "other", kind: "part", brand: "", model: "", quantity: 1, include: true }]);
 
   const selected = drafts.filter((d) => d.include && d.name.trim());
-  const galNum = Math.max(1, Math.min(55, Number(gallons) || 0));
+  const galNum = +(sizeQt / 4).toFixed(2); // canonical gallons (for storage/back-compat)
+  const sizeLabel = sizeText(sizeQt, sizeUnit);
   const binTitle = summary.trim() || newName.trim() || `Bin ${binNumber}`;
 
   const storeItems = async (binId: string) => {
@@ -257,7 +269,8 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         const { data: made, error } = await supabase.from("locations").insert([{
           name, type: "bin", is_slot: false, qr_code: generateQRCode(),
           parent_location_id: parentId,
-          layout: { placeKind: "bin", binNumber: number, gallons: galNum, summary: summary.trim() },
+          image_path: imageDataUrl ?? null, // the photo of the bin's contents, kept with the bin
+          layout: { placeKind: "bin", binNumber: number, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: imageDataUrl ?? undefined },
         }]).select("id, qr_code").single();
         if (error) throw error;
         await storeItems(made!.id as string);
@@ -268,15 +281,17 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         await storeItems(binId);
         const prior = (bin!.layout as Record<string, unknown>) ?? {};
         const number = Number((prior as { binNumber?: unknown }).binNumber) || binNumber || 0;
-        const layout = { ...prior, binNumber: number || undefined, gallons: galNum, summary: summary.trim() };
-        const { error: upErr } = await supabase.from("locations").update({ layout }).eq("id", binId);
+        const layout = { ...prior, binNumber: number || undefined, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: imageDataUrl ?? (prior as { binImage?: string }).binImage };
+        const upd: Record<string, unknown> = { layout };
+        if (imageDataUrl) upd.image_path = imageDataUrl;
+        const { error: upErr } = await supabase.from("locations").update(upd).eq("id", binId);
         if (upErr) throw upErr;
         const { data: row } = await supabase.from("locations").select("qr_code").eq("id", binId).single();
         setSavedBin({ number, title: summary.trim() || bin!.name, qr: (row?.qr_code as string) ?? "" });
       }
 
       haptic.success();
-      toast({ title: "Bin sorted", description: `${selected.length} item${selected.length === 1 ? "" : "s"} stored · ${galNum} gal.`, variant: "success" });
+      toast({ title: "Bin sorted", description: `${selected.length} item${selected.length === 1 ? "" : "s"} stored · ${sizeLabel}.`, variant: "success" });
       setStep("saved");
       onSaved?.();
     } catch (e) {
@@ -316,7 +331,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     savedBin && runPrint("bin", {
       badge: `Bin ${savedBin.number || ""}`.trim(),
       title: savedBin.title,
-      lines: [`${galNum} gal`, locationLine, selected.length ? `${selected.length} items` : ""].filter(Boolean) as string[],
+      lines: [sizeLabel, locationLine, selected.length ? `${selected.length} items` : ""].filter(Boolean) as string[],
       qr: savedBin.qr || undefined,
     });
   const printSpaceLabel = () =>
@@ -426,18 +441,31 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
                   )}
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Tote size {gallons && <span className="text-muted-foreground font-normal">(AI guess — confirm)</span>}</label>
+                    <label className="text-sm font-medium">Tote size {sizeQt > 0 && <span className="text-muted-foreground font-normal">(AI guess — confirm)</span>}</label>
                     <div className="flex flex-wrap items-center gap-2">
                       {SIZE_PRESETS.map((p) => (
-                        <button key={p.label} type="button" onClick={() => setGallons(String(p.gal))}
+                        <button key={p.qt} type="button" onClick={() => { setSizeQt(p.qt); setSizeUnit(p.unit); }}
                           className={cn("press rounded-md border-2 px-3 py-1.5 text-sm",
-                            Number(gallons) === p.gal ? "border-primary bg-primary/10" : "border-tile/60")}>
-                          {p.label} · {p.gal} gal
+                            sizeQt === p.qt ? "border-primary bg-primary/10" : "border-tile/60")}>
+                          {sizeText(p.qt, p.unit)}
                         </button>
                       ))}
                       <div className="flex items-center gap-1">
-                        <Input type="number" min={1} max={55} value={gallons} onChange={(e) => setGallons(e.target.value)} className="h-9 w-20" placeholder="gal" />
-                        <span className="text-sm text-muted-foreground">gal</span>
+                        <Input
+                          type="number" min={1} max={sizeUnit === "qt" ? 240 : 60}
+                          value={sizeQt ? (sizeUnit === "qt" ? sizeQt : +(sizeQt / 4).toFixed(1)) : ""}
+                          onChange={(e) => { const n = Number(e.target.value) || 0; setSizeQt(sizeUnit === "qt" ? Math.round(n) : Math.round(n * 4)); }}
+                          className="h-9 w-20" placeholder={sizeUnit}
+                        />
+                        {/* qt / gal unit toggle */}
+                        <div className="flex rounded-md border border-input overflow-hidden text-sm">
+                          {(["qt", "gal"] as const).map((u) => (
+                            <button key={u} type="button" onClick={() => setSizeUnit(u)}
+                              className={cn("px-2.5 py-1.5", sizeUnit === u ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted")}>
+                              {u}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -483,7 +511,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
               )}
               <Button variant="outline" onClick={() => close(false)} disabled={saving}>Cancel</Button>
               {analyzed && (
-                <Button onClick={save} disabled={saving || aiBusy || (selected.length === 0 && Number(gallons) < 1)}>
+                <Button onClick={save} disabled={saving || aiBusy || (selected.length === 0 && sizeQt < 1)}>
                   {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
                   Sort &amp; store{selected.length ? ` ${selected.length}` : ""}
                 </Button>
@@ -499,7 +527,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
               <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-7 w-7" /></span>
               <p className="font-display text-lg font-semibold">Bin {savedBin.number || ""} sorted</p>
               <p className="text-sm text-muted-foreground">
-                {savedBin.title}{galNum ? ` · ${galNum} gal` : ""}{selected.length ? ` · ${selected.length} item${selected.length === 1 ? "" : "s"}` : ""}
+                {savedBin.title}{sizeQt ? ` · ${sizeLabel}` : ""}{selected.length ? ` · ${selected.length} item${selected.length === 1 ? "" : "s"}` : ""}
                 {locationLine ? ` · ${locationLine}` : ""}
               </p>
             </div>
