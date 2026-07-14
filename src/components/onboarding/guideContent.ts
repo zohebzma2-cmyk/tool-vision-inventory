@@ -1,4 +1,4 @@
-import { Camera, Grid3x3, QrCode, Layers, type LucideIcon } from "lucide-react";
+import { Camera, Grid3x3, QrCode, Layers, Boxes, type LucideIcon } from "lucide-react";
 
 /** One walkthrough step — shared by first-run Onboarding and the always-available "How it works". */
 export interface GuideStep {
@@ -10,8 +10,13 @@ export interface GuideStep {
 export const GUIDE_STEPS: GuideStep[] = [
   {
     icon: Grid3x3,
-    title: "Map a space",
+    title: "Map your storage",
     body: "Point the camera at a pegboard, drawer, or shelf. The AI turns it into a grid of labeled slots so the app remembers what lives where.",
+  },
+  {
+    icon: Boxes,
+    title: "Sort a bin",
+    body: "Snap the inside of a tote and the AI lists everything in it and guesses the size. Confirm, and it's stored as a numbered bin — with a printable label.",
   },
   {
     icon: Camera,
@@ -20,8 +25,8 @@ export const GUIDE_STEPS: GuideStep[] = [
   },
   {
     icon: QrCode,
-    title: "Label every slot",
-    body: "Each slot and tool gets a QR label you can print on a Brother label printer. Scan a label later to jump straight to what's stored there.",
+    title: "Label everything",
+    body: "Each location, bin, and tool gets a QR label you can print on a Brother printer. Scan a label later to jump straight to what's stored there.",
   },
 ];
 
