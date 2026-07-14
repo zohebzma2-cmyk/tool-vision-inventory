@@ -234,7 +234,10 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
       const spots = await detectSpotsFromImage(photoSrc);
       if (!spots.length) return;
       const used = new Set<number>();
-      const crops = await Promise.all(items.map(async (it) => {
+      // Match each item to a box by name, keyed by the item NAME (not array index) — the user may
+      // add/delete/reorder rows during the slow detect call, so a positional apply would mis-assign.
+      const cropByName = new Map<string, string>();
+      for (const it of items) {
         const itWords = wordsOf(it.name);
         let best = -1, bestScore = 0;
         spots.forEach((sp, si) => {
@@ -242,11 +245,13 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
           const score = overlap(itWords, wordsOf(sp.label));
           if (score > bestScore) { bestScore = score; best = si; }
         });
-        if (best < 0 || bestScore < 1) return undefined;
+        if (best < 0 || bestScore < 1) continue;
         used.add(best);
-        return cropBox(photoSrc, spots[best].box);
-      }));
-      setDrafts((prev) => prev.map((d, i) => (crops[i] ? { ...d, photo: crops[i] } : d)));
+        const crop = await cropBox(photoSrc, spots[best].box);
+        if (crop && !cropByName.has(it.name)) cropByName.set(it.name, crop);
+      }
+      // Apply only to rows that still match by name and don't already have a photo.
+      setDrafts((prev) => prev.map((d) => (!d.photo && cropByName.has(d.name) ? { ...d, photo: cropByName.get(d.name) } : d)));
     } catch { /* best-effort — never blocks the sort */ }
   };
 
@@ -476,7 +481,17 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
                   )}
                 </div>
               ) : (
-                <img src={imageDataUrl} alt="Bin contents" className="w-full max-h-44 object-cover rounded-lg border" />
+                <div className="relative">
+                  <img src={imageDataUrl} alt="Bin contents" className="w-full max-h-44 object-cover rounded-lg border" />
+                  <Button type="button" size="sm" variant="secondary" asChild
+                    className="absolute bottom-2 right-2 shadow-md">
+                    <label className="cursor-pointer">
+                      <Camera className="h-4 w-4 mr-1.5" /> Retake
+                      <input type="file" accept="image/*" capture="environment" className="hidden"
+                        onChange={(e) => { setImageDataUrl(null); setDrafts([]); setAnalyzed(false); onPickPhoto(e.target.files?.[0]); }} />
+                    </label>
+                  </Button>
+                </div>
               )}
 
               {analyzed && (

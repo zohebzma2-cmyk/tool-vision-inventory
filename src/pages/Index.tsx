@@ -198,7 +198,7 @@ const Index = () => {
             a fade-up on every tap (that reads web-y). */}
         <div className="bg-card rounded-lg shadow-soft border">
           {tab === "items" && (
-            <ItemsList key={`items-${syncTick}`} />
+            <ItemsList syncSignal={syncTick} />
           )}
           {tab === "locations" && (
             <LocationsList

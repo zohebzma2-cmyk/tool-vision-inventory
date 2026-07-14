@@ -117,9 +117,11 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
     }
   };
 
-  useEffect(() => { load(); void isRoomScanAvailable().then(setLidar); /* eslint-disable-next-line */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); void isRoomScanAvailable().then(setLidar); }, []);
   // Reload when the parent signals a change (blueprint saved, space added, etc.).
-  useEffect(() => { if (reloadSignal) load(); /* eslint-disable-next-line */ }, [reloadSignal]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (reloadSignal) load(); }, [reloadSignal]);
 
   // Shared feet→canvas scale so blocks are drawn to real proportion. The largest
   // real dimension across placed spaces maps to ~30% of the canvas width.
