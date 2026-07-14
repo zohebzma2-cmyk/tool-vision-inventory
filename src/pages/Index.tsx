@@ -193,7 +193,7 @@ const Index = () => {
           )}
           {tab === "locations" && (
             <LocationsList
-              key={`locs-${syncTick}`}
+              syncSignal={syncTick}
               openMapOnMount={openMapOnLocations}
               onMapOpened={() => setOpenMapOnLocations(false)}
             />

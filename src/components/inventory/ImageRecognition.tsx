@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
 import { supabase } from "@/integrations/supabase/client";
 import { printTextLabel, isPrintingSupported, setupPrinter } from "@/components/inventory/PrinterService";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
 
@@ -299,8 +300,8 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
     try {
       if (results?.type !== 'classification' || !results.results[0]?.label) return;
       const topLabel = results.results[0]!.label;
-      if (!isPrintingSupported()) {
-        toast({ title: 'Printing not supported', description: 'Use Chrome/Edge on desktop to print labels.', variant: 'destructive' });
+      if (!isLabelOutputSupported()) {
+        toast({ title: 'Labels not available here', description: 'Use the iPhone app or a Chromium browser.', variant: 'destructive' });
         return;
       }
       setIsProcessing(true);

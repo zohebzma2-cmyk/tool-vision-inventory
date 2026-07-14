@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import {
-  Plus, Scan, Camera, PencilRuler, Loader2, Move, Check,
+  Plus, Scan, Camera, PencilRuler, Loader2, Move, Check, Smartphone,
   Warehouse, Home, Layers, Triangle, Hammer, DoorOpen, Box,
 } from "lucide-react";
 
@@ -80,6 +81,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
         .from("locations")
         .select("id, name, type, layout")
         .eq("is_slot", false)
+        .eq("type", "space") // places only — standalone bins (type "bin") aren't property blocks
         .is("parent_location_id", null)
         .is("grid_rows", null)
         .order("created_at");
@@ -306,6 +308,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
         onOpenChange={setAddOpen}
         lidar={lidar}
         onCreated={() => { setAddOpen(false); load(); }}
+        onReload={load}
       />
     </div>
   );
@@ -317,6 +320,7 @@ function AddPlaceDialog(props: {
   onOpenChange: (v: boolean) => void;
   lidar: boolean;
   onCreated: () => void;
+  onReload: () => void;
 }) {
   const { toast } = useToast();
   const [method, setMethod] = useState<"pick" | "manual">("pick");
@@ -325,9 +329,33 @@ function AddPlaceDialog(props: {
   const [widthFt, setWidthFt] = useState("");
   const [depthFt, setDepthFt] = useState("");
   const [busy, setBusy] = useState(false);
+  // Desktop 3D-scan hand-off: instead of racing a second Radix dialog open (which self-dismisses),
+  // we create the space and swap THIS dialog's body to a QR hand-off panel. One dialog, no race.
+  const [handoff, setHandoff] = useState<{ id: string; name: string } | null>(null);
+  const [handoffQr, setHandoffQr] = useState<string>("");
 
-  const reset = () => { setMethod("pick"); setName(""); setType("garage"); setWidthFt(""); setDepthFt(""); };
+  const reset = () => { setMethod("pick"); setName(""); setType("garage"); setWidthFt(""); setDepthFt(""); setHandoff(null); setHandoffQr(""); };
   const close = (v: boolean) => { if (!v) reset(); props.onOpenChange(v); };
+
+  // While the hand-off panel is up, poll the place for the phone's scan; auto-close when it lands.
+  useEffect(() => {
+    if (!handoff) return;
+    let done = false;
+    const t = window.setInterval(async () => {
+      if (done) return;
+      const { data } = await supabase.from("locations").select("layout").eq("id", handoff.id).single();
+      const scan = (data?.layout as { scan?: { walls?: unknown[] } } | null)?.scan;
+      if (scan && Array.isArray(scan.walls) && scan.walls.length > 0) {
+        done = true;
+        window.clearInterval(t);
+        toast({ title: "Scan arrived", description: `${handoff.name} was scanned on your phone.`, variant: "success" });
+        reset();
+        props.onCreated();
+      }
+    }, 3000);
+    return () => { done = true; window.clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [handoff]);
 
   const createPlace = async (extra: Record<string, unknown>, dims?: { widthFt: number; depthFt: number }, imagePath?: string | null) => {
     // The DB type column is constrained; places always use the allowed "space" type
@@ -385,16 +413,14 @@ function AddPlaceDialog(props: {
         toast({ title: "Place scanned", description: `${wFt} × ${dFt} ft from LiDAR.`, variant: "success" });
         reset(); props.onCreated();
       } else {
-        // Desktop has no LiDAR: create the space now and point the user at the phone.
-        // The actual LiDAR hand-off lives inside the space (Floor plan → Scan with iPhone).
+        // Desktop has no LiDAR: create the space, then swap this dialog to a QR hand-off panel.
+        // The scan happens on the iPhone (same account) and syncs straight back here.
         const place = await createPlace({});
-        reset();
-        props.onCreated();
-        toast({
-          title: `${place.name} added`,
-          description: "To 3D-scan it, open the space and tap Scan with iPhone — the scan syncs back here automatically.",
-          variant: "success",
-        });
+        const url = `${window.location.origin}/?scan=${encodeURIComponent(place.id)}`;
+        const qr = await QRCode.toDataURL(url, { margin: 1, scale: 6 }).catch(() => "");
+        setHandoffQr(qr);
+        setHandoff({ id: place.id, name: place.name });
+        props.onReload(); // refresh the list behind us; keep this dialog open on the hand-off panel
       }
     } catch (e) {
       const m = String((e as Error)?.message || e);
@@ -406,9 +432,32 @@ function AddPlaceDialog(props: {
     <Dialog open={props.open} onOpenChange={close}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle className="font-display">Add a space</DialogTitle>
+          <DialogTitle className="font-display">
+            {handoff ? (<span className="flex items-center gap-2"><Smartphone className="h-5 w-5" /> Scan {handoff.name} on your iPhone</span>) : "Add a space"}
+          </DialogTitle>
         </DialogHeader>
 
+        {handoff ? (
+          <div className="space-y-4 py-1">
+            <p className="text-sm text-muted-foreground">
+              Desktops can't run a LiDAR scan, so do it from the Tool Vision app on your iPhone. You're
+              signed into the same account, so the scan drops in here automatically.
+            </p>
+            {handoffQr && (
+              <div className="flex justify-center">
+                <img src={handoffQr} alt="Open Tool Vision on your phone" className="h-44 w-44 rounded-xl border bg-white p-2" />
+              </div>
+            )}
+            <ol className="text-sm space-y-1.5 text-muted-foreground list-decimal pl-5">
+              <li>Point your iPhone camera at this code (or open the Tool Vision app).</li>
+              <li>Go to <span className="font-medium text-foreground">Spaces</span> and open “{handoff.name}”.</li>
+              <li>Tap <span className="font-medium text-foreground">Scan with iPhone</span> and walk the room.</li>
+            </ol>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Waiting for your iPhone's scan…
+            </div>
+          </div>
+        ) : (
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="place-name">Name</Label>
@@ -453,9 +502,12 @@ function AddPlaceDialog(props: {
             </div>
           )}
         </div>
+        )}
 
         <DialogFooter>
-          {method === "manual" ? (
+          {handoff ? (
+            <Button onClick={() => close(false)}>Done</Button>
+          ) : method === "manual" ? (
             <>
               <Button variant="outline" onClick={() => setMethod("pick")} disabled={busy}>Back</Button>
               <Button onClick={saveManual} disabled={busy || !name.trim()}>

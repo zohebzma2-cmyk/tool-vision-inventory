@@ -6,10 +6,12 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
+import { generateQRCode } from "@/lib/slots";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { sortBinFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
-import { isPrintingSupported, printTextLabel } from "./PrinterService";
+import { printTextLabel } from "./PrinterService";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
 const KINDS = ["part", "tool", "set", "consumable"] as const;
@@ -28,7 +30,7 @@ interface DraftItem {
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  /** The bin being sorted (an existing bin/slot location). */
+  /** An existing bin/slot to sort. Pass null to sort a NEW standalone bin (created on save). */
   bin: { id: string; name: string; layout?: Record<string, unknown> | null } | null;
   onSaved?: () => void;
 }
@@ -48,12 +50,15 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const [analyzed, setAnalyzed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedName, setSavedName] = useState<string | null>(null); // set after a successful save
+  const [newName, setNewName] = useState(""); // name for a brand-new standalone bin
+  const isNew = !bin;
 
   useEffect(() => {
     if (!open) return;
     // Prefill from any prior sort of this bin.
     const layout = bin?.layout as { gallons?: number; summary?: string } | null | undefined;
     setImageDataUrl(null); setDrafts([]); setAnalyzed(false); setSaving(false); setSavedName(null);
+    setNewName("");
     setGallons(layout?.gallons ? String(layout.gallons) : "");
     setSummary(typeof layout?.summary === "string" ? layout.summary : "");
     // Depend on bin?.id (stable), NOT the bin object — the parent passes a fresh object literal
@@ -104,10 +109,24 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const selected = drafts.filter((d) => d.include && d.name.trim());
   const galNum = Math.max(1, Math.min(55, Number(gallons) || 0));
 
+  // Effective bin name (existing bin, or the new-bin name / a sensible default).
+  const effectiveName = bin?.name ?? (newName.trim() || (summary.trim() ? `Bin — ${summary.trim()}` : "New bin"));
+
   const save = async () => {
-    if (!bin) return;
     setSaving(true);
     try {
+      // Resolve the target bin — reuse the passed one, or create a fresh standalone bin.
+      let binId = bin?.id;
+      let priorLayout = (bin?.layout as Record<string, unknown>) ?? {};
+      if (!binId) {
+        const { data: made, error: mkErr } = await supabase.from("locations").insert([{
+          name: effectiveName, type: "bin", is_slot: false, qr_code: generateQRCode(),
+          layout: { placeKind: "bin" },
+        }]).select("id, layout").single();
+        if (mkErr) throw mkErr;
+        binId = made!.id; priorLayout = (made!.layout as Record<string, unknown>) ?? {};
+      }
+
       // 1) Store the items in the bin (identity-mapped quantity, order-independent).
       if (selected.length) {
         const rows = selected.map((d) => ({
@@ -122,7 +141,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         }
         if (error) throw error;
         const links = (created || []).map((it) => ({
-          item_id: it.id, location_id: bin.id, quantity: (it as { quantity?: number }).quantity || 1,
+          item_id: it.id, location_id: binId, quantity: (it as { quantity?: number }).quantity || 1,
         }));
         if (links.length) {
           const { error: linkErr } = await supabase.from("item_locations").insert(links);
@@ -130,12 +149,12 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         }
       }
       // 2) Persist the size + summary on the bin.
-      const layout = { ...((bin.layout as Record<string, unknown>) ?? {}), gallons: galNum, summary: summary.trim() };
-      const { error: upErr } = await supabase.from("locations").update({ layout }).eq("id", bin.id);
+      const layout = { ...priorLayout, gallons: galNum, summary: summary.trim() };
+      const { error: upErr } = await supabase.from("locations").update({ layout }).eq("id", binId);
       if (upErr) throw upErr;
 
       haptic.success();
-      setSavedName(bin.name);
+      setSavedName(effectiveName);
       toast({ title: "Bin sorted", description: `${selected.length} item${selected.length === 1 ? "" : "s"} stored · ${galNum} gal.`, variant: "success" });
       onSaved?.();
     } catch (e) {
@@ -146,8 +165,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   };
 
   const printLabel = async () => {
-    if (!bin) return;
-    const text = [bin.name, `${galNum} gal`, summary.trim()].filter(Boolean).join("\n");
+    const text = [effectiveName, `${galNum} gal`, summary.trim()].filter(Boolean).join("\n");
     const res = await printTextLabel(text);
     toast({
       title: res.success ? "Label sent" : "Couldn't print",
@@ -160,7 +178,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Boxes className="h-5 w-5" /> Sort {bin?.name ?? "bin"}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Boxes className="h-5 w-5" /> {bin ? `Sort ${bin.name}` : "Sort a bin"}</DialogTitle>
         </DialogHeader>
 
         {savedName ? (
@@ -169,7 +187,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-7 w-7" /></span>
             <p className="font-display text-lg font-semibold">{savedName} sorted</p>
             <p className="text-sm text-muted-foreground">{galNum} gal · {selected.length} item{selected.length === 1 ? "" : "s"}{summary.trim() ? ` · ${summary.trim()}` : ""}</p>
-            {isPrintingSupported() && (
+            {isLabelOutputSupported() && (
               <Button className="mt-2" onClick={printLabel}><Printer className="h-4 w-4 mr-2" /> Print bin label</Button>
             )}
             <Button variant="outline" onClick={() => close(false)}>Done</Button>
@@ -195,6 +213,15 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
             {analyzed && (
               <>
+                {/* Name — only for a brand-new bin (an existing bin already has one). */}
+                {isNew && (
+                  <div className="space-y-1.5">
+                    <label htmlFor="bin-name" className="text-sm font-medium">Bin name</label>
+                    <Input id="bin-name" value={newName} onChange={(e) => setNewName(e.target.value)}
+                      placeholder={summary.trim() ? `Bin — ${summary.trim()}` : "e.g. Garage plumbing bin"} />
+                  </div>
+                )}
+
                 {/* Tote size — one-tap presets prefilled from the AI guess, editable in gallons. */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Tote size {gallons && <span className="text-muted-foreground font-normal">(AI guess — confirm)</span>}</label>
