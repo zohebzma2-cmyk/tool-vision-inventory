@@ -584,21 +584,59 @@ export async function setupPrinter(): Promise<boolean> {
   return await printerService.connect();
 }
 
-// Print arbitrary text label (uses two-color red/black if available)
+/** Render a multi-line text label to a canvas sized for a 62 mm Brother label. */
+function rasterizeTextLabel(text: string): HTMLCanvasElement {
+  const lines = text.split('\n').filter(Boolean);
+  const W = 696; // 62 mm @ ~300 dpi, matching the template rasterizer
+  const pad = 40;
+  const lineH = 78;
+  const H = Math.max(240, pad * 2 + lines.length * lineH);
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#000000'; ctx.textBaseline = 'middle';
+  lines.forEach((line, i) => {
+    // First line is the title (bold, larger); the rest are details.
+    ctx.font = i === 0 ? '700 60px Barlow, system-ui, sans-serif' : '400 40px Barlow, system-ui, sans-serif';
+    ctx.fillText(line, pad, pad + lineH / 2 + i * lineH, W - pad * 2);
+  });
+  return canvas;
+}
+
+// Print an arbitrary text label. WebUSB (desktop Brother QL) when available; on iOS/other browsers
+// with no WebUSB, render to an image and hand it to the system share sheet (AirPrint / Brother
+// iPrint&Label) — so the same button works on the phone where WebUSB doesn't exist.
 export async function printTextLabel(text: string): Promise<{ success: boolean; message: string }> {
   try {
-    if (!isPrintingSupported()) {
-      return { success: false, message: 'Printing not supported in this browser. Use Chrome/Edge.' };
+    if (isPrintingSupported()) {
+      if (!printerService.isConnected) {
+        const connected = await printerService.connect();
+        if (!connected) return { success: false, message: 'Could not connect to Brother QL printer.' };
+      }
+      const ok = await (printerService as any).testPrintWordRed(text);
+      return ok
+        ? { success: true, message: `Printed label: ${text.split('\n')[0]}` }
+        : { success: false, message: 'Failed to send data to printer.' };
     }
-    if (!printerService.isConnected) {
-      console.log('Printer not connected, attempting to connect...');
-      const connected = await printerService.connect();
-      if (!connected) return { success: false, message: 'Could not connect to Brother QL printer.' };
+
+    // No WebUSB (iOS / Safari): share or download a label image.
+    const canvas = rasterizeTextLabel(text);
+    const blob: Blob = await new Promise((res, rej) =>
+      canvas.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't render label"))), 'image/png'),
+    );
+    const file = new File([blob], `${(text.split('\n')[0] || 'label').replace(/[^\w-]+/g, '_')}.png`, { type: 'image/png' });
+    if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: text.split('\n')[0] || 'Label' });
+      return { success: true, message: 'Label sent to the share sheet — pick Print or your Brother app.' };
     }
-    const ok = await (printerService as any).testPrintWordRed(text);
-    if (ok) return { success: true, message: `Printed label: ${text}` };
-    return { success: false, message: 'Failed to send data to printer.' };
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = file.name; a.click();
+    URL.revokeObjectURL(url);
+    return { success: true, message: 'Label image downloaded.' };
   } catch (e) {
+    if ((e as Error)?.name === 'AbortError') return { success: true, message: 'Share canceled.' };
     return { success: false, message: `Print failed: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 }

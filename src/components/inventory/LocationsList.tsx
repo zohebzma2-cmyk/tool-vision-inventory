@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3, Map as MapIcon } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3, Map as MapIcon, Boxes } from "lucide-react";
 import { MapSpaceDialog } from "./MapSpaceDialog";
+import { SortBinDialog } from "./SortBinDialog";
 import { SpaceMap } from "./SpaceMap";
 import { FloorPlanDialog } from "./FloorPlanDialog";
 import { PropertyPlan } from "./PropertyPlan";
@@ -37,14 +38,19 @@ interface Location {
 export function LocationsList({
   openMapOnMount = false,
   onMapOpened,
+  syncSignal,
 }: {
   openMapOnMount?: boolean;
   onMapOpened?: () => void;
+  /** Bumped by the parent on realtime changes. We re-fetch in place instead of remounting,
+   *  so an open dialog (e.g. the phone-scan hand-off) survives a live update from our own write. */
+  syncSignal?: number;
 } = {}) {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
+  const [showSortBin, setShowSortBin] = useState(false);
 
   // Onboarding hand-off: "Map my first space" lands here with the dialog pre-opened.
   useEffect(() => {
@@ -89,6 +95,14 @@ export function LocationsList({
     fetchLocations();
     setPrinterConnected(printerService.isConnected);
   }, []);
+
+  // Live sync: refresh data in place (never remount) so open dialogs survive our own writes.
+  useEffect(() => {
+    if (!syncSignal) return;
+    fetchLocations();
+    setPropReload((k) => k + 1); // let PropertyPlan re-fetch its places too
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncSignal]);
 
   const fetchLocations = async () => {
     try {
@@ -429,8 +443,15 @@ export function LocationsList({
             </Button>
             <Button
               variant="secondary"
-              onClick={() => setShowAddDialog(true)}
+              onClick={() => setShowSortBin(true)}
               className="shadow-soft"
+            >
+              <Boxes className="h-4 w-4 mr-2" />
+              Sort a bin
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddDialog(true)}
             >
               <Plus className="h-4 w-4 mr-2" />
               Add by hand
@@ -739,6 +760,13 @@ export function LocationsList({
         open={showMapDialog}
         onOpenChange={setShowMapDialog}
         onCreated={fetchLocations}
+      />
+
+      <SortBinDialog
+        open={showSortBin}
+        onOpenChange={setShowSortBin}
+        bin={null}
+        onSaved={fetchLocations}
       />
 
       <SpaceMap
