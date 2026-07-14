@@ -57,7 +57,7 @@ export function Onboarding({ onFinish }: OnboardingProps) {
           <>
             <Button className="w-full" size="lg" onClick={() => onFinish("map-space")}>
               <Grid3x3 className="h-4 w-4 mr-2" />
-              Map my first space
+              Map my first location
             </Button>
             <Button variant="secondary" className="w-full" size="lg" onClick={() => onFinish("add-tool")}>
               <Camera className="h-4 w-4 mr-2" />

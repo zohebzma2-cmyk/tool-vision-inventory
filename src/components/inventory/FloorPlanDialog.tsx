@@ -58,6 +58,7 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [dirty, setDirty] = useState(false);
   const [addSpaceOpen, setAddSpaceOpen] = useState(false);
   const [blueprintOpen, setBlueprintOpen] = useState(false);
+  const [blueprintZones, setBlueprintZones] = useState<Array<{ id: string; name: string; type: string; rect: { x: number; y: number; w: number; h: number } }>>([]);
   const [phoneScanOpen, setPhoneScanOpen] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -72,9 +73,16 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
     const scan = (place.layout as { scan?: { walls: typeof walls; widthMm: number; lengthMm: number } } | null)?.scan;
     setWalls(scan?.walls ?? []);
     setDims(scan ? { widthMm: scan.widthMm, lengthMm: scan.lengthMm } : null);
+    const bp = (place.layout as { blueprint?: { zones?: typeof blueprintZones } } | null)?.blueprint;
+    setBlueprintZones(bp?.zones ?? []);
     void isRoomScanAvailable().then(setLidarAvailable);
     (async () => {
       try {
+        // Fresh copy of this place's own layout so a just-saved blueprint shows without reopening.
+        const { data: self } = await supabase.from("locations").select("layout").eq("id", place.id).maybeSingle();
+        const freshBp = (self?.layout as { blueprint?: { zones?: typeof blueprintZones } } | null)?.blueprint;
+        setBlueprintZones(freshBp?.zones ?? bp?.zones ?? []);
+
         const { data: kids, error } = await supabase
           .from("locations")
           .select("id, name, type, layout, grid_rows")
@@ -311,6 +319,21 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                   ))}
                 </svg>
               )}
+              {/* Saved blueprint zones — a read-only labeled underlay so "Draw blueprint" is visible
+                  here, not just as a thumbnail on the property map. */}
+              {blueprintZones.map((z) => (
+                <div
+                  key={z.id}
+                  aria-hidden
+                  className="absolute rounded-sm border border-dashed border-primary/40 bg-primary/5 pointer-events-none flex items-start justify-start"
+                  style={{
+                    left: `${z.rect.x * 100}%`, top: `${z.rect.y * 100}%`,
+                    width: `${z.rect.w * 100}%`, height: `${z.rect.h * 100}%`,
+                  }}
+                >
+                  <span className="m-0.5 rounded bg-background/70 px-1 text-[9px] leading-tight text-muted-foreground truncate max-w-full">{z.name}</span>
+                </div>
+              ))}
               {placed.map((s) => (
                 <div
                   key={s.id}

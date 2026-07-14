@@ -96,7 +96,7 @@ const Index = () => {
                     ? (leadsWithScanner ? "scan · remote" : "reading the wall…")
                     : [
                         `${stats.itemCount} tools`,
-                        `${stats.locationCount} spaces`,
+                        `${stats.locationCount} locations`,
                         ...(stats.totalValue > 0 ? [`${fmtMoney(stats.totalValue)} on the wall`] : []),
                       ].join(" · ")}
                 </p>
@@ -169,7 +169,7 @@ const Index = () => {
             {(
               [
                 { id: "items", label: "Tools", icon: Package },
-                { id: "locations", label: "Spaces", icon: MapPin },
+                { id: "locations", label: "Storage", icon: MapPin },
                 { id: "overview", label: "Overview", icon: LayoutGrid },
               ] as const
             ).map(({ id, label, icon: Icon }) => (
@@ -235,7 +235,7 @@ const Index = () => {
             active={tab === "locations"}
             onClick={() => setTab("locations")}
             icon={MapPin}
-            label="Spaces"
+            label="Storage"
           />
           {/* Hero action: the iOS app leads with the scanner (field/remote use);
               the web app leads with Add (setup). Both keep the other in the bar. */}
@@ -353,7 +353,7 @@ function Overview(props: {
           Nothing on the board yet
         </h2>
         <p className="text-muted-foreground max-w-sm mx-auto mb-6">
-          Add your first tool, or open Spaces and map a pegboard, drawer, or shelf
+          Add your first tool, or open Storage and map a pegboard, drawer, or shelf
           with the camera.
         </p>
         <Button onClick={props.onAddTool}>
@@ -368,7 +368,7 @@ function Overview(props: {
     <div className="p-4 md:p-6">
       <div className="grid grid-cols-3 gap-3 mb-6">
         <BoardStat label="Tools" value={String(itemCount)} />
-        <BoardStat label="Spaces" value={String(locationCount)} />
+        <BoardStat label="Locations" value={String(locationCount)} />
         <BoardStat
           label="Value"
           value={totalValue > 0 ? `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
