@@ -224,6 +224,35 @@ class BrotherQLPrinterService implements PrinterService {
       return this.lastPaperInfo ?? null;
     }
     }
+    /**
+     * Read the printer's live status: the detected media (roll) AND any error flags. Defensive —
+     * on a flaky/empty read it returns the last known media with no errors, so it never blocks a
+     * print unless the printer actually reported an error (no media, cover open, jam…).
+     */
+    async probeStatus(): Promise<{ paper: any; errors: string[] } | null> {
+      if (!this.device || !this.isConnected) return null;
+      try {
+        const req = new Uint8Array([0x1B, 0x69, 0x53]); // ESC i S — status request
+        const readOnce = async () => {
+          await this.device!.transferOut(this.outEndpoint, req);
+          await new Promise((r) => setTimeout(r, 200));
+          const res = await this.device!.transferIn(this.inEndpoint, 32);
+          return res.status === 'ok' && res.data?.byteLength ? new Uint8Array(res.data.buffer) : new Uint8Array();
+        };
+        let data = await readOnce();
+        if (data.length < 32) { await new Promise((r) => setTimeout(r, 250)); data = await readOnce(); }
+        if (data.length >= 32) {
+          const decoded = this.decodeStatus(data);
+          const paper = this.parsePaperInfo(data);
+          if (paper) this.lastPaperInfo = paper;
+          return { paper: paper ?? this.lastPaperInfo, errors: decoded.errors };
+        }
+        return { paper: this.lastPaperInfo, errors: [] }; // no reply → don't fabricate an error
+      } catch {
+        return { paper: this.lastPaperInfo, errors: [] };
+      }
+    }
+
     private parsePaperInfo(statusData: Uint8Array): any {
       // Brother QL status byte layout (per Command Reference)
       // Byte 10: Media width (mm)
@@ -631,13 +660,13 @@ async function loadQrImage(qr?: string): Promise<HTMLImageElement | null> {
  * long) and detail lines — the whole text block vertically centered so there's no dead space or
  * overlap. Every line auto-fits its column width, so nothing ever runs into the QR.
  */
-async function rasterizeLabel(spec: LabelSpec): Promise<HTMLCanvasElement> {
+async function rasterizeLabel(spec: LabelSpec, widthPx = 696): Promise<HTMLCanvasElement> {
   const title = (spec.title || 'Label').trim();
   const details = (spec.lines ?? []).map((l) => l.trim()).filter(Boolean);
   const badge = spec.badge?.trim();
 
-  const W = 696; // 62 mm @ ~300 dpi
-  const pad = 48;
+  const W = Math.max(180, Math.round(widthPx)); // print-area width in dots (matches the loaded roll)
+  const pad = Math.round(W * 0.069); // ~48px at 696 — scales with the roll
   const gap = 30; // between QR and text
 
   const qrImg = await loadQrImage(spec.qr);
@@ -716,11 +745,11 @@ async function rasterizeLabel(spec: LabelSpec): Promise<HTMLCanvasElement> {
  * per canvas row. The canvas is 696 px wide to match a 62 mm continuous label's print area, so the
  * clean on-screen design is exactly what the laptop printer lays down.
  */
-function canvasToRasterJob(canvas: HTMLCanvasElement): number[] {
+function canvasToRasterJob(canvas: HTMLCanvasElement, widthMm = 62): number[] {
   const ctx = canvas.getContext('2d')!;
   const W = canvas.width, H = canvas.height;
   const px = ctx.getImageData(0, 0, W, H).data;
-  const bytesPerLine = Math.ceil(W / 8); // 87 for 696 dots
+  const bytesPerLine = Math.ceil(W / 8); // 87 for 696 dots (62mm)
 
   const qlr = new BrotherQLRaster('QL-800');
   qlr.clear();
@@ -729,10 +758,10 @@ function canvasToRasterJob(canvas: HTMLCanvasElement): number[] {
   qlr.setTwoColorMode(false);
   qlr.setAutoCut(true);
   qlr.setMargin(35); // ~3 mm
-  // Print-information command (ESC i z): tells the QL-800 the media width (62 mm = 696 dots) and the
-  // raster-line count. WITHOUT this the printer doesn't know the media and silently discards the job
-  // — which is exactly why prints weren't coming out. Height H = number of raster lines, continuous.
-  qlr.setMedia(62, 0, H, true);
+  // Print-information command (ESC i z): tells the QL-800 the media width (mm) and the raster-line
+  // count. WITHOUT this the printer doesn't know the media and silently discards the job — which is
+  // exactly why prints weren't coming out. widthMm matches the roll the printer reported. H = lines.
+  qlr.setMedia(widthMm, 0, H, true);
   qlr.enterRasterMode();
   qlr.setFeedAmount(1);
 
@@ -750,6 +779,26 @@ function canvasToRasterJob(canvas: HTMLCanvasElement): number[] {
   return qlr.getData();
 }
 
+/** Dots across the print head for a given media width (62mm = 696 dots @ 300dpi). */
+const dotsForWidthMm = (mm: number) => (mm === 62 ? 696 : mm === 29 ? 306 : Math.round((mm / 25.4) * 300));
+
+/**
+ * Decide the media to print on: the printer's live-detected roll wins; else the user's saved paper
+ * choice (Settings → paper type, kept in localStorage); else a 62mm continuous default (the QL-800's
+ * most common DK-2205 roll). Guarantees setMedia + canvas width always match real hardware.
+ */
+function resolvePrintMedia(detected?: { width?: number; printWidth?: number } | null): { widthMm: number; printWidth: number } {
+  if (detected?.width && detected.width >= 12 && detected.width <= 62) {
+    return { widthMm: detected.width, printWidth: detected.printWidth || dotsForWidthMm(detected.width) };
+  }
+  let savedMm = 62;
+  try {
+    const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('brother-ql-paper-type') : null;
+    if (saved) { const n = parseInt(saved, 10); if (n >= 12 && n <= 62) savedMm = n; } // e.g. "62", "29"
+  } catch { /* ignore */ }
+  return { widthMm: savedMm, printWidth: dotsForWidthMm(savedMm) };
+}
+
 export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; message: string }> {
   const heading = spec.badge ? `${spec.badge} · ${spec.title}` : spec.title;
   try {
@@ -759,8 +808,14 @@ export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; m
         const connected = await printerService.connect();
         if (!connected) return { success: false, message: 'Couldn\'t reach the Brother printer — make sure it\'s on, plugged in via USB, and Brother\'s own P-touch/QL software is closed, then try again.' };
       }
-      const canvas = await rasterizeLabel(spec);
-      const ok = await printerService.print(canvasToRasterJob(canvas));
+      // Detect the loaded roll + check for printer errors before sending anything.
+      const report = await printerService.probeStatus().catch(() => null);
+      if (report?.errors?.length) {
+        return { success: false, message: `Printer not ready: ${report.errors[0].toLowerCase()}. Fix it and print again.` };
+      }
+      const media = resolvePrintMedia(report?.paper);
+      const canvas = await rasterizeLabel(spec, media.printWidth);
+      const ok = await printerService.print(canvasToRasterJob(canvas, media.widthMm));
       return ok
         ? { success: true, message: `Printed label: ${heading}` }
         : { success: false, message: 'Failed to send data to printer.' };

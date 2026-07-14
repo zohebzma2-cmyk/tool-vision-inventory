@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Settings, CheckCircle, AlertCircle } from "lucide-react";
+import { Settings, CheckCircle, AlertCircle, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { LABEL_SIZES, type LabelSpec } from "@/utils/brotherQL";
+import { printerService, isPrintingSupported } from "./PrinterService";
 
 interface PaperTypeConfigProps {
   onPaperTypeChange?: (paperType: string) => void;
@@ -17,7 +18,35 @@ export function PaperTypeConfig({ onPaperTypeChange }: PaperTypeConfigProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [selectedPaperType, setSelectedPaperType] = useState<string>('62');
   const [currentPaperSpec, setCurrentPaperSpec] = useState<LabelSpec>(LABEL_SIZES['62']);
+  const [detecting, setDetecting] = useState(false);
   const { toast } = useToast();
+
+  /** Ask the connected QL-800 what roll is loaded and auto-select the matching paper type. */
+  const detectLoadedRoll = async () => {
+    if (!printerService.isConnected) {
+      toast({ title: "Printer not connected", description: "Connect the Brother printer first (Storage tab → Setup Printer).", variant: "destructive" });
+      return;
+    }
+    setDetecting(true);
+    try {
+      const report = await printerService.probeStatus();
+      const w = report?.paper?.width as number | undefined;
+      if (report?.errors?.length) {
+        toast({ title: "Printer reported an issue", description: report.errors[0], variant: "destructive" });
+      } else if (w && LABEL_SIZES[String(w)]) {
+        handlePaperTypeChange(String(w));
+        toast({ title: "Roll detected", description: `Loaded roll is ${w}mm — paper set automatically.`, variant: "success" });
+      } else if (w) {
+        toast({ title: `Detected ${w}mm roll`, description: "No exact preset — pick the closest below.", });
+      } else {
+        toast({ title: "Couldn't read the roll", description: "The printer didn't report media. Pick it manually below.", });
+      }
+    } catch (e) {
+      toast({ title: "Detection failed", description: String((e as Error)?.message || e), variant: "destructive" });
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   useEffect(() => {
     // Load saved paper type from localStorage
@@ -86,15 +115,18 @@ export function PaperTypeConfig({ onPaperTypeChange }: PaperTypeConfigProps) {
               </Badge>
             </div>
             
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => setShowDialog(true)}
-              className="w-full"
-            >
-              <Settings className="h-4 w-4 mr-2" />
-              Configure Paper Type
-            </Button>
+            <div className="flex gap-2">
+              {isPrintingSupported() && (
+                <Button variant="secondary" size="sm" onClick={detectLoadedRoll} disabled={detecting} className="flex-1">
+                  {detecting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
+                  Detect loaded roll
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={() => setShowDialog(true)} className="flex-1">
+                <Settings className="h-4 w-4 mr-2" />
+                Configure
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
