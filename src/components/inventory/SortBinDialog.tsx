@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Camera, Loader2, Plus, Trash2, Check, Printer, Boxes, ArrowRight, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -311,11 +311,16 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
           <DialogTitle className="flex items-center gap-2">
             {step === "location" ? <MapPin className="h-5 w-5" /> : <Boxes className="h-5 w-5" />} {heading}
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Sort bins into a space and rack, confirm the contents and size, and print numbered labels.
+          </DialogDescription>
         </DialogHeader>
+
+        {isNew && <StepDots step={step} />}
 
         {/* STEP 1 — where are we sorting */}
         {step === "location" && (
-          <div className="space-y-4">
+          <div className="space-y-4 animate-in-up">
             <p className="text-sm text-muted-foreground">
               Pick the space and rack you're organizing. We'll number each bin and make labels for all of them.
             </p>
@@ -359,7 +364,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         {/* STEP 2 — the bin */}
         {step === "bin" && (
           <>
-            <div className="space-y-4">
+            <div className="space-y-4 animate-in-up">
               {aiBusy ? (
                 <VisionProgress imageDataUrl={imageDataUrl} stages={[...VISION_STAGES.identifyBin]} />
               ) : !imageDataUrl ? (
@@ -453,7 +458,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
         {/* STEP 3 — saved: labels + loop */}
         {step === "saved" && savedBin && (
-          <div className="space-y-4 py-2">
+          <div className="space-y-4 py-2 animate-in-up">
             <div className="flex flex-col items-center gap-2 text-center animate-pop">
               <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-7 w-7" /></span>
               <p className="font-display text-lg font-semibold">Bin {savedBin.number || ""} sorted</p>
@@ -466,7 +471,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
             {isLabelOutputSupported() && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground text-center">Print labels</p>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2 stagger">
                   <Button onClick={printBinLabel}><Printer className="h-4 w-4 mr-2" /> Bin {savedBin.number || ""} label</Button>
                   {ctx.rack && (
                     <Button variant={printed.rack ? "outline" : "secondary"} onClick={printRackLabel}>
@@ -492,6 +497,32 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A slim Where → Sort → Done progress row that fills in as the session advances. */
+function StepDots({ step }: { step: Step }) {
+  const idx = step === "location" ? 0 : step === "bin" ? 1 : 2;
+  const labels = ["Where", "Sort", "Done"];
+  return (
+    <div className="flex items-center justify-center gap-1 pb-1">
+      {labels.map((label, i) => (
+        <div key={label} className="flex items-center gap-1.5">
+          <span className={cn(
+            "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold transition-all duration-300",
+            i < idx ? "bg-primary text-primary-foreground"
+              : i === idx ? "bg-primary/15 text-primary ring-2 ring-primary/40 tv-breathe"
+              : "bg-muted text-muted-foreground",
+          )}>
+            {i < idx ? <Check className="h-3 w-3" /> : i + 1}
+          </span>
+          <span className={cn("text-xs transition-colors", i === idx ? "text-foreground font-medium" : "text-muted-foreground")}>{label}</span>
+          {i < labels.length - 1 && (
+            <span className={cn("mx-1 h-px w-4 sm:w-6 transition-colors duration-500", i < idx ? "bg-primary" : "bg-border")} />
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
