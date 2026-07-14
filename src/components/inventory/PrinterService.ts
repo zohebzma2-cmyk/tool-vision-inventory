@@ -729,6 +729,10 @@ function canvasToRasterJob(canvas: HTMLCanvasElement): number[] {
   qlr.setTwoColorMode(false);
   qlr.setAutoCut(true);
   qlr.setMargin(35); // ~3 mm
+  // Print-information command (ESC i z): tells the QL-800 the media width (62 mm = 696 dots) and the
+  // raster-line count. WITHOUT this the printer doesn't know the media and silently discards the job
+  // — which is exactly why prints weren't coming out. Height H = number of raster lines, continuous.
+  qlr.setMedia(62, 0, H, true);
   qlr.enterRasterMode();
   qlr.setFeedAmount(1);
 
