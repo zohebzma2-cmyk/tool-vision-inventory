@@ -473,11 +473,21 @@ export function LocationsList({
             <div className="mx-auto w-20 h-20 bg-muted rounded-full flex items-center justify-center mb-4">
               <MapPin className="h-10 w-10 text-muted-foreground" />
             </div>
-            <h3 className="font-display text-lg font-semibold mb-2">No locations yet</h3>
-            <p className="text-muted-foreground max-w-sm mx-auto">
-              A location is a storage unit inside a space. Point the camera at a
-              pegboard, drawer, or shelf and it turns into a labeled grid of slots.
+            <h3 className="font-display text-lg font-semibold mb-2">No storage yet</h3>
+            <p className="text-muted-foreground max-w-sm mx-auto mb-5">
+              A location is a storage unit — a pegboard, drawer, shelf, or bin. Pick how you'd like to start:
             </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button onClick={() => setShowMapDialog(true)}>
+                <Grid3x3 className="h-4 w-4 mr-2" /> Map a board with the camera
+              </Button>
+              <Button variant="secondary" onClick={() => setShowSortBin(true)}>
+                <Boxes className="h-4 w-4 mr-2" /> Sort a bin
+              </Button>
+              <Button variant="outline" onClick={() => setShowAddDialog(true)}>
+                <Plus className="h-4 w-4 mr-2" /> Add by hand
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -492,7 +502,7 @@ export function LocationsList({
                         <span className="font-mono text-xs">{location.qr_code}</span>
                       </div>
                     </div>
-                    <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-1 md:opacity-60 md:group-hover:opacity-100 transition-opacity">
                       {location.grid_rows && location.grid_cols && (
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="View slot map" onClick={() => setMapLoc(location)}>
                           <Grid3x3 className="h-4 w-4" />
