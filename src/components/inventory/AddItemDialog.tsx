@@ -409,7 +409,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add New Item</DialogTitle>
+          <DialogTitle>Add a tool</DialogTitle>
           <DialogDescription>
             Add a photo to identify the tool or extract text, then fill in details.
           </DialogDescription>

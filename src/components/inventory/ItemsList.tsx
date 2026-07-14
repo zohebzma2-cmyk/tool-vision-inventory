@@ -279,11 +279,11 @@ export function ItemsList() {
       const newLocName = editLocationId ? (locations.find((l:any) => (l as any).id === editLocationId)?.name || null) : null;
 
       setItems(prev => prev.map(i => i.id === editingId ? { ...i, ...data, __locationName: newLocName } : i));
-      toast({ title: 'Item Updated', description: 'Changes saved successfully.' });
+      toast({ title: 'Item updated', description: 'Changes saved successfully.' });
       setShowEditDialog(false);
       setEditingId(null);
     } catch (err) {
-      toast({ title: 'Update Failed', description: 'Could not save changes.', variant: 'destructive' });
+      toast({ title: 'Update failed', description: 'Could not save changes.', variant: 'destructive' });
     }
   };
 
@@ -462,7 +462,7 @@ export function ItemsList() {
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Item</DialogTitle>
+            <DialogTitle>Edit item</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleUpdateItem} className="space-y-4">
