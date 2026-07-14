@@ -517,33 +517,14 @@ export async function autoPrintLabel(
 // Test print function
 export async function testPrint(): Promise<{ success: boolean; message: string }> {
   try {
-    // Connect to printer if not already connected
-    if (!printerService.isConnected) {
-      console.log('Printer not connected, attempting to connect...');
-      const connected = await printerService.connect();
-      if (!connected) {
-        return {
-          success: false,
-          message: 'Failed to connect to Brother QL printer. Please ensure it\'s connected via USB and try again.'
-        };
-      }
-    }
-
-    console.log('Sending red "TEST" print...');
-    const printed = await (printerService as any).testPrintWordRed('TEST');
-    
-    if (printed) {
-      return {
-        success: true,
-        message: 'Test print sent successfully! Check your printer for output.'
-      };
-    } else {
-      return {
-        success: false,
-        message: 'Failed to send test print to Brother QL printer'
-      };
-    }
-
+    // Print a REAL label through the same clean canvas-raster path as every other label — so this
+    // test actually validates the working print pipeline and prints on any standard DK roll (not the
+    // old two-color red placeholder, which needed DK-2251 red/black tape and drew only a border).
+    return await printLabel({
+      title: "Tool Vision",
+      lines: ["Test label — printer OK", new Date().toLocaleString()],
+      qr: "toolvision-test",
+    });
   } catch (error) {
     console.error('Test print error:', error);
     return {
