@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan, Smartphone } from "lucide-react";
+import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan, Smartphone, Box, ChevronDown, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +28,7 @@ interface PlanSpace {
   rect: FloorRect | null;
   slotCount: number;
   filledCount: number;
+  contents: { name: string; quantity: number }[]; // what's stored inside (directly + via slots)
 }
 
 interface Props {
@@ -60,7 +61,11 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [blueprintOpen, setBlueprintOpen] = useState(false);
   const [blueprintZones, setBlueprintZones] = useState<Array<{ id: string; name: string; type: string; rect: { x: number; y: number; w: number; h: number } }>>([]);
   const [phoneScanOpen, setPhoneScanOpen] = useState(false);
+  const [view, setView] = useState<"list" | "plan">("list"); // file-explorer list is the default
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [reloadKey, setReloadKey] = useState(0);
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
 
@@ -110,7 +115,30 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           slotsBySpace.set(s.parent_location_id, agg);
         });
 
-        setSpaces(spaceRows.map((k) => ({
+        // What's actually stored in each child location — items linked directly to it (bins) OR to
+        // one of its slots (mapped pegboards/shelves). This powers the file-explorer contents list.
+        const childIds = (kids ?? []).map((k) => k.id);
+        const slotParent = new Map((slots ?? []).map((s) => [s.id, s.parent_location_id] as const));
+        const allLocIds = [...childIds, ...(slots ?? []).map((s) => s.id)];
+        const { data: contentLinks } = allLocIds.length
+          ? await supabase.from("item_locations").select("item_id, quantity, location_id").in("location_id", allLocIds).is("date_removed", null)
+          : { data: [] as { item_id: string; quantity: number; location_id: string }[] };
+        const itemIds = [...new Set((contentLinks ?? []).map((l) => l.item_id))];
+        const { data: itemRows } = itemIds.length
+          ? await supabase.from("items").select("id, name").in("id", itemIds)
+          : { data: [] as { id: string; name: string }[] };
+        const nameById = new Map((itemRows ?? []).map((i) => [i.id, i.name] as const));
+        const contentsBySpace = new Map<string, { name: string; quantity: number }[]>();
+        (contentLinks ?? []).forEach((l) => {
+          const childId = childIds.includes(l.location_id) ? l.location_id : slotParent.get(l.location_id);
+          const nm = nameById.get(l.item_id);
+          if (!childId || !nm) return;
+          const arr = contentsBySpace.get(childId) ?? [];
+          arr.push({ name: nm, quantity: l.quantity ?? 1 });
+          contentsBySpace.set(childId, arr);
+        });
+
+        setSpaces((kids ?? []).map((k) => ({
           id: k.id,
           name: k.name,
           type: k.type,
@@ -118,6 +146,7 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           rect: ((k.layout as { floorRect?: FloorRect } | null)?.floorRect) ?? null,
           slotCount: slotsBySpace.get(k.id)?.total ?? 0,
           filledCount: slotsBySpace.get(k.id)?.filled ?? 0,
+          contents: contentsBySpace.get(k.id) ?? [],
         })));
       } catch (e) {
         toast({ title: "Couldn't load the plan", description: String((e as Error)?.message || e), variant: "destructive" });
@@ -264,6 +293,63 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                 <Plus className="h-4 w-4 mr-2" /> Add storage location
               </Button>
             </div>
+
+            {/* Contents ⇄ Floor plan segmented toggle (glass pill) */}
+            <div className="inline-flex rounded-full border border-white/20 bg-background/60 backdrop-blur-xl p-0.5 text-sm shadow-sm">
+              {(["list", "plan"] as const).map((v) => (
+                <button key={v} type="button" onClick={() => setView(v)}
+                  className={cn("px-4 py-1.5 rounded-full transition-all", view === v ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground")}>
+                  {v === "list" ? "Contents" : "Floor plan"}
+                </button>
+              ))}
+            </div>
+
+            {view === "list" ? (
+              /* File-explorer: every storage location, expandable to reveal what's inside. */
+              <div className="space-y-2">
+                {spaces.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+                    No storage locations here yet — add a shelf, rack, or bin above.
+                  </div>
+                ) : spaces.map((s) => {
+                  const isOpen = expanded.has(s.id);
+                  const count = s.slotCount > 0
+                    ? `${s.filledCount}/${s.slotCount} slots`
+                    : `${s.contents.length} item${s.contents.length === 1 ? "" : "s"}`;
+                  return (
+                    <div key={s.id} className="rounded-2xl border border-white/15 bg-card/70 backdrop-blur-xl overflow-hidden shadow-soft">
+                      <button type="button" onClick={() => toggleExpanded(s.id)}
+                        className="w-full flex items-center gap-3 p-3 text-left transition-colors hover:bg-muted/40 active:bg-muted/60">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+                          <Box className="h-5 w-5" aria-hidden />
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block font-display font-semibold truncate">{s.name}</span>
+                          <span className="block text-xs text-muted-foreground capitalize">{s.type} · {count}</span>
+                        </span>
+                        <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform shrink-0", isOpen && "rotate-180")} aria-hidden />
+                      </button>
+                      {isOpen && (
+                        <div className="border-t border-white/10 px-3 py-2 space-y-1 animate-in-up">
+                          {s.contents.length === 0 ? (
+                            <p className="text-xs text-muted-foreground py-1.5">Nothing stored here yet.</p>
+                          ) : s.contents.map((c, i) => (
+                            <div key={i} className="flex items-center justify-between gap-2 text-sm py-1 border-b border-white/5 last:border-0">
+                              <span className="truncate">{c.name}</span>
+                              {c.quantity > 1 && <span className="font-mono text-xs text-muted-foreground shrink-0">×{c.quantity}</span>}
+                            </div>
+                          ))}
+                          <Button size="sm" variant="ghost" className="w-full mt-1.5 text-primary" onClick={() => onOpenSpace?.(s.id)}>
+                            Open {s.name} <ArrowRight className="h-4 w-4 ml-1.5" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+            <>
             <div className="flex flex-wrap items-center gap-2">
               {placed.length > 0 && (
                 <Button size="sm" variant={editMode ? "default" : "outline"} onClick={() => setEditMode(!editMode)}>
@@ -401,6 +487,8 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
             )}
             {!editMode && placed.length > 0 && (
               <p className="text-xs text-muted-foreground">Tap a space to open its slot map. Use Arrange to move and resize.</p>
+            )}
+            </>
             )}
           </div>
         )}
