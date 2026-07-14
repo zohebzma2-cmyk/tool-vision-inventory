@@ -11,6 +11,7 @@ import { HowItWorks } from "@/components/onboarding/HowItWorks";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
 import { leadsWithScanner } from "@/lib/platform";
@@ -21,6 +22,7 @@ const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [scanCode, setScanCode] = useState<string | undefined>(undefined);
   const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>("items");
   const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
@@ -32,6 +34,13 @@ const Index = () => {
   useRealtimeSync(["items", "locations", "item_locations"], () => {
     stats.refresh();
     setSyncTick((t) => t + 1);
+  });
+
+  // A USB barcode/QR scanner (keyboard-wedge) on the laptop: a scan opens the scanner dialog with
+  // the code already resolved — same lookup + result UI as the camera, no camera needed.
+  useBarcodeScanner((code) => {
+    setScanCode(code);
+    setShowQRScanner(true);
   });
 
   // First-run onboarding: once per account, and only while the wall is empty.
@@ -280,7 +289,11 @@ const Index = () => {
         }}
       />
 
-      <QRScanner open={showQRScanner} onOpenChange={setShowQRScanner} />
+      <QRScanner
+        open={showQRScanner}
+        onOpenChange={(v) => { setShowQRScanner(v); if (!v) setScanCode(undefined); }}
+        initialCode={scanCode}
+      />
 
       <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
 

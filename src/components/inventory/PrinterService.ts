@@ -35,6 +35,7 @@ interface PrinterService {
   disconnect: () => void;
 }
 
+import QRCode from 'qrcode';
 import { createBrotherQLPrintJob, BrotherQLRaster } from '../../utils/brotherQL';
 
 class BrotherQLPrinterService implements PrinterService {
@@ -584,50 +585,208 @@ export async function setupPrinter(): Promise<boolean> {
   return await printerService.connect();
 }
 
-/** Render a multi-line text label to a canvas sized for a 62 mm Brother label. */
-function rasterizeTextLabel(text: string): HTMLCanvasElement {
-  const lines = text.split('\n').filter(Boolean);
-  const W = 696; // 62 mm @ ~300 dpi, matching the template rasterizer
-  const pad = 40;
-  const lineH = 78;
-  const H = Math.max(240, pad * 2 + lines.length * lineH);
+const LABEL_FONT = 'Barlow, "Helvetica Neue", Arial, sans-serif';
+
+/** Trim + ellipsize `text` so it fits `maxW` at the ctx's current font. */
+function ellipsizeCtx(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+/**
+ * Fit a title into a box `maxW` wide: pick the largest font (maxPx..minPx) at which it fits
+ * on one line, or wraps cleanly onto two. Falls back to a single ellipsized line at minPx.
+ */
+function fitTitle(ctx: CanvasRenderingContext2D, title: string, maxW: number, maxPx: number, minPx: number): { px: number; lines: string[] } {
+  const words = title.split(/\s+/).filter(Boolean);
+  for (let px = maxPx; px >= minPx; px -= 2) {
+    ctx.font = `700 ${px}px ${LABEL_FONT}`;
+    if (ctx.measureText(title).width <= maxW) return { px, lines: [title] };
+    for (let i = 1; i < words.length; i++) {
+      const a = words.slice(0, i).join(' ');
+      const b = words.slice(i).join(' ');
+      if (ctx.measureText(a).width <= maxW && ctx.measureText(b).width <= maxW) return { px, lines: [a, b] };
+    }
+  }
+  ctx.font = `700 ${minPx}px ${LABEL_FONT}`;
+  return { px: minPx, lines: [ellipsizeCtx(ctx, title, maxW)] };
+}
+
+export interface LabelSpec {
+  /** Big, high-legibility code shown first (e.g. "BIN 12") — for grab-from-a-distance reading. */
+  badge?: string;
+  /** Primary name. */
+  title: string;
+  /** Secondary detail lines. */
+  lines?: string[];
+  /** QR payload (rendered on the left). */
+  qr?: string;
+}
+
+/** Load a QR payload into an <img> (or null if none / it fails). */
+async function loadQrImage(qr?: string): Promise<HTMLImageElement | null> {
+  if (!qr) return null;
+  try {
+    const url = await QRCode.toDataURL(qr, { margin: 0, scale: 8 });
+    return await new Promise<HTMLImageElement>((res, rej) => {
+      const img = new Image();
+      img.onload = () => res(img);
+      img.onerror = rej;
+      img.src = url;
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Render a clean label to a canvas sized for a 62 mm Brother label: an optional QR on the left,
+ * an optional big badge (e.g. a bin number), a bold auto-fit title (wrapping to two lines when
+ * long) and detail lines — the whole text block vertically centered so there's no dead space or
+ * overlap. Every line auto-fits its column width, so nothing ever runs into the QR.
+ */
+async function rasterizeLabel(spec: LabelSpec): Promise<HTMLCanvasElement> {
+  const title = (spec.title || 'Label').trim();
+  const details = (spec.lines ?? []).map((l) => l.trim()).filter(Boolean);
+  const badge = spec.badge?.trim();
+
+  const W = 696; // 62 mm @ ~300 dpi
+  const pad = 48;
+  const gap = 30; // between QR and text
+
+  const qrImg = await loadQrImage(spec.qr);
+  const qrSize = 220;
+  const textX = pad + (qrImg ? qrSize + gap : 0);
+  const textW = W - textX - pad;
+
+  const meas = document.createElement('canvas').getContext('2d')!;
+
+  // Badge: as large as fits on one line, up to 96px.
+  let badgePx = 0, badgeLineH = 0, badgeText = '';
+  if (badge) {
+    badgePx = 96;
+    meas.font = `800 ${badgePx}px ${LABEL_FONT}`;
+    while (badgePx > 46 && meas.measureText(badge).width > textW) {
+      badgePx -= 2;
+      meas.font = `800 ${badgePx}px ${LABEL_FONT}`;
+    }
+    badgeText = ellipsizeCtx(meas, badge, textW);
+    badgeLineH = Math.round(badgePx * 1.04);
+  }
+
+  const fit = fitTitle(meas, title, textW, badge ? 48 : 66, 30);
+  const titleLineH = Math.round(fit.px * 1.16);
+  const detailPx = 36;
+  const detailLineH = 48;
+  meas.font = `400 ${detailPx}px ${LABEL_FONT}`;
+  const detailLines = details.map((d) => ellipsizeCtx(meas, d, textW));
+
+  const blockH =
+    (badge ? badgeLineH + 8 : 0) +
+    fit.lines.length * titleLineH +
+    (detailLines.length ? 12 + detailLines.length * detailLineH : 0);
+  const H = Math.max(qrImg ? qrSize + pad * 2 : 190, blockH + pad * 2);
+
   const canvas = document.createElement('canvas');
   canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = '#000000'; ctx.textBaseline = 'middle';
-  lines.forEach((line, i) => {
-    // First line is the title (bold, larger); the rest are details.
-    ctx.font = i === 0 ? '700 60px Barlow, system-ui, sans-serif' : '400 40px Barlow, system-ui, sans-serif';
-    ctx.fillText(line, pad, pad + lineH / 2 + i * lineH, W - pad * 2);
-  });
+
+  if (qrImg) ctx.drawImage(qrImg, pad, Math.round((H - qrSize) / 2), qrSize, qrSize);
+
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+
+  let cy = Math.round((H - blockH) / 2); // top of the centered text block
+  if (badge) {
+    ctx.fillStyle = '#111111';
+    ctx.font = `800 ${badgePx}px ${LABEL_FONT}`;
+    ctx.fillText(badgeText, textX, cy + badgeLineH / 2);
+    cy += badgeLineH + 8;
+  }
+  ctx.fillStyle = '#111111';
+  ctx.font = `700 ${fit.px}px ${LABEL_FONT}`;
+  for (const line of fit.lines) {
+    ctx.fillText(line, textX, cy + titleLineH / 2);
+    cy += titleLineH;
+  }
+  if (detailLines.length) {
+    cy += 12;
+    ctx.fillStyle = '#444444';
+    ctx.font = `400 ${detailPx}px ${LABEL_FONT}`;
+    for (const line of detailLines) {
+      ctx.fillText(line, textX, cy + detailLineH / 2);
+      cy += detailLineH;
+    }
+  }
   return canvas;
 }
 
 // Print an arbitrary text label. WebUSB (desktop Brother QL) when available; on iOS/other browsers
 // with no WebUSB, render to an image and hand it to the system share sheet (AirPrint / Brother
 // iPrint&Label) — so the same button works on the phone where WebUSB doesn't exist.
-export async function printTextLabel(text: string): Promise<{ success: boolean; message: string }> {
+/**
+ * Pack a rendered label canvas into a Brother QL raster job (uncompressed black), one raster line
+ * per canvas row. The canvas is 696 px wide to match a 62 mm continuous label's print area, so the
+ * clean on-screen design is exactly what the laptop printer lays down.
+ */
+function canvasToRasterJob(canvas: HTMLCanvasElement): number[] {
+  const ctx = canvas.getContext('2d')!;
+  const W = canvas.width, H = canvas.height;
+  const px = ctx.getImageData(0, 0, W, H).data;
+  const bytesPerLine = Math.ceil(W / 8); // 87 for 696 dots
+
+  const qlr = new BrotherQLRaster('QL-800');
+  qlr.clear();
+  qlr.initialize();
+  qlr.setStatus();
+  qlr.setTwoColorMode(false);
+  qlr.setAutoCut(true);
+  qlr.setMargin(35); // ~3 mm
+  qlr.enterRasterMode();
+  qlr.setFeedAmount(1);
+
+  for (let y = 0; y < H; y++) {
+    const line = new Array(bytesPerLine).fill(0);
+    for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      const lum = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+      // Opaque + dark → a black dot; MSB is the left-most pixel of the byte.
+      if (px[i + 3] > 128 && lum < 128) line[x >> 3] |= 0x80 >> (x & 7);
+    }
+    qlr.addRasterLine(line);
+  }
+  qlr.print();
+  return qlr.getData();
+}
+
+export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; message: string }> {
+  const heading = spec.badge ? `${spec.badge} · ${spec.title}` : spec.title;
   try {
     if (isPrintingSupported()) {
+      // Laptop Brother QL over WebUSB: raster the exact clean label canvas (QR + badge + text).
       if (!printerService.isConnected) {
         const connected = await printerService.connect();
         if (!connected) return { success: false, message: 'Could not connect to Brother QL printer.' };
       }
-      const ok = await (printerService as any).testPrintWordRed(text);
+      const canvas = await rasterizeLabel(spec);
+      const ok = await printerService.print(canvasToRasterJob(canvas));
       return ok
-        ? { success: true, message: `Printed label: ${text.split('\n')[0]}` }
+        ? { success: true, message: `Printed label: ${heading}` }
         : { success: false, message: 'Failed to send data to printer.' };
     }
 
     // No WebUSB (iOS / Safari): share or download a label image.
-    const canvas = rasterizeTextLabel(text);
+    const canvas = await rasterizeLabel(spec);
     const blob: Blob = await new Promise((res, rej) =>
       canvas.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't render label"))), 'image/png'),
     );
-    const file = new File([blob], `${(text.split('\n')[0] || 'label').replace(/[^\w-]+/g, '_')}.png`, { type: 'image/png' });
+    const fileBase = (spec.badge || spec.title || 'label').replace(/[^\w-]+/g, '_');
+    const file = new File([blob], `${fileBase}.png`, { type: 'image/png' });
     if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
-      await navigator.share({ files: [file], title: text.split('\n')[0] || 'Label' });
+      await navigator.share({ files: [file], title: heading });
       return { success: true, message: 'Label sent to the share sheet — pick Print or your Brother app.' };
     }
     const url = URL.createObjectURL(blob);
@@ -639,5 +798,11 @@ export async function printTextLabel(text: string): Promise<{ success: boolean; 
     if ((e as Error)?.name === 'AbortError') return { success: true, message: 'Share canceled.' };
     return { success: false, message: `Print failed: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
+}
+
+/** Back-compat: a plain multi-line text label (first line = title). */
+export async function printTextLabel(text: string, qr?: string): Promise<{ success: boolean; message: string }> {
+  const parts = text.split('\n').map((s) => s.trim()).filter(Boolean);
+  return printLabel({ title: parts[0] ?? 'Label', lines: parts.slice(1), qr });
 }
 

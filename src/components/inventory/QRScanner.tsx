@@ -10,6 +10,9 @@ import { BinFillDialog } from "./BinFillDialog";
 interface QRScannerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set as the dialog opens (e.g. from a USB barcode scanner), resolve this code directly
+   *  instead of starting the camera. */
+  initialCode?: string;
 }
 
 interface ScanResult {
@@ -95,7 +98,7 @@ async function resolveCode(code: string): Promise<ScanResult> {
   return { code, kind: "unknown", title: "Not in your inventory", path: "", items: [] };
 }
 
-export function QRScanner({ open, onOpenChange }: QRScannerProps) {
+export function QRScanner({ open, onOpenChange, initialCode }: QRScannerProps) {
   const [scanning, setScanning] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -125,6 +128,12 @@ export function QRScanner({ open, onOpenChange }: QRScannerProps) {
       setResolving(false);
     }
   }, [stopCamera, toast]);
+
+  // A code handed in from a USB barcode scanner: resolve it straight away, no camera.
+  useEffect(() => {
+    if (open && initialCode) void onDecoded(initialCode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialCode]);
 
   // Live camera decode loop.
   useEffect(() => {

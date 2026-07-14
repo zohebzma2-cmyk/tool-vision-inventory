@@ -10,9 +10,31 @@ interface Props {
   className?: string;
 }
 
+const LABEL_FONT = "Helvetica, Arial, sans-serif";
+
+// A single reused canvas context for text measurement — cheap, client-only.
+let _measureCtx: CanvasRenderingContext2D | null = null;
+function measureWidth(text: string, weight: number, sizePx: number): number {
+  if (typeof document === "undefined") return text.length * sizePx * 0.55; // SSR estimate
+  if (!_measureCtx) _measureCtx = document.createElement("canvas").getContext("2d");
+  if (!_measureCtx) return text.length * sizePx * 0.55;
+  _measureCtx.font = `${weight} ${sizePx}px ${LABEL_FONT}`;
+  return _measureCtx.measureText(text).width;
+}
+
+/** Trim + ellipsize `text` so it fits `maxW` at the given font. */
+function ellipsize(text: string, weight: number, sizePx: number, maxW: number): string {
+  if (measureWidth(text, weight, sizePx) <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && measureWidth(t + "…", weight, sizePx) > maxW) t = t.slice(0, -1);
+  return t + "…";
+}
+
 /**
  * Renders a label template to an SVG using percentage-positioned elements.
- * Resolution-independent, so the same template previews on screen and can later feed the printer.
+ * Text auto-fits its box: it shrinks to fit the box width (never overflowing into a
+ * neighbouring QR or field), and ellipsizes only as a last resort. Resolution-independent,
+ * so the same template previews on screen and can later feed the printer.
  */
 export function LabelTemplateRenderer({ template, data, pxPerMm = 4, className }: Props) {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
@@ -67,8 +89,21 @@ export function LabelTemplateRenderer({ template, data, pxPerMm = 4, className }
           );
         }
 
-        const text = renderTokens(el.value ?? "", data);
-        const fontSize = Math.max(6, h * 0.72 * (el.fontScale ?? 1));
+        const raw = renderTokens(el.value ?? "", data);
+        if (!raw) return null;
+
+        const weight = el.bold ? 700 : 400;
+        const maxW = Math.max(1, w * 0.96); // small inset so glyphs never touch the next field
+        let fontSize = Math.max(6, h * 0.72 * (el.fontScale ?? 1));
+
+        // Shrink to fit the box width; ellipsize only if it still overflows at the floor size.
+        let text = raw;
+        const measured = measureWidth(text, weight, fontSize);
+        if (measured > maxW) {
+          fontSize = Math.max(6, fontSize * (maxW / measured));
+          if (measureWidth(text, weight, fontSize) > maxW) text = ellipsize(text, weight, fontSize, maxW);
+        }
+
         const anchor = el.align === "center" ? "middle" : el.align === "right" ? "end" : "start";
         const tx = el.align === "center" ? x + w / 2 : el.align === "right" ? x + w : x;
         return (
@@ -77,8 +112,8 @@ export function LabelTemplateRenderer({ template, data, pxPerMm = 4, className }
             x={tx}
             y={y + h / 2}
             fontSize={fontSize}
-            fontWeight={el.bold ? 700 : 400}
-            fontFamily="Helvetica, Arial, sans-serif"
+            fontWeight={weight}
+            fontFamily={LABEL_FONT}
             fill={fill}
             textAnchor={anchor}
             dominantBaseline="central"
