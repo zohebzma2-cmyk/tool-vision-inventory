@@ -19,7 +19,7 @@ const KINDS = ["part", "tool", "set", "consumable"] as const;
 // Real Home Depot tote sizes (Sterilite / HDX / IRIS / Rubbermaid), for the one-tap size chooser.
 // Canonical capacity is quarts; small totes are shown in qt, larger ones in gal (4 qt = 1 gal).
 const SIZE_PRESETS: { qt: number; unit: "qt" | "gal" }[] = [
-  { qt: 6, unit: "qt" },    // shoebox
+  { qt: 6.5, unit: "qt" },  // HDX 6.5 qt Tough Tote — HD's smallest
   { qt: 16, unit: "qt" },   // storage box
   { qt: 28, unit: "qt" },   // medium box
   { qt: 48, unit: "gal" },  // 12 gal tough tote
@@ -503,7 +503,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
                         <Input
                           type="number" min={1} max={sizeUnit === "qt" ? 240 : 60}
                           value={sizeQt ? (sizeUnit === "qt" ? sizeQt : +(sizeQt / 4).toFixed(1)) : ""}
-                          onChange={(e) => { const n = Number(e.target.value) || 0; setSizeQt(sizeUnit === "qt" ? Math.round(n) : Math.round(n * 4)); }}
+                          onChange={(e) => { const n = Number(e.target.value) || 0; setSizeQt(sizeUnit === "qt" ? Math.round(n * 10) / 10 : Math.round(n * 4)); }}
                           className="h-9 w-20" placeholder={sizeUnit}
                         />
                         {/* qt / gal unit toggle */}

@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan, Smartphone, Box, ChevronDown, ArrowRight } from "lucide-react";
+import { Camera, Loader2, Map as MapIcon, Plus, Save, Scan, Smartphone, Box, ChevronDown, ArrowRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
@@ -66,6 +70,44 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [reloadKey, setReloadKey] = useState(0);
   const toggleExpanded = (id: string) =>
     setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string; kind: "space" | "location" } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  /** Delete a location and everything under it (child locations, slots, item links), any depth. */
+  const cascadeDelete = async (rootId: string) => {
+    const all = new Set<string>([rootId]);
+    let frontier = [rootId];
+    while (frontier.length) {
+      const { data } = await supabase.from("locations").select("id").in("parent_location_id", frontier);
+      const next = (data ?? []).map((r) => r.id).filter((id) => !all.has(id));
+      next.forEach((id) => all.add(id));
+      frontier = next;
+    }
+    const ids = [...all];
+    await supabase.from("item_locations").delete().in("location_id", ids);
+    const { error } = await supabase.from("locations").delete().in("id", ids);
+    if (error) throw error;
+  };
+
+  const runDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await cascadeDelete(pendingDelete.id);
+      if (pendingDelete.kind === "space") {
+        toast({ title: "Space deleted", description: `"${pendingDelete.name}" and its storage were removed.`, variant: "success" });
+        onOpenChange(false); // the whole space is gone — close the dialog
+      } else {
+        toast({ title: "Location deleted", description: `"${pendingDelete.name}" was removed.`, variant: "success" });
+        setReloadKey((k) => k + 1);
+      }
+    } catch (e) {
+      toast({ title: "Couldn't delete", description: String((e as Error)?.message || e), variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setPendingDelete(null);
+    }
+  };
   const canvasRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; mode: "move" | "resize"; startX: number; startY: number; orig: FloorRect } | null>(null);
 
@@ -342,9 +384,15 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                               {c.quantity > 1 && <span className="font-mono text-xs text-muted-foreground shrink-0">×{c.quantity}</span>}
                             </div>
                           ))}
-                          <Button size="sm" variant="ghost" className="w-full mt-1.5 text-primary" onClick={() => onOpenSpace?.(s.id)}>
-                            Open {s.name} <ArrowRight className="h-4 w-4 ml-1.5" />
-                          </Button>
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <Button size="sm" variant="ghost" className="flex-1 text-primary" onClick={() => onOpenSpace?.(s.id)}>
+                              Open {s.name} <ArrowRight className="h-4 w-4 ml-1.5" />
+                            </Button>
+                            <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive/10"
+                              onClick={() => setPendingDelete({ id: s.id, name: s.name, kind: "location" })}>
+                              <Trash2 className="h-4 w-4" /><span className="sr-only">Delete {s.name}</span>
+                            </Button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -496,9 +544,38 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="sm:justify-between">
+          {place && (
+            <Button variant="ghost" className="text-destructive hover:bg-destructive/10"
+              onClick={() => setPendingDelete({ id: place.id, name: place.name, kind: "space" })}>
+              <Trash2 className="h-4 w-4 mr-2" /> Delete space
+            </Button>
+          )}
           <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
         </DialogFooter>
+
+        <AlertDialog open={!!pendingDelete} onOpenChange={(v) => { if (!v) setPendingDelete(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete {pendingDelete?.name ?? "this"}?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingDelete?.kind === "space"
+                  ? "This removes the space and every storage location inside it. Tools stored there stay in your inventory (just unlinked). This can't be undone."
+                  : "This removes the location and unlinks any tools stored in it (the tools stay in your inventory). This can't be undone."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={deleting}
+                onClick={(e) => { e.preventDefault(); void runDelete(); }}
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <MapSpaceDialog
           open={addSpaceOpen}
