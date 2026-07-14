@@ -165,7 +165,7 @@ export function LocationsList({
           
           // Show initial toast with status
           const { dismiss } = toast({
-            title: "Location Added!",
+            title: "Location added",
             description: currentStatus,
             duration: 10000, // Keep it visible during printing
           });
@@ -174,7 +174,7 @@ export function LocationsList({
             currentStatus = status;
             dismiss(); // Remove previous toast
             toast({
-              title: "Location Added!",
+              title: "Location added",
               description: status,
               duration: status === 'Print complete!' ? 3000 : 10000,
             });
@@ -189,7 +189,7 @@ export function LocationsList({
             });
           } else {
             toast({
-              title: "Location Added",
+              title: "Location added",
               description: `Location created successfully. Print failed: ${printResult.message}`,
               variant: "destructive"
             });
@@ -197,14 +197,14 @@ export function LocationsList({
         } catch (printError) {
           console.error('Auto-print error:', printError);
           toast({
-            title: "Location Added",
+            title: "Location added",
             description: "Location created but auto-printing failed. Please print manually.",
             variant: "destructive"
           });
         }
       } else {
         toast({
-          title: "Location Added",
+          title: "Location added",
           description: "Location created successfully!",
         });
       }
@@ -255,12 +255,12 @@ export function LocationsList({
     
     if (connected) {
       toast({
-        title: "Printer Connected",
+        title: "Printer connected",
         description: "Brother QL-800 connected successfully! Labels will now auto-print.",
       });
     } else {
       toast({
-        title: "Connection Failed",
+        title: "Connection failed",
         description: "Could not connect to Brother QL-800. Please check USB connection.",
         variant: "destructive"
       });
@@ -272,12 +272,12 @@ export function LocationsList({
     
     if (result.success) {
       toast({
-        title: "Test Print Sent",
+        title: "Test print sent",
         description: result.message,
       });
     } else {
       toast({
-        title: "Test Print Failed",
+        title: "Test print failed",
         description: result.message,
         variant: "destructive"
       });
@@ -286,12 +286,12 @@ export function LocationsList({
 
   const handlePrintLocation = async (id: string) => {
     if (!isPrintingSupported()) {
-      toast({ title: "Printing Unavailable", description: "Printer not connected.", variant: "destructive" });
+      toast({ title: "Printing unavailable", description: "Printer not connected.", variant: "destructive" });
       return;
     }
     let currentStatus = "Preparing to print...";
     const { dismiss } = toast({
-      title: "Printing Label",
+      title: "Printing label",
       description: currentStatus,
       duration: 10000,
     });
@@ -299,17 +299,17 @@ export function LocationsList({
       const result = await autoPrintLabel(id, (status) => {
         currentStatus = status;
         dismiss();
-        toast({ title: "Printing Label", description: status, duration: status === 'Print complete!' ? 3000 : 10000 });
+        toast({ title: "Printing label", description: status, duration: status === 'Print complete!' ? 3000 : 10000 });
       });
       dismiss();
       if (result.success) {
         toast({ title: "Printed", description: result.message });
       } else {
-        toast({ title: "Print Failed", description: result.message, variant: "destructive" });
+        toast({ title: "Print failed", description: result.message, variant: "destructive" });
       }
     } catch (e: any) {
       dismiss();
-      toast({ title: "Print Error", description: String(e?.message || e), variant: "destructive" });
+      toast({ title: "Print error", description: String(e?.message || e), variant: "destructive" });
     }
   };
 
@@ -343,11 +343,11 @@ export function LocationsList({
         .single();
       if (error) throw error;
       setLocations(prev => prev.map(l => l.id === editingId ? data : l));
-      toast({ title: "Location Updated", description: "Changes saved successfully." });
+      toast({ title: "Location updated", description: "Changes saved successfully." });
       setShowEditDialog(false);
       setEditingId(null);
     } catch (err) {
-      toast({ title: "Update Failed", description: "Could not save changes.", variant: "destructive" });
+      toast({ title: "Couldn't save changes", description: "Try again.", variant: "destructive" });
     }
   };
 
@@ -549,12 +549,12 @@ export function LocationsList({
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add New Location</DialogTitle>
+            <DialogTitle>Add a location</DialogTitle>
           </DialogHeader>
           
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="name">Location Name *</Label>
+              <Label htmlFor="name">Location name</Label>
               <Input
                 id="name"
                 value={formData.name}
@@ -565,7 +565,7 @@ export function LocationsList({
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="type">Type *</Label>
+              <Label htmlFor="type">Type</Label>
               <Select 
                 value={formData.type} 
                 onValueChange={(value) => setFormData(prev => ({ ...prev, type: value }))}
@@ -644,12 +644,12 @@ export function LocationsList({
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Location</DialogTitle>
+            <DialogTitle>Edit location</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleUpdateLocation} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-name">Location Name *</Label>
+              <Label htmlFor="edit-name">Location name</Label>
               <Input
                 id="edit-name"
                 value={editFormData.name}
@@ -659,7 +659,7 @@ export function LocationsList({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="edit-type">Type *</Label>
+              <Label htmlFor="edit-type">Type</Label>
               <Select 
                 value={editFormData.type} 
                 onValueChange={(value) => setEditFormData(prev => ({ ...prev, type: value }))}

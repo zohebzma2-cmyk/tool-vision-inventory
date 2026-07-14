@@ -90,7 +90,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
     } catch (err) {
       console.error('getUserMedia error:', err);
       toast({
-        title: 'Camera Error',
+        title: 'Camera error',
         description: 'Could not access camera. Check browser permissions.',
         variant: 'destructive'
       });
@@ -220,7 +220,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
       const description = needsBilling
         ? 'Google Cloud Vision billing is not enabled. Please enable billing for your GCP project and retry.'
         : (rawMsg || 'Failed to classify the image. Please try again.');
-      toast({ title: 'Recognition Failed', description, variant: 'destructive' });
+      toast({ title: "Couldn't identify", description, variant: 'destructive' });
     } finally {
       setIsProcessing(false);
     }
@@ -244,7 +244,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
       const description = needsBilling
         ? 'Google Cloud Vision billing is not enabled. Please enable billing for your GCP project and retry.'
         : (rawMsg || 'Failed to extract text from the image. Please try again.');
-      toast({ title: 'Text Recognition Failed', description, variant: 'destructive' });
+      toast({ title: "Couldn't read the text", description, variant: 'destructive' });
     } finally {
       setIsProcessing(false);
     }
@@ -390,7 +390,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
                   className="h-24 w-full flex flex-col gap-2 pointer-events-none"
                 >
                   <Upload className="h-6 w-6" />
-                  <span className="text-sm">Upload Image</span>
+                  <span className="text-sm">Upload image</span>
                 </Button>
                 <input
                   id={uploadInputId}
@@ -418,7 +418,7 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
                   }}
                 >
                   <Camera className="h-6 w-6" />
-                  <span className="text-sm">Take Photo</span>
+                  <span className="text-sm">Take photo</span>
                 </Button>
               </div>
             </div>
