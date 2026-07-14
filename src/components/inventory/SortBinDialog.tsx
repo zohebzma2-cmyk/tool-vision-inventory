@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Camera, Loader2, Plus, Trash2, Check, Printer, Boxes } from "lucide-react";
+import { Camera, Loader2, Plus, Trash2, Check, Printer, Boxes, ArrowRight, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { generateQRCode } from "@/lib/slots";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { sortBinFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
-import { printTextLabel } from "./PrinterService";
+import { printLabel } from "./PrinterService";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { VisionProgress, VISION_STAGES } from "./VisionProgress";
 
@@ -27,47 +27,144 @@ interface DraftItem {
   name: string; category: string; kind: string; brand: string; model: string; quantity: number; include: boolean;
 }
 
+/** A resolved place (space or rack) we can attach a bin to and print a label for. */
+interface Place { id: string; name: string; qr: string; }
+interface LocRow { id: string; name: string; qr_code: string; type: string; parent_location_id: string | null; }
+
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  /** An existing bin/slot to sort. Pass null to sort a NEW standalone bin (created on save). */
+  /** An existing bin/slot to sort. Pass null to sort NEW bins (a whole space/rack setup session). */
   bin: { id: string; name: string; layout?: Record<string, unknown> | null } | null;
   onSaved?: () => void;
 }
 
+type Step = "location" | "bin" | "saved";
+const NEW = "__new";
+const NONE = "__none";
+
 /**
- * Sort a bin: snap the inside of a tote, the AI lists what's in it AND estimates the tote size,
- * the user confirms the size in gallons, then everything is stored in the bin and a general
- * "what's in here" label is offered. Contents/size/summary persist on the bin's layout.
+ * Sort bins into your garage. For a fresh session you first say WHERE you're sorting — which space
+ * (garage, shed…) and which rack — then snap each bin: the AI lists what's inside and estimates the
+ * tote size, you confirm, and it's stored with an easy-to-read bin number. You can print clean
+ * labels for the space, the rack, and each numbered bin, then loop straight into the next bin.
  */
 export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const { toast } = useToast();
+  const isNew = !bin;
+
+  const [step, setStep] = useState<Step>(isNew ? "location" : "bin");
+
+  // Where we're sorting (fresh sessions).
+  const [spaces, setSpaces] = useState<LocRow[]>([]);
+  const [racks, setRacks] = useState<LocRow[]>([]);
+  const [spaceSel, setSpaceSel] = useState<string>("");
+  const [newSpaceName, setNewSpaceName] = useState("");
+  const [rackSel, setRackSel] = useState<string>(NONE);
+  const [newRackName, setNewRackName] = useState("");
+  const [ctx, setCtx] = useState<{ space?: Place; rack?: Place }>({});
+
+  // Current bin.
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [gallons, setGallons] = useState<string>("");
   const [summary, setSummary] = useState<string>("");
   const [analyzed, setAnalyzed] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [binNumber, setBinNumber] = useState(1);
+
   const [saving, setSaving] = useState(false);
-  const [savedName, setSavedName] = useState<string | null>(null); // set after a successful save
-  const [newName, setNewName] = useState(""); // name for a brand-new standalone bin
-  const isNew = !bin;
+  const [savedBin, setSavedBin] = useState<{ number: number; title: string; qr: string } | null>(null);
+  // Which of the location labels have been printed this session (so we prompt for them just once).
+  const [printed, setPrinted] = useState<{ space?: boolean; rack?: boolean }>({});
+
+  const resetBinFields = () => {
+    setImageDataUrl(null); setDrafts([]); setAnalyzed(false);
+    setGallons(""); setSummary(""); setNewName(""); setSavedBin(null);
+  };
 
   useEffect(() => {
     if (!open) return;
-    // Prefill from any prior sort of this bin.
-    const layout = bin?.layout as { gallons?: number; summary?: string } | null | undefined;
-    setImageDataUrl(null); setDrafts([]); setAnalyzed(false); setSaving(false); setSavedName(null);
-    setNewName("");
-    setGallons(layout?.gallons ? String(layout.gallons) : "");
-    setSummary(typeof layout?.summary === "string" ? layout.summary : "");
-    // Depend on bin?.id (stable), NOT the bin object — the parent passes a fresh object literal
-    // every render, which would otherwise re-fire this reset and wipe the photo/analysis.
+    setSaving(false);
+    setPrinted({});
+    resetBinFields();
+    if (isNew) {
+      setStep("location");
+      setSpaceSel(""); setNewSpaceName(""); setRackSel(NONE); setNewRackName(""); setCtx({});
+      (async () => {
+        const { data } = await supabase
+          .from("locations")
+          .select("id,name,qr_code,type,parent_location_id")
+          .in("type", ["space", "rack"])
+          .eq("is_slot", false);
+        const rows = (data as LocRow[]) || [];
+        setSpaces(rows.filter((r) => r.type === "space"));
+        setRacks(rows.filter((r) => r.type === "rack"));
+      })();
+    } else {
+      setStep("bin");
+      const layout = bin?.layout as { gallons?: number; summary?: string; binNumber?: number } | null | undefined;
+      setGallons(layout?.gallons ? String(layout.gallons) : "");
+      setSummary(typeof layout?.summary === "string" ? layout.summary : "");
+      setBinNumber(Number(layout?.binNumber) || 0);
+      setCtx({});
+    }
+    // Depend on bin?.id (stable), NOT the bin object literal (fresh each render → would wipe state).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, bin?.id]);
 
-  const close = (v: boolean) => { onOpenChange(v); };
+  const close = (v: boolean) => onOpenChange(v);
 
+  // ---- Location step -------------------------------------------------------
+  const racksInSpace = racks.filter((r) => spaceSel && spaceSel !== NEW && r.parent_location_id === spaceSel);
+  const spaceReady = (spaceSel && spaceSel !== NEW) || (spaceSel === NEW && newSpaceName.trim().length > 0);
+  const rackReady = rackSel !== NEW || newRackName.trim().length > 0;
+
+  const resolvePlace = async (type: string, name: string, parentId?: string): Promise<Place> => {
+    const { data, error } = await supabase.from("locations").insert([{
+      name, type, is_slot: false, qr_code: generateQRCode(),
+      parent_location_id: parentId ?? null, layout: { placeKind: type },
+    }]).select("id, name, qr_code").single();
+    if (error) throw error;
+    return { id: data!.id as string, name: data!.name as string, qr: data!.qr_code as string };
+  };
+
+  const fetchNextBinNumber = async (): Promise<number> => {
+    const { data } = await supabase.from("locations").select("layout").eq("type", "bin");
+    const max = (data || []).reduce((m, r) => {
+      const n = Number((r as { layout?: { binNumber?: unknown } })?.layout?.binNumber) || 0;
+      return Math.max(m, n);
+    }, 0);
+    return max + 1;
+  };
+
+  const continueFromLocation = async () => {
+    setSaving(true);
+    try {
+      const space: Place = spaceSel === NEW || !spaceSel
+        ? await resolvePlace("space", newSpaceName.trim() || "Garage")
+        : (() => { const s = spaces.find((x) => x.id === spaceSel)!; return { id: s.id, name: s.name, qr: s.qr_code }; })();
+
+      let rack: Place | undefined;
+      if (rackSel === NEW) rack = await resolvePlace("rack", newRackName.trim() || "Rack", space.id);
+      else if (rackSel && rackSel !== NONE) {
+        const r = racks.find((x) => x.id === rackSel);
+        if (r) rack = { id: r.id, name: r.name, qr: r.qr_code };
+      }
+
+      setCtx({ space, rack });
+      setBinNumber(await fetchNextBinNumber());
+      setStep("bin");
+      onSaved?.(); // a fresh space/rack may have been created — refresh lists behind us
+    } catch (e) {
+      toast({ title: "Couldn't set the location", description: String((e as Error)?.message || e), variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ---- Bin step ------------------------------------------------------------
   const onPickPhoto = async (file?: File) => {
     if (!file) return;
     try {
@@ -88,7 +185,6 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         quantity: f.quantity || 1, include: true,
       })));
       if (tote?.gallonsGuess) setGallons(String(tote.gallonsGuess));
-      // Prefer the AI's overall summary; else derive from the dominant category.
       setSummary(aiSummary || deriveSummary(items.map((i) => i.category)));
       setAnalyzed(true);
       if (items.length === 0) toast({ title: "Nothing recognized", description: "Add rows by hand, or retake with more light." });
@@ -108,54 +204,61 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
   const selected = drafts.filter((d) => d.include && d.name.trim());
   const galNum = Math.max(1, Math.min(55, Number(gallons) || 0));
+  const binTitle = summary.trim() || newName.trim() || `Bin ${binNumber}`;
 
-  // Effective bin name (existing bin, or the new-bin name / a sensible default).
-  const effectiveName = bin?.name ?? (newName.trim() || (summary.trim() ? `Bin — ${summary.trim()}` : "New bin"));
+  const storeItems = async (binId: string) => {
+    if (!selected.length) return;
+    const rows = selected.map((d) => ({
+      name: d.name.trim(), category: d.category || "other",
+      kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
+      brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
+    }));
+    let { data: created, error } = await supabase.from("items").insert(rows).select("id, quantity");
+    if (error && /kind/.test(error.message)) {
+      const withoutKind = rows.map(({ kind: _k, ...r }) => r);
+      ({ data: created, error } = await supabase.from("items").insert(withoutKind).select("id, quantity"));
+    }
+    if (error) throw error;
+    const links = (created || []).map((it) => ({
+      item_id: it.id, location_id: binId, quantity: (it as { quantity?: number }).quantity || 1,
+    }));
+    if (links.length) {
+      const { error: linkErr } = await supabase.from("item_locations").insert(links);
+      if (linkErr) throw linkErr;
+    }
+  };
 
   const save = async () => {
     setSaving(true);
     try {
-      // Resolve the target bin — reuse the passed one, or create a fresh standalone bin.
-      let binId = bin?.id;
-      let priorLayout = (bin?.layout as Record<string, unknown>) ?? {};
-      if (!binId) {
-        const { data: made, error: mkErr } = await supabase.from("locations").insert([{
-          name: effectiveName, type: "bin", is_slot: false, qr_code: generateQRCode(),
-          layout: { placeKind: "bin" },
-        }]).select("id, layout").single();
-        if (mkErr) throw mkErr;
-        binId = made!.id; priorLayout = (made!.layout as Record<string, unknown>) ?? {};
-      }
-
-      // 1) Store the items in the bin (identity-mapped quantity, order-independent).
-      if (selected.length) {
-        const rows = selected.map((d) => ({
-          name: d.name.trim(), category: d.category || "other",
-          kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
-          brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
-        }));
-        let { data: created, error } = await supabase.from("items").insert(rows).select("id, quantity");
-        if (error && /kind/.test(error.message)) {
-          const withoutKind = rows.map(({ kind: _k, ...r }) => r);
-          ({ data: created, error } = await supabase.from("items").insert(withoutKind).select("id, quantity"));
-        }
+      if (isNew) {
+        const number = binNumber;
+        const name = `Bin ${number}${summary.trim() || newName.trim() ? ` — ${binTitle}` : ""}`;
+        const parentId = ctx.rack?.id ?? ctx.space?.id ?? null;
+        const { data: made, error } = await supabase.from("locations").insert([{
+          name, type: "bin", is_slot: false, qr_code: generateQRCode(),
+          parent_location_id: parentId,
+          layout: { placeKind: "bin", binNumber: number, gallons: galNum, summary: summary.trim() },
+        }]).select("id, qr_code").single();
         if (error) throw error;
-        const links = (created || []).map((it) => ({
-          item_id: it.id, location_id: binId, quantity: (it as { quantity?: number }).quantity || 1,
-        }));
-        if (links.length) {
-          const { error: linkErr } = await supabase.from("item_locations").insert(links);
-          if (linkErr) throw linkErr;
-        }
+        await storeItems(made!.id as string);
+        setSavedBin({ number, title: binTitle, qr: made!.qr_code as string });
+      } else {
+        // Existing bin — store items and persist size/summary/number on it.
+        const binId = bin!.id;
+        await storeItems(binId);
+        const prior = (bin!.layout as Record<string, unknown>) ?? {};
+        const number = Number((prior as { binNumber?: unknown }).binNumber) || binNumber || 0;
+        const layout = { ...prior, binNumber: number || undefined, gallons: galNum, summary: summary.trim() };
+        const { error: upErr } = await supabase.from("locations").update({ layout }).eq("id", binId);
+        if (upErr) throw upErr;
+        const { data: row } = await supabase.from("locations").select("qr_code").eq("id", binId).single();
+        setSavedBin({ number, title: summary.trim() || bin!.name, qr: (row?.qr_code as string) ?? "" });
       }
-      // 2) Persist the size + summary on the bin.
-      const layout = { ...priorLayout, gallons: galNum, summary: summary.trim() };
-      const { error: upErr } = await supabase.from("locations").update({ layout }).eq("id", binId);
-      if (upErr) throw upErr;
 
       haptic.success();
-      setSavedName(effectiveName);
       toast({ title: "Bin sorted", description: `${selected.length} item${selected.length === 1 ? "" : "s"} stored · ${galNum} gal.`, variant: "success" });
+      setStep("saved");
       onSaved?.();
     } catch (e) {
       toast({ title: "Couldn't save the bin", description: String((e as Error)?.message || e), variant: "destructive" });
@@ -164,130 +267,228 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     }
   };
 
-  const printLabel = async () => {
-    const text = [effectiveName, `${galNum} gal`, summary.trim()].filter(Boolean).join("\n");
-    const res = await printTextLabel(text);
-    toast({
-      title: res.success ? "Label sent" : "Couldn't print",
-      description: res.message,
-      variant: res.success ? "success" : "destructive",
-    });
+  const addAnotherBin = () => {
+    resetBinFields();
+    setBinNumber((n) => n + 1);
+    setStep("bin");
   };
+
+  // ---- Labels --------------------------------------------------------------
+  const notify = (res: { success: boolean; message: string }) =>
+    toast({ title: res.success ? "Label sent" : "Couldn't print", description: res.message, variant: res.success ? "success" : "destructive" });
+
+  const locationLine = ctx.rack ? `${ctx.rack.name} · ${ctx.space?.name ?? ""}`.trim() : ctx.space?.name;
+
+  const printBinLabel = async () => {
+    if (!savedBin) return;
+    notify(await printLabel({
+      badge: `Bin ${savedBin.number || ""}`.trim(),
+      title: savedBin.title,
+      lines: [`${galNum} gal`, locationLine, selected.length ? `${selected.length} items` : ""].filter(Boolean) as string[],
+      qr: savedBin.qr || undefined,
+    }));
+  };
+  const printSpaceLabel = async () => {
+    if (!ctx.space) return;
+    notify(await printLabel({ title: ctx.space.name, lines: ["Space"], qr: ctx.space.qr }));
+    setPrinted((p) => ({ ...p, space: true }));
+  };
+  const printRackLabel = async () => {
+    if (!ctx.rack) return;
+    notify(await printLabel({ title: ctx.rack.name, lines: [ctx.space?.name ?? "", "Rack"].filter(Boolean), qr: ctx.rack.qr }));
+    setPrinted((p) => ({ ...p, rack: true }));
+  };
+
+  // ---- Render --------------------------------------------------------------
+  const heading = step === "location" ? "Where are you sorting?"
+    : bin ? `Sort ${bin.name}`
+    : `Bin ${binNumber}${locationLine ? ` · ${locationLine}` : ""}`;
 
   return (
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Boxes className="h-5 w-5" /> {bin ? `Sort ${bin.name}` : "Sort a bin"}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            {step === "location" ? <MapPin className="h-5 w-5" /> : <Boxes className="h-5 w-5" />} {heading}
+          </DialogTitle>
         </DialogHeader>
 
-        {savedName ? (
-          // Success state — offer the general-contents label.
-          <div className="flex flex-col items-center gap-3 py-6 text-center animate-pop">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-7 w-7" /></span>
-            <p className="font-display text-lg font-semibold">{savedName} sorted</p>
-            <p className="text-sm text-muted-foreground">{galNum} gal · {selected.length} item{selected.length === 1 ? "" : "s"}{summary.trim() ? ` · ${summary.trim()}` : ""}</p>
-            {isLabelOutputSupported() && (
-              <Button className="mt-2" onClick={printLabel}><Printer className="h-4 w-4 mr-2" /> Print bin label</Button>
-            )}
-            <Button variant="outline" onClick={() => close(false)}>Done</Button>
-          </div>
-        ) : (
+        {/* STEP 1 — where are we sorting */}
+        {step === "location" && (
           <div className="space-y-4">
-            {aiBusy ? (
-              <VisionProgress imageDataUrl={imageDataUrl} stages={[...VISION_STAGES.identifyBin]} />
-            ) : !imageDataUrl ? (
-              <Button type="button" variant="outline" asChild className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
-                <label className="cursor-pointer">
-                  <Camera className="h-8 w-8 text-primary" />
-                  <span className="font-display">Snap the inside of the bin</span>
-                  <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
-                    AI lists what's inside and estimates the tote size
-                  </span>
-                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
-                </label>
+            <p className="text-sm text-muted-foreground">
+              Pick the space and rack you're organizing. We'll number each bin and make labels for all of them.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Space</label>
+              <select value={spaceSel} onChange={(e) => { setSpaceSel(e.target.value); setRackSel(NONE); }}
+                className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm">
+                <option value="" disabled>Choose a space…</option>
+                {spaces.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                <option value={NEW}>＋ New space…</option>
+              </select>
+              {spaceSel === NEW && (
+                <Input autoFocus value={newSpaceName} onChange={(e) => setNewSpaceName(e.target.value)} placeholder="e.g. Garage, Backyard shed" />
+              )}
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Rack / shelf <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <select value={rackSel} onChange={(e) => setRackSel(e.target.value)} disabled={!spaceReady}
+                className="h-10 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50">
+                <option value={NONE}>No rack — place in the space</option>
+                {racksInSpace.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                <option value={NEW}>＋ New rack…</option>
+              </select>
+              {rackSel === NEW && (
+                <Input autoFocus value={newRackName} onChange={(e) => setNewRackName(e.target.value)} placeholder="e.g. Rack A, Left wall shelf" />
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => close(false)} disabled={saving}>Cancel</Button>
+              <Button onClick={continueFromLocation} disabled={saving || !spaceReady || !rackReady}>
+                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ArrowRight className="h-4 w-4 mr-2" />}
+                Start sorting
               </Button>
-            ) : (
-              <img src={imageDataUrl} alt="Bin contents" className="w-full max-h-44 object-cover rounded-lg border" />
-            )}
-
-            {analyzed && (
-              <>
-                {/* Name — only for a brand-new bin (an existing bin already has one). */}
-                {isNew && (
-                  <div className="space-y-1.5">
-                    <label htmlFor="bin-name" className="text-sm font-medium">Bin name</label>
-                    <Input id="bin-name" value={newName} onChange={(e) => setNewName(e.target.value)}
-                      placeholder={summary.trim() ? `Bin — ${summary.trim()}` : "e.g. Garage plumbing bin"} />
-                  </div>
-                )}
-
-                {/* Tote size — one-tap presets prefilled from the AI guess, editable in gallons. */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Tote size {gallons && <span className="text-muted-foreground font-normal">(AI guess — confirm)</span>}</label>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {SIZE_PRESETS.map((p) => (
-                      <button key={p.label} type="button" onClick={() => setGallons(String(p.gal))}
-                        className={cn("press rounded-md border-2 px-3 py-1.5 text-sm",
-                          Number(gallons) === p.gal ? "border-primary bg-primary/10" : "border-tile/60")}>
-                        {p.label} · {p.gal} gal
-                      </button>
-                    ))}
-                    <div className="flex items-center gap-1">
-                      <Input type="number" min={1} max={55} value={gallons} onChange={(e) => setGallons(e.target.value)} className="h-9 w-20" placeholder="gal" />
-                      <span className="text-sm text-muted-foreground">gal</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* General summary for the label. */}
-                <div className="space-y-1.5">
-                  <label htmlFor="bin-summary" className="text-sm font-medium">What's in here (label)</label>
-                  <Input id="bin-summary" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="e.g. Assorted plumbing fittings" />
-                </div>
-
-                {/* Contents review */}
-                <div className="space-y-2">
-                  <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display px-1">
-                    <span /> <span>Item</span> <span>Kind</span> <span>Qty</span> <span />
-                  </div>
-                  {drafts.map((d, i) => (
-                    <div key={i} className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center">
-                      <input type="checkbox" checked={d.include} onChange={(e) => setDraft(i, { include: e.target.checked })}
-                        className="h-4 w-4 accent-[hsl(var(--primary))]" aria-label={`Include ${d.name || "row"}`} />
-                      <Input value={d.name} placeholder="Item name" onChange={(e) => setDraft(i, { name: e.target.value })} className="h-9" />
-                      <select value={d.kind} onChange={(e) => setDraft(i, { kind: e.target.value })}
-                        className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label="Kind">
-                        {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
-                      </select>
-                      <Input type="number" min={1} value={d.quantity}
-                        onChange={(e) => setDraft(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="h-9" />
-                      <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setDrafts((rows) => rows.filter((_, idx) => idx !== i))}>
-                        <Trash2 className="h-4 w-4" /><span className="sr-only">Remove row</span>
-                      </Button>
-                    </div>
-                  ))}
-                  <Button variant="outline" size="sm" onClick={addRow}><Plus className="h-4 w-4 mr-2" /> Add a row</Button>
-                </div>
-              </>
-            )}
-
-            {!isVisionConfigured() && !imageDataUrl && (
-              <p className="text-xs text-muted-foreground">AI isn't connected — you can still add rows and set the size by hand.</p>
-            )}
+            </DialogFooter>
           </div>
         )}
 
-        {!savedName && (
-          <DialogFooter>
-            <Button variant="outline" onClick={() => close(false)} disabled={saving}>Cancel</Button>
-            {!analyzed && !imageDataUrl && isVisionConfigured() ? null : (
-              <Button onClick={save} disabled={saving || aiBusy || (selected.length === 0 && !galNum)}>
-                {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
-                Sort &amp; store{selected.length ? ` ${selected.length}` : ""}
-              </Button>
+        {/* STEP 2 — the bin */}
+        {step === "bin" && (
+          <>
+            <div className="space-y-4">
+              {aiBusy ? (
+                <VisionProgress imageDataUrl={imageDataUrl} stages={[...VISION_STAGES.identifyBin]} />
+              ) : !imageDataUrl ? (
+                <Button type="button" variant="outline" asChild className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
+                  <label className="cursor-pointer">
+                    <Camera className="h-8 w-8 text-primary" />
+                    <span className="font-display">Snap the inside of the bin</span>
+                    <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
+                      AI lists what's inside and estimates the tote size
+                    </span>
+                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                  </label>
+                </Button>
+              ) : (
+                <img src={imageDataUrl} alt="Bin contents" className="w-full max-h-44 object-cover rounded-lg border" />
+              )}
+
+              {analyzed && (
+                <>
+                  {isNew && (
+                    <div className="space-y-1.5">
+                      <label htmlFor="bin-name" className="text-sm font-medium">Bin name <span className="text-muted-foreground font-normal">(optional)</span></label>
+                      <Input id="bin-name" value={newName} onChange={(e) => setNewName(e.target.value)}
+                        placeholder={summary.trim() ? `Bin ${binNumber} — ${summary.trim()}` : `Bin ${binNumber}`} />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Tote size {gallons && <span className="text-muted-foreground font-normal">(AI guess — confirm)</span>}</label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {SIZE_PRESETS.map((p) => (
+                        <button key={p.label} type="button" onClick={() => setGallons(String(p.gal))}
+                          className={cn("press rounded-md border-2 px-3 py-1.5 text-sm",
+                            Number(gallons) === p.gal ? "border-primary bg-primary/10" : "border-tile/60")}>
+                          {p.label} · {p.gal} gal
+                        </button>
+                      ))}
+                      <div className="flex items-center gap-1">
+                        <Input type="number" min={1} max={55} value={gallons} onChange={(e) => setGallons(e.target.value)} className="h-9 w-20" placeholder="gal" />
+                        <span className="text-sm text-muted-foreground">gal</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label htmlFor="bin-summary" className="text-sm font-medium">What's in here (label)</label>
+                    <Input id="bin-summary" value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="e.g. Assorted plumbing fittings" />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display px-1">
+                      <span /> <span>Item</span> <span>Kind</span> <span>Qty</span> <span />
+                    </div>
+                    {drafts.map((d, i) => (
+                      <div key={i} className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center">
+                        <input type="checkbox" checked={d.include} onChange={(e) => setDraft(i, { include: e.target.checked })}
+                          className="h-4 w-4 accent-[hsl(var(--primary))]" aria-label={`Include ${d.name || "row"}`} />
+                        <Input value={d.name} placeholder="Item name" onChange={(e) => setDraft(i, { name: e.target.value })} className="h-9" />
+                        <select value={d.kind} onChange={(e) => setDraft(i, { kind: e.target.value })}
+                          className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label="Kind">
+                          {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+                        </select>
+                        <Input type="number" min={1} value={d.quantity}
+                          onChange={(e) => setDraft(i, { quantity: Math.max(1, parseInt(e.target.value) || 1) })} className="h-9" />
+                        <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => setDrafts((rows) => rows.filter((_, idx) => idx !== i))}>
+                          <Trash2 className="h-4 w-4" /><span className="sr-only">Remove row</span>
+                        </Button>
+                      </div>
+                    ))}
+                    <Button variant="outline" size="sm" onClick={addRow}><Plus className="h-4 w-4 mr-2" /> Add a row</Button>
+                  </div>
+                </>
+              )}
+
+              {!isVisionConfigured() && !imageDataUrl && (
+                <p className="text-xs text-muted-foreground">AI isn't connected — you can still add rows and set the size by hand.</p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => close(false)} disabled={saving}>Cancel</Button>
+              {!analyzed && !imageDataUrl && isVisionConfigured() ? null : (
+                <Button onClick={save} disabled={saving || aiBusy || (selected.length === 0 && !galNum)}>
+                  {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
+                  Sort &amp; store{selected.length ? ` ${selected.length}` : ""}
+                </Button>
+              )}
+            </DialogFooter>
+          </>
+        )}
+
+        {/* STEP 3 — saved: labels + loop */}
+        {step === "saved" && savedBin && (
+          <div className="space-y-4 py-2">
+            <div className="flex flex-col items-center gap-2 text-center animate-pop">
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground"><Check className="h-7 w-7" /></span>
+              <p className="font-display text-lg font-semibold">Bin {savedBin.number || ""} sorted</p>
+              <p className="text-sm text-muted-foreground">
+                {savedBin.title}{galNum ? ` · ${galNum} gal` : ""}{selected.length ? ` · ${selected.length} item${selected.length === 1 ? "" : "s"}` : ""}
+                {locationLine ? ` · ${locationLine}` : ""}
+              </p>
+            </div>
+
+            {isLabelOutputSupported() && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground text-center">Print labels</p>
+                <div className="flex flex-col gap-2">
+                  <Button onClick={printBinLabel}><Printer className="h-4 w-4 mr-2" /> Bin {savedBin.number || ""} label</Button>
+                  {ctx.rack && (
+                    <Button variant={printed.rack ? "outline" : "secondary"} onClick={printRackLabel}>
+                      <Printer className="h-4 w-4 mr-2" /> {printed.rack ? "Reprint" : "Print"} rack label · {ctx.rack.name}
+                    </Button>
+                  )}
+                  {ctx.space && (
+                    <Button variant={printed.space ? "outline" : "secondary"} onClick={printSpaceLabel}>
+                      <Printer className="h-4 w-4 mr-2" /> {printed.space ? "Reprint" : "Print"} space label · {ctx.space.name}
+                    </Button>
+                  )}
+                </div>
+              </div>
             )}
-          </DialogFooter>
+
+            <DialogFooter className="pt-2">
+              <Button variant="outline" onClick={() => close(false)}>Done</Button>
+              {isNew && (
+                <Button onClick={addAnotherBin}><Plus className="h-4 w-4 mr-2" /> Add another bin</Button>
+              )}
+            </DialogFooter>
+          </div>
         )}
       </DialogContent>
     </Dialog>
