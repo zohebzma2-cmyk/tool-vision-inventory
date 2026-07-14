@@ -10,6 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { useCategories } from "@/hooks/useCategories";
@@ -66,6 +70,7 @@ export function ItemsList() {
   const [showPreview, setShowPreview] = useState(false);
   const [previewItem, setPreviewItem] = useState<Item | null>(null);
   const [locations, setLocations] = useState<Array<{ id: string; name: string }>>([]);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null);
   const [editLocationId, setEditLocationId] = useState<string>("");
   const [initialEditLocationId, setInitialEditLocationId] = useState<string>("");
 
@@ -165,7 +170,7 @@ export function ItemsList() {
       setItems(items.filter(item => item.id !== id));
       toast({
         title: "Success",
-        description: "Item deleted successfully"
+        description: "Tool deleted"
       });
     } catch (error) {
       toast({
@@ -279,7 +284,7 @@ export function ItemsList() {
       const newLocName = editLocationId ? (locations.find((l:any) => (l as any).id === editLocationId)?.name || null) : null;
 
       setItems(prev => prev.map(i => i.id === editingId ? { ...i, ...data, __locationName: newLocName } : i));
-      toast({ title: 'Item updated', description: 'Changes saved successfully.' });
+      toast({ title: 'Tool updated', description: 'Changes saved.' });
       setShowEditDialog(false);
       setEditingId(null);
     } catch (err) {
@@ -311,17 +316,18 @@ export function ItemsList() {
             className="pl-9 h-10"
           />
         </div>
-        <select
-          value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value)}
-          className="px-4 py-2 border border-input rounded-md bg-background text-foreground h-10 min-w-[160px]"
-        >
-          {categoriesForFilter.map(cat => (
-            <option key={cat} value={cat}>
-              {cat === "all" ? "All Categories" : cat}
-            </option>
-          ))}
-        </select>
+        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+          <SelectTrigger className="h-10 min-w-[160px] w-auto">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {categoriesForFilter.map(cat => (
+              <SelectItem key={cat} value={cat}>
+                {cat === "all" ? "All Categories" : cat}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="mb-4 flex items-baseline gap-2">
@@ -373,10 +379,10 @@ export function ItemsList() {
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(item)}>
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      onClick={() => deleteItem(item.id)}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setPendingDelete({ id: item.id, name: item.name })}
                       className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -462,7 +468,7 @@ export function ItemsList() {
       <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit item</DialogTitle>
+            <DialogTitle>Edit tool</DialogTitle>
           </DialogHeader>
 
           <form onSubmit={handleUpdateItem} className="space-y-4">
@@ -604,6 +610,26 @@ export function ItemsList() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(v) => { if (!v) setPendingDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pendingDelete?.name ?? "this tool"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the tool and its label. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (pendingDelete) deleteItem(pendingDelete.id); setPendingDelete(null); }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

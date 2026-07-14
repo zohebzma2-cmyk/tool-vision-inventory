@@ -451,7 +451,7 @@ function AddPlaceDialog(props: {
             <ol className="text-sm space-y-1.5 text-muted-foreground list-decimal pl-5">
               <li>Point your iPhone camera at this code (or open the Tool Vision app).</li>
               <li>Go to <span className="font-medium text-foreground">Spaces</span> and open “{handoff.name}”.</li>
-              <li>Tap <span className="font-medium text-foreground">Scan with iPhone</span> and walk the room.</li>
+              <li>Open the space and tap <span className="font-medium text-foreground">Scan with LiDAR</span>, then walk the room. It saves back here automatically.</li>
             </ol>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Waiting for your iPhone's scan…

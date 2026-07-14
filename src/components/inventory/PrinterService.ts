@@ -769,7 +769,7 @@ export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; m
       // Laptop Brother QL over WebUSB: raster the exact clean label canvas (QR + badge + text).
       if (!printerService.isConnected) {
         const connected = await printerService.connect();
-        if (!connected) return { success: false, message: 'Could not connect to Brother QL printer.' };
+        if (!connected) return { success: false, message: 'Couldn\'t reach the Brother printer — make sure it\'s on, plugged in via USB, and Brother\'s own P-touch/QL software is closed, then try again.' };
       }
       const canvas = await rasterizeLabel(spec);
       const ok = await printerService.print(canvasToRasterJob(canvas));
@@ -795,7 +795,8 @@ export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; m
     URL.revokeObjectURL(url);
     return { success: true, message: 'Label image downloaded.' };
   } catch (e) {
-    if ((e as Error)?.name === 'AbortError') return { success: true, message: 'Share canceled.' };
+    // User dismissed the share sheet — not a success ("Label sent" would be a lie) and not an error.
+    if ((e as Error)?.name === 'AbortError') return { success: false, message: 'Print canceled.' };
     return { success: false, message: `Print failed: ${e instanceof Error ? e.message : 'Unknown error'}` };
   }
 }

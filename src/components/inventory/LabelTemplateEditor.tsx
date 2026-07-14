@@ -37,7 +37,9 @@ export function LabelTemplateEditor({ open, onOpenChange }: Props) {
     const copy = cloneTemplate(src);
     // If editing a built-in, fork to a new custom id; if editing a custom, keep its id.
     if (!isCustomId(id)) {
-      copy.id = `custom-${id}-${copy.elements.length}${copy.widthMm}${copy.heightMm}`;
+      // Unique per fork — a content-derived id collides when you customize the same built-in twice,
+      // silently overwriting the earlier custom template.
+      copy.id = `custom-${id}-${Date.now().toString(36)}`;
       copy.name = `${src.name} (custom)`;
     }
     setDraft(copy);
