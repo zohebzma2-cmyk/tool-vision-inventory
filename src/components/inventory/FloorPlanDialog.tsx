@@ -9,6 +9,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
+import { deleteLocationCascade } from "@/lib/slots";
 import { cn } from "@/lib/utils";
 import { isRoomScanAvailable, scanRoom, wallsToPlan, type RoomScanResult } from "@/lib/roomScan";
 import { MapSpaceDialog } from "./MapSpaceDialog";
@@ -69,31 +70,15 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [reloadKey, setReloadKey] = useState(0);
   const toggleExpanded = (id: string) =>
-    setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string; kind: "space" | "location" } | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  /** Delete a location and everything under it (child locations, slots, item links), any depth. */
-  const cascadeDelete = async (rootId: string) => {
-    const all = new Set<string>([rootId]);
-    let frontier = [rootId];
-    while (frontier.length) {
-      const { data } = await supabase.from("locations").select("id").in("parent_location_id", frontier);
-      const next = (data ?? []).map((r) => r.id).filter((id) => !all.has(id));
-      next.forEach((id) => all.add(id));
-      frontier = next;
-    }
-    const ids = [...all];
-    await supabase.from("item_locations").delete().in("location_id", ids);
-    const { error } = await supabase.from("locations").delete().in("id", ids);
-    if (error) throw error;
-  };
 
   const runDelete = async () => {
     if (!pendingDelete) return;
     setDeleting(true);
     try {
-      await cascadeDelete(pendingDelete.id);
+      await deleteLocationCascade(pendingDelete.id);
       if (pendingDelete.kind === "space") {
         toast({ title: "Space deleted", description: `"${pendingDelete.name}" and its storage were removed.`, variant: "success" });
         onOpenChange(false); // the whole space is gone — close the dialog
@@ -292,8 +277,11 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
     if (!place) return;
     setSaving(true);
     try {
+      // Read the CURRENT layout from the DB, not the stale `place` prop — otherwise a blueprint
+      // drawn earlier this session (and other keys) would be silently dropped by this overwrite.
+      const { data: fresh } = await supabase.from("locations").select("layout").eq("id", place.id).single();
       const placeLayout = {
-        ...((place.layout as Record<string, unknown>) ?? {}),
+        ...((fresh?.layout as Record<string, unknown>) ?? (place.layout as Record<string, unknown>) ?? {}),
         floorImage,
         ...(dims ? { scan: { walls, widthMm: dims.widthMm, lengthMm: dims.lengthMm } } : {}),
       };
@@ -403,8 +391,13 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
             <>
             <div className="flex flex-wrap items-center gap-2">
               {placed.length > 0 && (
-                <Button size="sm" variant={editMode ? "default" : "outline"} onClick={() => setEditMode(!editMode)}>
-                  {editMode ? "Done arranging" : "Arrange"}
+                <Button size="sm" variant={editMode ? "default" : "outline"} disabled={saving}
+                  onClick={async () => {
+                    if (editMode) { if (dirty) await save(); setEditMode(false); }
+                    else setEditMode(true);
+                  }}>
+                  {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                  {editMode ? (dirty ? "Save & done" : "Done arranging") : "Arrange"}
                 </Button>
               )}
               <Button size="sm" variant="outline" onClick={() => setBlueprintOpen(true)}>
@@ -551,7 +544,11 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
               <Trash2 className="h-4 w-4 mr-2" /> Delete space
             </Button>
           )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button variant="outline" disabled={saving}
+            onClick={async () => { if (dirty) await save(); onOpenChange(false); }}>
+            {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+            {dirty ? "Save & close" : "Close"}
+          </Button>
         </DialogFooter>
 
         <AlertDialog open={!!pendingDelete} onOpenChange={(v) => { if (!v) setPendingDelete(null); }}>

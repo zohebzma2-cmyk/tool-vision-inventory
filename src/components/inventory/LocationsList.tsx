@@ -6,7 +6,7 @@ import { SpaceMap } from "./SpaceMap";
 import { FloorPlanDialog } from "./FloorPlanDialog";
 import { PropertyPlan } from "./PropertyPlan";
 import { LabelTemplateEditor } from "./LabelTemplateEditor";
-import { Tags } from "lucide-react";
+import { Tags, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +23,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
 import { LabelPreview } from "@/components/inventory/LabelPreview";
+import { deleteLocationCascade } from "@/lib/slots";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
 
 interface Location {
   id: string;
@@ -53,6 +55,7 @@ export function LocationsList({
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
   const [showSortBin, setShowSortBin] = useState(false);
   const [pendingDeleteLoc, setPendingDeleteLoc] = useState<{ id: string; name: string } | null>(null);
@@ -160,7 +163,9 @@ export function LocationsList({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    if (submitting) return; // guard against a double-tap during the (sometimes long) save + auto-print
+    setSubmitting(true);
+
     try {
       const { data, error } = await supabase
         .from('locations')
@@ -238,31 +243,26 @@ export function LocationsList({
       setShowAddDialog(false);
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to add location",
+        title: "Couldn't add location",
+        description: String((error as Error)?.message || error),
         variant: "destructive"
       });
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const deleteLocation = async (id: string) => {
     try {
-      const { error } = await supabase
-        .from('locations')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      
+      // Cascade: also removes child locations, slots, and item links (tools themselves are kept).
+      // Same helper the space view uses, so deleting a mapped space/rack here behaves identically.
+      await deleteLocationCascade(id);
       setLocations(locations.filter(loc => loc.id !== id));
-      toast({
-        title: "Success",
-        description: "Location deleted successfully"
-      });
+      toast({ title: "Location deleted", variant: "success" });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to delete location",
+        title: "Couldn't delete",
+        description: String((error as Error)?.message || error),
         variant: "destructive"
       });
     }
@@ -519,9 +519,11 @@ export function LocationsList({
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => openEdit(location)}>
                         <Edit className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handlePrintLocation(location.id)}>
-                        <Printer className="h-4 w-4" />
-                      </Button>
+                      {isLabelOutputSupported() && (
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Print label" onClick={() => handlePrintLocation(location.id)}>
+                          <Printer className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
@@ -670,7 +672,8 @@ export function LocationsList({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={!formData.name || !formData.type}>
+              <Button type="submit" disabled={!formData.name || !formData.type || submitting}>
+                {submitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                 Add location
               </Button>
             </DialogFooter>

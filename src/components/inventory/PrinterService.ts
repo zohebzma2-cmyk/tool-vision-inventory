@@ -151,9 +151,12 @@ class BrotherQLPrinterService implements PrinterService {
       const CHUNK_SIZE = 16 * 1024; // 16KB chunks
       
       for (let offset = 0; offset < uint8Data.length; offset += CHUNK_SIZE) {
+        // Send the VIEW, not chunk.buffer — subarray shares the full underlying ArrayBuffer, so
+        // chunk.buffer would re-send the entire job from offset 0 on every iteration (double print
+        // / stall for any label bigger than CHUNK_SIZE). A Uint8Array is a valid BufferSource.
         const chunk = uint8Data.subarray(offset, Math.min(offset + CHUNK_SIZE, uint8Data.length));
-        const result = await this.device.transferOut(this.outEndpoint, chunk.buffer);
-        
+        const result = await this.device.transferOut(this.outEndpoint, chunk);
+
         if (result.status !== 'ok') {
           console.error('Print transfer failed with status:', result.status);
           return false;

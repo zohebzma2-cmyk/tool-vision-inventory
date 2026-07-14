@@ -42,7 +42,7 @@ interface Item {
   last_serviced?: string | null;
 }
 
-export function ItemsList() {
+export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -97,6 +97,13 @@ export function ItemsList() {
   useEffect(() => {
     fetchItems();
   }, []);
+
+  // Live sync: refresh in place instead of remounting (a key change would nuke an open Edit dialog
+  // mid-typing). Mirrors LocationsList's syncSignal handling.
+  useEffect(() => {
+    if (syncSignal) fetchItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncSignal]);
 
   const fetchItems = async () => {
     try {

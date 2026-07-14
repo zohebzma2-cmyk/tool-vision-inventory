@@ -6,6 +6,27 @@ export function generateQRCode(prefix = "LOC"): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
 }
 
+/**
+ * Delete a location and EVERYTHING under it — child locations, their slots, and all item_location
+ * links — at any depth. Tools themselves are kept (only their links to these locations are removed),
+ * so nothing in the inventory is lost. Shared by every "delete a location/space" entry point so the
+ * behaviour is identical wherever it's triggered.
+ */
+export async function deleteLocationCascade(rootId: string): Promise<void> {
+  const all = new Set<string>([rootId]);
+  let frontier = [rootId];
+  while (frontier.length) {
+    const { data } = await supabase.from("locations").select("id").in("parent_location_id", frontier);
+    const next = (data ?? []).map((r) => r.id).filter((id) => !all.has(id));
+    next.forEach((id) => all.add(id));
+    frontier = next;
+  }
+  const ids = [...all];
+  await supabase.from("item_locations").delete().in("location_id", ids);
+  const { error } = await supabase.from("locations").delete().in("id", ids);
+  if (error) throw error;
+}
+
 export interface SlotDef {
   slot_row: number;
   slot_col: number;
