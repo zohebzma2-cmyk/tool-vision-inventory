@@ -28,7 +28,7 @@ interface PlanSpace {
   rect: FloorRect | null;
   slotCount: number;
   filledCount: number;
-  contents: { name: string; quantity: number }[]; // what's stored inside (directly + via slots)
+  contents: { name: string; quantity: number; photo?: string }[]; // what's stored inside (directly + via slots)
 }
 
 interface Props {
@@ -125,16 +125,16 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
           : { data: [] as { item_id: string; quantity: number; location_id: string }[] };
         const itemIds = [...new Set((contentLinks ?? []).map((l) => l.item_id))];
         const { data: itemRows } = itemIds.length
-          ? await supabase.from("items").select("id, name").in("id", itemIds)
-          : { data: [] as { id: string; name: string }[] };
-        const nameById = new Map((itemRows ?? []).map((i) => [i.id, i.name] as const));
-        const contentsBySpace = new Map<string, { name: string; quantity: number }[]>();
+          ? await supabase.from("items").select("id, name, photo_path").in("id", itemIds)
+          : { data: [] as { id: string; name: string; photo_path: string | null }[] };
+        const itemById = new Map((itemRows ?? []).map((i) => [i.id, i] as const));
+        const contentsBySpace = new Map<string, { name: string; quantity: number; photo?: string }[]>();
         (contentLinks ?? []).forEach((l) => {
           const childId = childIds.includes(l.location_id) ? l.location_id : slotParent.get(l.location_id);
-          const nm = nameById.get(l.item_id);
-          if (!childId || !nm) return;
+          const it = itemById.get(l.item_id);
+          if (!childId || !it) return;
           const arr = contentsBySpace.get(childId) ?? [];
-          arr.push({ name: nm, quantity: l.quantity ?? 1 });
+          arr.push({ name: it.name, quantity: l.quantity ?? 1, photo: (it as { photo_path?: string }).photo_path ?? undefined });
           contentsBySpace.set(childId, arr);
         });
 
@@ -334,8 +334,11 @@ export function FloorPlanDialog({ open, onOpenChange, place, onOpenSpace }: Prop
                           {s.contents.length === 0 ? (
                             <p className="text-xs text-muted-foreground py-1.5">Nothing stored here yet.</p>
                           ) : s.contents.map((c, i) => (
-                            <div key={i} className="flex items-center justify-between gap-2 text-sm py-1 border-b border-white/5 last:border-0">
-                              <span className="truncate">{c.name}</span>
+                            <div key={i} className="flex items-center gap-2 text-sm py-1 border-b border-white/5 last:border-0">
+                              {c.photo && (
+                                <img src={c.photo} alt="" className="h-8 w-8 rounded-md object-cover border shrink-0" />
+                              )}
+                              <span className="truncate flex-1">{c.name}</span>
                               {c.quantity > 1 && <span className="font-mono text-xs text-muted-foreground shrink-0">×{c.quantity}</span>}
                             </div>
                           ))}

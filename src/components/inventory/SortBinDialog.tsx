@@ -9,7 +9,7 @@ import { compressImage } from "@/lib/image";
 import { generateQRCode } from "@/lib/slots";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
-import { sortBinFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
+import { sortBinFromImage, detectSpotsFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
 import { printLabel } from "./PrinterService";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { VisionProgress, VISION_STAGES } from "./VisionProgress";
@@ -34,7 +34,28 @@ const sizeText = (qt: number, unit: "qt" | "gal") =>
 
 interface DraftItem {
   name: string; category: string; kind: string; brand: string; model: string; quantity: number; include: boolean;
+  photo?: string; // a crop of this item from the bin photo (best-effort, filled after analysis)
 }
+
+/** Crop a normalized box out of a data-URL image into a square JPEG thumbnail (cover-fit, white pad). */
+async function cropBox(src: string, box: { x: number; y: number; w: number; h: number }): Promise<string | undefined> {
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    const sx = Math.max(0, box.x * img.width), sy = Math.max(0, box.y * img.height);
+    const sw = Math.min(img.width - sx, box.w * img.width), sh = Math.min(img.height - sy, box.h * img.height);
+    if (sw < 8 || sh < 8) return undefined;
+    const SIZE = 256, c = document.createElement("canvas"); c.width = SIZE; c.height = SIZE;
+    const ctx = c.getContext("2d")!;
+    ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, SIZE, SIZE);
+    const scale = Math.min(SIZE / sw, SIZE / sh);
+    const dw = sw * scale, dh = sh * scale;
+    ctx.drawImage(img, sx, sy, sw, sh, (SIZE - dw) / 2, (SIZE - dh) / 2, dw, dh);
+    return c.toDataURL("image/jpeg", 0.8);
+  } catch { return undefined; }
+}
+
+const wordsOf = (s: string) => s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+const overlap = (a: string[], b: string[]) => a.filter((t) => b.includes(t)).length;
 
 /** A resolved place (space or rack) we can attach a bin to and print a label for. */
 interface Place { id: string; name: string; qr: string; }
@@ -197,26 +218,52 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const onPickPhoto = async (file?: File) => {
     if (!file) return;
     try {
-      setImageDataUrl(await compressImage(file));
+      const full = await compressImage(file);
+      setImageDataUrl(full);
       const aiUrl = await compressImage(file, 960, 0.65);
-      await runAI(aiUrl);
+      await runAI(aiUrl, full);
     } catch (e) {
       toast({ title: "Couldn't read the photo", description: String((e as Error)?.message || e), variant: "destructive" });
     }
   };
 
-  const runAI = async (dataUrl: string) => {
+  // Best-effort per-item pictures: box every item in the photo, match each to a listed item by name,
+  // and crop it out. Runs after the main analysis; failures/misses just leave an item without a photo.
+  const enrichItemPhotos = async (photoSrc: string, items: DraftItem[]) => {
+    try {
+      const spots = await detectSpotsFromImage(photoSrc);
+      if (!spots.length) return;
+      const used = new Set<number>();
+      const crops = await Promise.all(items.map(async (it) => {
+        const itWords = wordsOf(it.name);
+        let best = -1, bestScore = 0;
+        spots.forEach((sp, si) => {
+          if (used.has(si)) return;
+          const score = overlap(itWords, wordsOf(sp.label));
+          if (score > bestScore) { bestScore = score; best = si; }
+        });
+        if (best < 0 || bestScore < 1) return undefined;
+        used.add(best);
+        return cropBox(photoSrc, spots[best].box);
+      }));
+      setDrafts((prev) => prev.map((d, i) => (crops[i] ? { ...d, photo: crops[i] } : d)));
+    } catch { /* best-effort — never blocks the sort */ }
+  };
+
+  const runAI = async (dataUrl: string, cropSrc?: string) => {
     setAiBusy(true);
     try {
       const { items, tote, summary: aiSummary } = await sortBinFromImage(dataUrl);
-      setDrafts(items.map((f) => ({
+      const drafts: DraftItem[] = items.map((f) => ({
         name: f.name, category: f.category, kind: f.kind || "part", brand: f.brand, model: f.model,
         quantity: f.quantity || 1, include: true,
-      })));
+      }));
+      setDrafts(drafts);
       if (tote?.gallonsGuess) { setSizeQt(Math.round(tote.gallonsGuess * 4)); setSizeUnit("gal"); }
       setSummary(aiSummary || deriveSummary(items.map((i) => i.category)));
       setAnalyzed(true);
       if (items.length === 0) toast({ title: "Nothing recognized", description: "Add rows by hand, or retake with more light." });
+      else if (cropSrc) void enrichItemPhotos(cropSrc, drafts); // fire-and-forget item crops
     } catch (e) {
       setAnalyzed(true);
       if (e instanceof VisionNotConfiguredError) toast({ title: "AI not connected", description: "Add items by hand and set the size below." });
@@ -242,11 +289,13 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
       name: d.name.trim(), category: d.category || "other",
       kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
       brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
+      photo_path: d.photo ?? null, // the crop of this item from the bin photo
     }));
     let { data: created, error } = await supabase.from("items").insert(rows).select("id, quantity");
-    if (error && /kind/.test(error.message)) {
-      const withoutKind = rows.map(({ kind: _k, ...r }) => r);
-      ({ data: created, error } = await supabase.from("items").insert(withoutKind).select("id, quantity"));
+    if (error && /(kind|photo_path)/.test(error.message)) {
+      // Older schemas may lack `kind` and/or `photo_path`; retry without the optional columns.
+      const trimmed = rows.map(({ kind: _k, photo_path: _p, ...r }) => r);
+      ({ data: created, error } = await supabase.from("items").insert(trimmed).select("id, quantity"));
     }
     if (error) throw error;
     const links = (created || []).map((it) => ({
@@ -476,13 +525,18 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display px-1">
-                      <span /> <span>Item</span> <span>Kind</span> <span>Qty</span> <span />
+                    <div className="grid grid-cols-[auto_auto_1fr_6rem_4rem_auto] gap-2 items-center text-xs text-muted-foreground font-display px-1">
+                      <span /> <span /> <span>Item</span> <span>Kind</span> <span>Qty</span> <span />
                     </div>
                     {drafts.map((d, i) => (
-                      <div key={i} className="grid grid-cols-[auto_1fr_6rem_4rem_auto] gap-2 items-center">
+                      <div key={i} className="grid grid-cols-[auto_auto_1fr_6rem_4rem_auto] gap-2 items-center">
                         <input type="checkbox" checked={d.include} onChange={(e) => setDraft(i, { include: e.target.checked })}
                           className="h-4 w-4 accent-[hsl(var(--primary))]" aria-label={`Include ${d.name || "row"}`} />
+                        <span className="h-9 w-9 rounded-md overflow-hidden bg-muted/60 flex items-center justify-center shrink-0 border">
+                          {d.photo
+                            ? <img src={d.photo} alt="" className="h-full w-full object-cover" />
+                            : <Camera className="h-3.5 w-3.5 text-muted-foreground/50" aria-hidden />}
+                        </span>
                         <Input value={d.name} placeholder="Item name" onChange={(e) => setDraft(i, { name: e.target.value })} className="h-9" />
                         <select value={d.kind} onChange={(e) => setDraft(i, { kind: e.target.value })}
                           className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label="Kind">
