@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { generateQRCode } from "@/lib/slots";
 import { compressImage } from "@/lib/image";
 import { isRoomScanAvailable, scanRoom } from "@/lib/roomScan";
+import { isNative } from "@/lib/platform";
 import { GuideTip } from "@/components/inventory/GuideTip";
 import { cn } from "@/lib/utils";
 
@@ -228,7 +229,7 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
       ) : (
         <div
           ref={canvasRef}
-          className="relative w-full rounded-xl border bg-muted/30 pegboard overflow-hidden select-none touch-none"
+          className="relative w-full rounded-xl border bg-muted/15 overflow-hidden select-none touch-none"
           style={{ aspectRatio: "16 / 10" }}
           onPointerMove={onMove}
           onPointerUp={() => { drag.current = null; }}
@@ -247,10 +248,10 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
                 onPointerDown={(e) => startDrag(e, p.id, "move", { x, y, ...size })}
                 onClick={() => { if (!arrange && !drag.current) onOpenPlace(p); }}
                 className={cn(
-                  "absolute rounded-lg border-2 flex flex-col p-2.5 overflow-hidden transition-shadow animate-pop press",
+                  "absolute rounded-lg border-2 flex flex-col p-2.5 overflow-hidden transition-all animate-pop press ring-1 ring-black/5",
                   arrange
-                    ? "cursor-move border-dashed border-primary/70 bg-card/95"
-                    : "cursor-pointer border-tile bg-card shadow-soft hover:shadow-md hover:border-primary",
+                    ? "cursor-move border-dashed border-primary/70 bg-card shadow-md"
+                    : "cursor-pointer border-primary/30 bg-card shadow-md hover:shadow-lg hover:border-primary hover:ring-primary/30",
                 )}
                 style={{
                   left: `${x * 100}%`, top: `${y * 100}%`,
@@ -284,13 +285,13 @@ export function PropertyPlan({ onOpenPlace, reloadSignal }: Props) {
 
                 <div className="relative flex items-center gap-1.5 min-w-0">
                   <Icon className="h-4 w-4 shrink-0 text-primary" aria-hidden />
-                  <span className="font-display font-semibold text-sm leading-tight truncate">{p.name}</span>
+                  <span className="font-display font-semibold text-[15px] text-foreground leading-tight truncate">{p.name}</span>
                 </div>
                 <div className="relative mt-auto flex items-end justify-between gap-1">
                   {p.widthFt && p.depthFt ? (
-                    <span className="font-mono text-[10px] text-muted-foreground bg-card/70 rounded px-1">{p.widthFt}×{p.depthFt} ft</span>
+                    <span className="font-mono text-[11px] text-foreground/70 bg-background/90 rounded px-1.5 py-0.5">{p.widthFt}×{p.depthFt} ft</span>
                   ) : <span />}
-                  <span className="text-[10px] font-medium text-muted-foreground shrink-0 bg-card/70 rounded px-1">
+                  <span className="text-[11px] font-semibold text-foreground/80 shrink-0 bg-background/90 rounded px-1.5 py-0.5">
                     {p.spaceCount} location{p.spaceCount === 1 ? "" : "s"}
                   </span>
                 </div>
@@ -401,8 +402,9 @@ function AddPlaceDialog(props: {
   const scan = async () => {
     setBusy(true);
     try {
-      if (props.lidar) {
-        // On a LiDAR iPhone/iPad: scan right here.
+      // In the native app we ALWAYS scan on-device (never the desktop QR hand-off — that makes no
+      // sense on the phone itself). On a LiDAR web device we can scan too. Desktop web hands off.
+      if (isNative || props.lidar) {
         const r = await scanRoom();
         const wFt = Math.round((r.footprint.widthMm / 304.8) * 10) / 10;
         const dFt = Math.round((r.footprint.lengthMm / 304.8) * 10) / 10;
@@ -413,8 +415,8 @@ function AddPlaceDialog(props: {
         toast({ title: "Place scanned", description: `${wFt} × ${dFt} ft from LiDAR.`, variant: "success" });
         reset(); props.onCreated();
       } else {
-        // Desktop has no LiDAR: create the space, then swap this dialog to a QR hand-off panel.
-        // The scan happens on the iPhone (same account) and syncs straight back here.
+        // Desktop web has no camera/LiDAR here: create the space, then swap this dialog to a QR
+        // hand-off panel. The scan happens on the iPhone (same account) and syncs back here.
         const place = await createPlace({});
         const url = `${window.location.origin}/?scan=${encodeURIComponent(place.id)}`;
         const qr = await QRCode.toDataURL(url, { margin: 1, scale: 6 }).catch(() => "");
@@ -424,7 +426,12 @@ function AddPlaceDialog(props: {
       }
     } catch (e) {
       const m = String((e as Error)?.message || e);
-      if (!/cancel/i.test(m)) toast({ title: "Scan failed", description: m, variant: "destructive" });
+      if (/cancel/i.test(m)) { /* user backed out of the scanner */ }
+      else if (isNative && /(available|support|lidar|not implemented)/i.test(m)) {
+        toast({ title: "3D scan needs LiDAR", description: "This iPhone/iPad doesn't have a LiDAR sensor (Pro models only). Use Sketch photo or Manual instead.", variant: "destructive" });
+      } else {
+        toast({ title: "Scan failed", description: m, variant: "destructive" });
+      }
     } finally { setBusy(false); }
   };
 
@@ -491,7 +498,7 @@ function AddPlaceDialog(props: {
                 <MethodCard
                   icon={Scan}
                   title="3D scan"
-                  sub={props.lidar ? "Walk it with LiDAR" : "Scan on your iPhone"}
+                  sub={isNative || props.lidar ? "Walk it with LiDAR" : "Scan on your iPhone"}
                   onClick={scan}
                   disabled={busy || !name.trim()}
                 />
