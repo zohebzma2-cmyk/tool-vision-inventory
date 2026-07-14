@@ -572,6 +572,11 @@ export function MapSpaceDialog({ open, onOpenChange, onCreated, defaultPlaceId }
                   Detect items
                 </Button>
               )}
+              {!aiBusy && !spotsBusy && (!effectiveName.trim() || !(defaultPlaceId || placeId || newPlaceName.trim())) && (
+                <span className="text-xs text-muted-foreground self-center mr-auto">
+                  {!effectiveName.trim() ? "Name this location to continue" : "Pick or add a space for it to live in"}
+                </span>
+              )}
               <Button
                 onClick={() => setStep(2)}
                 // Require a place — a location with no parent place is orphaned (invisible in the

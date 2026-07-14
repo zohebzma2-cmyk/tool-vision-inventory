@@ -550,7 +550,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
           <div className="space-y-3">
             <Button type="button" variant="outline" onClick={handlePreviewLabels}>
-              Preview Labels
+              Preview label &amp; suggested spot <span className="ml-1.5 text-xs text-muted-foreground">(optional)</span>
             </Button>
             {previewItemQr && (
               <LabelPreview

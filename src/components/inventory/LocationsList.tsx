@@ -433,13 +433,6 @@ export function LocationsList({
               </>
             )}
             <Button
-              variant="outline"
-              onClick={() => setShowTemplates(true)}
-            >
-              <Tags className="h-4 w-4 mr-2" />
-              Templates
-            </Button>
-            <Button
               onClick={() => setShowMapDialog(true)}
               className="shadow-soft"
             >
@@ -461,8 +454,16 @@ export function LocationsList({
               <Plus className="h-4 w-4 mr-2" />
               Add by hand
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => setShowTemplates(true)}>
+              <Tags className="h-4 w-4 mr-2" />
+              Templates
+            </Button>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground -mt-3">
+          <span className="font-medium text-foreground">Map with camera</span> turns a whole board or shelf into labeled slots ·{" "}
+          <span className="font-medium text-foreground">Sort a bin</span> lists a tote's contents from one photo.
+        </p>
 
         {/* Paper config lives in Settings; tool identification lives in the Add-tool flow —
             keeping them out of the Storage tab so it stays focused on locations. */}
