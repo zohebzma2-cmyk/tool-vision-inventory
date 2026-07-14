@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Printer, TestTube, LogOut, Share, Loader2, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { setupPrinter, testPrint, isPrintingSupported } from "@/components/inventory/PrinterService";
+import { setupPrinter, testPrint, isPrintingSupported, printerService } from "@/components/inventory/PrinterService";
 import { PaperTypeConfig } from "@/components/inventory/PaperTypeConfig";
 import { exportInventoryCsv } from "@/lib/exportCsv";
 import { haptic } from "@/lib/haptics";
@@ -20,6 +20,10 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   const { user, signOut } = useAuth();
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // Reflect the real printer state when Settings opens (the service is a singleton shared with the
+  // Spaces tab), so it never falsely shows "Connect" while a printer is already live.
+  useEffect(() => { if (open) setConnected(printerService.isConnected); }, [open]);
 
   const connect = async () => {
     setBusy(true);

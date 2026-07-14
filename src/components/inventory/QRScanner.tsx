@@ -28,7 +28,7 @@ interface ScanResult {
 async function resolveCode(code: string): Promise<ScanResult> {
   const { data: loc } = await supabase
     .from("locations")
-    .select("id, name, is_slot, parent_location_id")
+    .select("id, name, is_slot, type, parent_location_id")
     .eq("qr_code", code)
     .maybeSingle();
 
@@ -65,7 +65,8 @@ async function resolveCode(code: string): Promise<ScanResult> {
 
     return {
       code,
-      kind: loc.is_slot ? "bin" : "space",
+      // A bin is either a legacy slot OR a standalone bin created by the sort flow (type "bin").
+      kind: loc.is_slot || loc.type === "bin" ? "bin" : "space",
       title: loc.name,
       path,
       locationId: loc.id,

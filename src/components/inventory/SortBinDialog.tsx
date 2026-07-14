@@ -75,6 +75,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const [binNumber, setBinNumber] = useState(1);
 
   const [saving, setSaving] = useState(false);
+  const [printingKey, setPrintingKey] = useState<string | null>(null); // which label is printing
   const [savedBin, setSavedBin] = useState<{ number: number; title: string; qr: string } | null>(null);
   // Which of the location labels have been printed this session (so we prompt for them just once).
   const [printed, setPrinted] = useState<{ space?: boolean; rack?: boolean }>({});
@@ -139,29 +140,46 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     return max + 1;
   };
 
+  // Display names for the chosen space/rack — derived from the selection, so the bin-step header
+  // and labels read correctly BEFORE anything is written to the DB.
+  const planSpaceName = spaceSel && spaceSel !== NEW
+    ? (spaces.find((s) => s.id === spaceSel)?.name ?? "Space")
+    : (newSpaceName.trim() || "Garage");
+  const planRackName = rackSel === NEW
+    ? (newRackName.trim() || "Rack")
+    : (rackSel && rackSel !== NONE ? racks.find((r) => r.id === rackSel)?.name : undefined);
+
+  // Move to the bin step WITHOUT creating anything — so a mistyped space/rack or a Back tap leaves
+  // no orphaned rows. The space/rack are created lazily on the first save (resolveCtx) and reused.
   const continueFromLocation = async () => {
     setSaving(true);
     try {
-      const space: Place = spaceSel === NEW || !spaceSel
-        ? await resolvePlace("space", newSpaceName.trim() || "Garage")
-        : (() => { const s = spaces.find((x) => x.id === spaceSel)!; return { id: s.id, name: s.name, qr: s.qr_code }; })();
-
-      let rack: Place | undefined;
-      if (rackSel === NEW) rack = await resolvePlace("rack", newRackName.trim() || "Rack", space.id);
-      else if (rackSel && rackSel !== NONE) {
-        const r = racks.find((x) => x.id === rackSel);
-        if (r) rack = { id: r.id, name: r.name, qr: r.qr_code };
-      }
-
-      setCtx({ space, rack });
       setBinNumber(await fetchNextBinNumber());
       setStep("bin");
-      onSaved?.(); // a fresh space/rack may have been created — refresh lists behind us
     } catch (e) {
-      toast({ title: "Couldn't set the location", description: String((e as Error)?.message || e), variant: "destructive" });
+      toast({ title: "Couldn't start", description: String((e as Error)?.message || e), variant: "destructive" });
     } finally {
       setSaving(false);
     }
+  };
+
+  // Create (once) or reuse the chosen space + rack, caching them so every bin in the session shares them.
+  const resolveCtx = async (): Promise<{ space: Place; rack?: Place }> => {
+    let space = ctx.space;
+    if (!space) {
+      space = spaceSel && spaceSel !== NEW
+        ? (() => { const s = spaces.find((x) => x.id === spaceSel)!; return { id: s.id, name: s.name, qr: s.qr_code }; })()
+        : await resolvePlace("space", newSpaceName.trim() || "Garage");
+    }
+    let rack = ctx.rack;
+    if (!rack && rackSel !== NONE) {
+      rack = rackSel === NEW
+        ? await resolvePlace("rack", newRackName.trim() || "Rack", space.id)
+        : (() => { const r = racks.find((x) => x.id === rackSel); return r ? { id: r.id, name: r.name, qr: r.qr_code } : undefined; })();
+    }
+    const resolved = { space, rack };
+    setCtx(resolved);
+    return resolved;
   };
 
   // ---- Bin step ------------------------------------------------------------
@@ -232,9 +250,10 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     setSaving(true);
     try {
       if (isNew) {
+        const { space, rack } = await resolveCtx(); // creates space/rack now (first bin) or reuses them
         const number = binNumber;
         const name = `Bin ${number}${summary.trim() || newName.trim() ? ` — ${binTitle}` : ""}`;
-        const parentId = ctx.rack?.id ?? ctx.space?.id ?? null;
+        const parentId = rack?.id ?? space.id;
         const { data: made, error } = await supabase.from("locations").insert([{
           name, type: "bin", is_slot: false, qr_code: generateQRCode(),
           parent_location_id: parentId,
@@ -274,30 +293,36 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   };
 
   // ---- Labels --------------------------------------------------------------
-  const notify = (res: { success: boolean; message: string }) =>
-    toast({ title: res.success ? "Label sent" : "Couldn't print", description: res.message, variant: res.success ? "success" : "destructive" });
+  const notify = (res: { success: boolean; message: string }) => {
+    const canceled = /cancel/i.test(res.message);
+    toast({
+      title: res.success ? "Label sent" : canceled ? "Print canceled" : "Couldn't print",
+      description: res.message,
+      variant: res.success ? "success" : canceled ? "default" : "destructive",
+    });
+  };
 
-  const locationLine = ctx.rack ? `${ctx.rack.name} · ${ctx.space?.name ?? ""}`.trim() : ctx.space?.name;
+  const locationLine = isNew
+    ? (planRackName ? `${planRackName} · ${planSpaceName}` : planSpaceName)
+    : undefined;
 
-  const printBinLabel = async () => {
-    if (!savedBin) return;
-    notify(await printLabel({
+  const runPrint = async (key: string, spec: Parameters<typeof printLabel>[0], after?: () => void) => {
+    setPrintingKey(key);
+    try { notify(await printLabel(spec)); after?.(); }
+    finally { setPrintingKey(null); }
+  };
+
+  const printBinLabel = () =>
+    savedBin && runPrint("bin", {
       badge: `Bin ${savedBin.number || ""}`.trim(),
       title: savedBin.title,
       lines: [`${galNum} gal`, locationLine, selected.length ? `${selected.length} items` : ""].filter(Boolean) as string[],
       qr: savedBin.qr || undefined,
-    }));
-  };
-  const printSpaceLabel = async () => {
-    if (!ctx.space) return;
-    notify(await printLabel({ title: ctx.space.name, lines: ["Space"], qr: ctx.space.qr }));
-    setPrinted((p) => ({ ...p, space: true }));
-  };
-  const printRackLabel = async () => {
-    if (!ctx.rack) return;
-    notify(await printLabel({ title: ctx.rack.name, lines: [ctx.space?.name ?? "", "Rack"].filter(Boolean), qr: ctx.rack.qr }));
-    setPrinted((p) => ({ ...p, rack: true }));
-  };
+    });
+  const printSpaceLabel = () =>
+    ctx.space && runPrint("space", { title: ctx.space.name, lines: ["Space"], qr: ctx.space.qr }, () => setPrinted((p) => ({ ...p, space: true })));
+  const printRackLabel = () =>
+    ctx.rack && runPrint("rack", { title: ctx.rack.name, lines: [ctx.space?.name ?? "", "Rack"].filter(Boolean), qr: ctx.rack.qr }, () => setPrinted((p) => ({ ...p, rack: true })));
 
   // ---- Render --------------------------------------------------------------
   const heading = step === "location" ? "Where are you sorting?"
@@ -368,16 +393,24 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
               {aiBusy ? (
                 <VisionProgress imageDataUrl={imageDataUrl} stages={[...VISION_STAGES.identifyBin]} />
               ) : !imageDataUrl ? (
-                <Button type="button" variant="outline" asChild className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
-                  <label className="cursor-pointer">
-                    <Camera className="h-8 w-8 text-primary" />
-                    <span className="font-display">Snap the inside of the bin</span>
-                    <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
-                      AI lists what's inside and estimates the tote size
-                    </span>
-                    <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
-                  </label>
-                </Button>
+                <div className="space-y-2">
+                  <Button type="button" variant="outline" asChild className="w-full h-32 border-dashed flex-col gap-2 hover:bg-muted/50">
+                    <label className="cursor-pointer">
+                      <Camera className="h-8 w-8 text-primary" />
+                      <span className="font-display">Snap the inside of the bin</span>
+                      <span className="text-xs text-muted-foreground font-normal normal-case tracking-normal">
+                        AI lists what's inside and estimates the tote size
+                      </span>
+                      <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPickPhoto(e.target.files?.[0])} />
+                    </label>
+                  </Button>
+                  {!analyzed && (
+                    <button type="button" onClick={() => { setAnalyzed(true); if (drafts.length === 0) addRow(); }}
+                      className="w-full text-center text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                      No photo? Set the size and enter it by hand
+                    </button>
+                  )}
+                </div>
               ) : (
                 <img src={imageDataUrl} alt="Bin contents" className="w-full max-h-44 object-cover rounded-lg border" />
               )}
@@ -445,9 +478,12 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
             </div>
 
             <DialogFooter>
+              {isNew && !ctx.space && (
+                <Button variant="ghost" onClick={() => setStep("location")} disabled={saving || aiBusy}>Back</Button>
+              )}
               <Button variant="outline" onClick={() => close(false)} disabled={saving}>Cancel</Button>
-              {!analyzed && !imageDataUrl && isVisionConfigured() ? null : (
-                <Button onClick={save} disabled={saving || aiBusy || (selected.length === 0 && !galNum)}>
+              {analyzed && (
+                <Button onClick={save} disabled={saving || aiBusy || (selected.length === 0 && Number(gallons) < 1)}>
                   {saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Check className="h-4 w-4 mr-2" />}
                   Sort &amp; store{selected.length ? ` ${selected.length}` : ""}
                 </Button>
@@ -472,15 +508,17 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground text-center">Print labels</p>
                 <div className="flex flex-col gap-2 stagger">
-                  <Button onClick={printBinLabel}><Printer className="h-4 w-4 mr-2" /> Bin {savedBin.number || ""} label</Button>
+                  <Button onClick={printBinLabel} disabled={!!printingKey}>
+                    {printingKey === "bin" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />} Bin {savedBin.number || ""} label
+                  </Button>
                   {ctx.rack && (
-                    <Button variant={printed.rack ? "outline" : "secondary"} onClick={printRackLabel}>
-                      <Printer className="h-4 w-4 mr-2" /> {printed.rack ? "Reprint" : "Print"} rack label · {ctx.rack.name}
+                    <Button variant={printed.rack ? "outline" : "secondary"} onClick={printRackLabel} disabled={!!printingKey}>
+                      {printingKey === "rack" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />} {printed.rack ? "Reprint" : "Print"} rack label · {ctx.rack.name}
                     </Button>
                   )}
                   {ctx.space && (
-                    <Button variant={printed.space ? "outline" : "secondary"} onClick={printSpaceLabel}>
-                      <Printer className="h-4 w-4 mr-2" /> {printed.space ? "Reprint" : "Print"} space label · {ctx.space.name}
+                    <Button variant={printed.space ? "outline" : "secondary"} onClick={printSpaceLabel} disabled={!!printingKey}>
+                      {printingKey === "space" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />} {printed.space ? "Reprint" : "Print"} space label · {ctx.space.name}
                     </Button>
                   )}
                 </div>

@@ -376,7 +376,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
       toast({
         title: "Success",
-        description: `Item added successfully${assignedLocationName ? ` and placed in ${assignedLocationName}` : ''}!`
+        description: `Tool added${assignedLocationName ? ` and placed in ${assignedLocationName}` : ''}.`
       });
 
       // Reset form
@@ -494,11 +494,18 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
 
           <div className="space-y-2">
             <Label>Assign Location (optional)</Label>
-            <Select value={manualLocationId} onValueChange={(v)=>{ setManualLocationId(v); const chosen = locations.find(l=>l.id===v); setPreviewLocation(chosen||null); }}>
+            <Select
+              value={manualLocationId || "__auto__"}
+              onValueChange={(v)=>{
+                if (v === "__auto__") { setManualLocationId(""); setPreviewLocation(null); return; }
+                setManualLocationId(v); const chosen = locations.find(l=>l.id===v); setPreviewLocation(chosen||null);
+              }}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Auto (AI/heuristics)" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="__auto__">Auto — let the app place it</SelectItem>
                 {locations.map((l:any)=> (
                   <SelectItem key={l.id} value={l.id}>{l.name} • {l.type}</SelectItem>
                 ))}
@@ -571,7 +578,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
             </Button>
             <Button type="submit" disabled={isLoading || !formData.name || !formData.category}>
               {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Add Item
+              Add tool
             </Button>
           </DialogFooter>
         </form>

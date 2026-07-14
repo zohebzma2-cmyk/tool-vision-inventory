@@ -11,6 +11,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -51,6 +55,7 @@ export function LocationsList({
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showMapDialog, setShowMapDialog] = useState(false);
   const [showSortBin, setShowSortBin] = useState(false);
+  const [pendingDeleteLoc, setPendingDeleteLoc] = useState<{ id: string; name: string } | null>(null);
 
   // Onboarding hand-off: "Map my first space" lands here with the dialog pre-opened.
   useEffect(() => {
@@ -506,10 +511,10 @@ export function LocationsList({
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => handlePrintLocation(location.id)}>
                         <Printer className="h-4 w-4" />
                       </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        onClick={() => deleteLocation(location.id)}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setPendingDeleteLoc({ id: location.id, name: location.name })}
                         className="h-8 w-8 p-0 hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -801,6 +806,27 @@ export function LocationsList({
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingDeleteLoc} onOpenChange={(v) => { if (!v) setPendingDeleteLoc(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {pendingDeleteLoc?.name ?? "this location"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the location and unlinks any tools stored in it (the tools themselves stay
+              in your inventory). This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (pendingDeleteLoc) deleteLocation(pendingDeleteLoc.id); setPendingDeleteLoc(null); }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
