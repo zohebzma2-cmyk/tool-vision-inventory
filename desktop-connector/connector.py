@@ -16,19 +16,28 @@ PORT = 17777
 MAX_BODY = 8 * 1024 * 1024  # 8 MB — a label PNG is a few KB; reject anything larger.
 # Serve the built app so the whole thing is same-origin localhost (no HTTPS→localhost PNA block).
 DIST = os.path.expanduser("~/tool-vision-inventory/dist")
-import mimetypes, posixpath
+import mimetypes, posixpath, ipaddress
+from urllib.parse import urlparse
 
 def _origin_ok(origin: str) -> bool:
-    """Only the Tool Vision app (prod, its preview deploys, or local dev) may drive the printer —
-    not any random site the user happens to visit."""
+    """Only the Tool Vision app (prod, its preview deploys, local dev, or the app served BY this
+    connector over the LAN) may drive the printer — not any random site the user happens to visit."""
     if not origin:
         return False
-    return (
-        origin == "https://tool-vision.pages.dev"
-        or origin.endswith(".tool-vision.pages.dev")
-        or origin.startswith("http://localhost:")
-        or origin.startswith("http://127.0.0.1:")
-    )
+    if (origin == "https://tool-vision.pages.dev"
+            or origin.endswith(".tool-vision.pages.dev")
+            or origin.startswith("http://localhost:")
+            or origin.startswith("http://127.0.0.1:")):
+        return True
+    # Phone-relay printing: the phone loads the app from this connector at the laptop's LAN address
+    # (http://<private-ip>:17777) and prints same-origin. Allow only private-network IPs on our port.
+    try:
+        u = urlparse(origin)
+        if u.scheme == "http" and u.port == PORT and u.hostname:
+            return ipaddress.ip_address(u.hostname).is_private
+    except (ValueError, TypeError):
+        return False
+    return False
 
 def _font(sz):
     for p in ["/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf"]:
@@ -222,5 +231,7 @@ class H(BaseHTTPRequestHandler):
     def log_message(self, *a): pass
 
 if __name__ == "__main__":
-    print(f"Tool Vision print connector on http://127.0.0.1:{PORT}  → {QUEUE}")
-    ThreadingHTTPServer(("127.0.0.1", PORT), H).serve_forever()
+    # Bind all interfaces so a phone on the same Wi-Fi can print via the laptop (origin-gated to the
+    # app served from a private-LAN address). Localhost still works exactly as before.
+    print(f"Tool Vision print connector on http://0.0.0.0:{PORT}  → {QUEUE}")
+    ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
