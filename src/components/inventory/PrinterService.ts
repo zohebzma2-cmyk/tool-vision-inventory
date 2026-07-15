@@ -916,6 +916,23 @@ export async function printImageViaConnector(imageDataUrl: string): Promise<{ su
   }
 }
 
+/** Send a short iMessage to the owner via the desktop connector (weekly organization nudge). Returns
+ *  null if the connector is unreachable. The connector only ever texts the owner's own fixed number. */
+export async function notifyTextViaConnector(message: string): Promise<{ success: boolean } | null> {
+  try {
+    const res = await fetch(`${CONNECTOR_URL}/notify-text`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const j = await res.json().catch(() => ({}));
+    return { success: !!(res.ok && j.success) };
+  } catch {
+    return null;
+  }
+}
+
 async function printViaConnector(spec: LabelSpec): Promise<{ success: boolean; message: string } | null> {
   // Render the exact clean canvas (QR + badge + text) and hand the PNG to the connector.
   const canvas = await rasterizeLabel(spec, 696);

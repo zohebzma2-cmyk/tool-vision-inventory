@@ -69,6 +69,25 @@ def render(spec):
     d.rectangle([6, 6, W - 7, H - 7], outline="black", width=3)
     return _to_raster(img)
 
+# The owner's phone for weekly organization nudges. Only THIS Mac runs the connector and it only ever
+# texts this one fixed number, so the /notify-text route can't be abused to message anyone else.
+OWNER_PHONE = os.environ.get("TOOLVISION_OWNER_PHONE", "+16035051091")
+
+def send_imessage(text):
+    """Send an iMessage to the owner via Messages.app. The body is passed as an argv arg (not string-
+    interpolated into the AppleScript) so no quoting/escaping can break or inject."""
+    script = (
+        "on run argv\n"
+        "  set msg to item 1 of argv\n"
+        "  tell application \"Messages\"\n"
+        "    set svc to 1st service whose service type = iMessage\n"
+        f"    send msg to buddy \"{OWNER_PHONE}\" of svc\n"
+        "  end tell\n"
+        "end run\n"
+    )
+    r = subprocess.run(["osascript", "-", text], input=script, capture_output=True, text=True, timeout=20)
+    return (r.returncode == 0), (r.stderr.strip() or "sent")
+
 def printer_status():
     try:
         out = subprocess.run(["lpstat", "-p", QUEUE], capture_output=True, text=True, timeout=5).stdout
@@ -168,16 +187,25 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"error": str(e)})
     def do_POST(self):
-        if not self.path.startswith("/print"):
+        if not (self.path.startswith("/print") or self.path.startswith("/notify-text")):
             return self._json(404, {"error": "not found"})
-        # Only the Tool Vision app may trigger a print (defends against any other local page).
+        # Only the Tool Vision app may trigger a print/text (defends against any other local page).
         if not _origin_ok(self.headers.get("Origin", "")):
             return self._json(403, {"success": False, "message": "origin not allowed"})
         try:
             n = int(self.headers.get("Content-Length", 0))
             if n <= 0 or n > MAX_BODY:
                 return self._json(413, {"success": False, "message": "request too large"})
-            spec = json.loads(self.rfile.read(n) or b"{}")
+            body = json.loads(self.rfile.read(n) or b"{}")
+
+            if self.path.startswith("/notify-text"):
+                msg = str(body.get("message") or "").strip()[:1000]
+                if not msg:
+                    return self._json(400, {"success": False, "message": "empty message"})
+                ok, detail = send_imessage(msg)
+                return self._json(200 if ok else 500, {"success": ok, "message": detail})
+
+            spec = body
             # Prefer the app's already-rendered label image (keeps its QR/layout); else text fallback.
             raster = render_image(spec["imageDataUrl"]) if spec.get("imageDataUrl") else render(spec)
             with tempfile.NamedTemporaryFile(suffix=".prn", delete=False) as f:

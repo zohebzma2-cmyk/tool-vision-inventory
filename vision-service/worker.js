@@ -316,6 +316,31 @@ export default {
       }, cors);
     }
 
+    // Weekly organization digest email (client-triggered): the signed-in app posts its own report as
+    // ready-to-send HTML; we relay it via Resend. Kept separate from the vision routes — no image, no
+    // OpenRouter key. No-ops with 503 until RESEND_API_KEY is set, so the client just skips email.
+    if (request.method === "POST" && url.pathname === "/digest") {
+      const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      if (!(await verifyUser(env, token))) return json(401, { error: "Sign in required." }, cors);
+      if (!env.RESEND_API_KEY) return json(503, { error: "email not configured" }, cors);
+      const body = parseJson(await request.text());
+      const to = typeof body.to === "string" ? body.to.trim() : "";
+      const subject = typeof body.subject === "string" && body.subject ? body.subject : "Your weekly garage tidy-up";
+      const html = typeof body.html === "string" ? body.html : "";
+      if (!to || !html) return json(400, { error: "missing to/html" }, cors);
+      const from = env.DIGEST_FROM || "Tool Vision <onboarding@resend.dev>";
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ from, to, subject, html }),
+      });
+      if (!r.ok) {
+        const detail = await r.text().catch(() => "");
+        return json(502, { error: `resend ${r.status}`, detail: detail.slice(0, 200) }, cors);
+      }
+      return json(200, { ok: true }, cors);
+    }
+
     if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin", "/detect-spots", "/generate-blueprint"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
