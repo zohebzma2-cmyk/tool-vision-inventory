@@ -44,12 +44,13 @@ def _origin_ok(origin: str) -> bool:
         if host in ("localhost", "127.0.0.1"):
             return True  # local dev server (any port) or the connector itself
         # Phone-relay: the app served by THIS connector at the laptop's private-LAN address OR its
-        # stable mDNS .local name (survives DHCP changes) — on our port.
+        # OWN stable mDNS .local name (survives DHCP changes) — on our port. Exact-match the mDNS name;
+        # never a blanket ".local" suffix (which any host could satisfy).
         if port == PORT:
             try:
                 return ipaddress.ip_address(host).is_private
             except ValueError:
-                return host.endswith(".local")
+                return bool(_MDNS_HOST) and host.rstrip(".").lower() == _MDNS_HOST
     # The Capacitor iOS/Android app runs at capacitor://localhost (native shell, not a website) and
     # reaches this connector over the LAN to print — allow that fixed app origin.
     if scheme in ("capacitor", "ionic") and host == "localhost":
@@ -140,6 +141,11 @@ def _mdns_host():
         return f"{n}.local" if n else ""
     except Exception:
         return ""
+
+# THIS machine's mDNS name, resolved once at startup and normalized. The origin allowlist compares
+# against this EXACT string — never a blanket ".local" suffix, so a hostile page at some-other.local
+# can't slip past by ending in ".local".
+_MDNS_HOST = _mdns_host().rstrip(".").lower()
 
 def _queue_has_jobs():
     try:
