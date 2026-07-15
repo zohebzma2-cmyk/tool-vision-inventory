@@ -53,6 +53,10 @@ class BrotherQLPrinterService implements PrinterService {
   async autoConnect(): Promise<boolean> {
     try {
       if (!('usb' in navigator)) return false;
+      // If the desktop connector is running it OWNS the printer via CUPS. Claiming the same USB
+      // device over WebUSB here would lock the connector (and the terminal) out of the one physical
+      // device, wedging every print as "Waiting for printer to become available". So never grab it.
+      if (await isConnectorAvailable()) return false;
       const devices: USBDevice[] = await (navigator as any).usb.getDevices();
       const dev = devices.find((d) => d.vendorId === 0x04f9); // any already-permitted Brother device
       if (!dev) return false;
@@ -65,6 +69,12 @@ class BrotherQLPrinterService implements PrinterService {
 
   async connect(): Promise<boolean> {
     try {
+      // The desktop connector owns the printer over CUPS when it's running. Claiming the device over
+      // WebUSB would lock it out (single USB owner) and wedge printing — so defer to the connector.
+      if (await isConnectorAvailable()) {
+        console.log('Desktop connector present — printing via CUPS, not claiming the printer over WebUSB.');
+        return false;
+      }
       // Check if WebUSB API is supported
       if (!('usb' in navigator)) {
         throw new Error('WebUSB API not supported in this browser. Please use Chrome, Edge, or another Chromium-based browser.');
@@ -514,8 +524,34 @@ export async function autoPrintLabel(
   onStatusUpdate?: (status: string) => void
 ): Promise<{ success: boolean; message: string }> {
   try {
+    // Preferred path: the desktop connector prints the location label via CUPS (no USB claim, so the
+    // terminal and every browser tab share the one printer without wedging it). Build the label from
+    // the location row and hand it to the same connector-first printLabel() every other label uses.
+    if (await isConnectorAvailable()) {
+      onStatusUpdate?.('Printing via desktop connector...');
+      try {
+        const { supabase } = await import('@/integrations/supabase/client');
+        const { data: loc } = await supabase
+          .from('locations')
+          .select('id,name,qr_code,type')
+          .eq('id', locationId)
+          .single();
+        if (loc) {
+          const res = await printLabel({
+            title: loc.name || 'Location',
+            lines: loc.type ? [String(loc.type)] : [],
+            qr: loc.qr_code || `LOC:${loc.id}`,
+          });
+          onStatusUpdate?.(res.success ? 'Print complete!' : res.message);
+          return res;
+        }
+      } catch (e) {
+        console.warn('Connector location-print failed, falling back to WebUSB path:', e);
+      }
+    }
+
     onStatusUpdate?.('Connecting to printer...');
-    
+
     // Connect to printer if not already connected
     if (!printerService.isConnected) {
       console.log('Printer not connected, attempting to connect...');
@@ -621,6 +657,9 @@ export function isPrintingSupported(): boolean {
 
 // Manual printer connection for first-time setup
 export async function setupPrinter(): Promise<boolean> {
+  // With the desktop connector running the printer is already usable via CUPS — no WebUSB claim,
+  // no picker, nothing for the user to connect. Report ready so the UI reflects the working state.
+  if (await isConnectorAvailable()) return true;
   if (!isPrintingSupported()) {
     alert('WebUSB API is not supported in your browser. Please use Chrome, Edge, or another Chromium-based browser.');
     return false;
@@ -858,7 +897,9 @@ export async function printImageViaConnector(imageDataUrl: string): Promise<{ su
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageDataUrl }),
-      signal: AbortSignal.timeout(15000),
+      // The connector now confirms the label actually printed (and self-heals a wedge + resubmits),
+      // so allow headroom for that submit → confirm → recover → resubmit worst case.
+      signal: AbortSignal.timeout(25000),
     });
     const j = await res.json().catch(() => ({}));
     if (res.ok && j.success) return { success: true, message: 'Printed on the QL-800 (via desktop connector).' };

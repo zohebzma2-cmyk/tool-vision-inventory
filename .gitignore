@@ -36,3 +36,4 @@ supabase/.temp
 
 # xcodebuild archive/export output from scripts/testflight.sh
 ios/build/
+desktop-connector/__pycache__/
