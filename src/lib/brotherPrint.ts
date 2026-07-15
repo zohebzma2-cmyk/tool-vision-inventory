@@ -10,7 +10,7 @@
 import QRCode from "qrcode";
 import { BrotherQLRaster } from "@/utils/brotherQL";
 import { renderTokens, type LabelTemplate, type LabelData } from "./labelTemplates";
-import { printerService, isPrintingSupported } from "@/components/inventory/PrinterService";
+import { printerService, isPrintingSupported, isConnectorAvailable, printImageViaConnector } from "@/components/inventory/PrinterService";
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -136,24 +136,33 @@ export async function outputLabel(
   template: LabelTemplate,
   data: LabelData,
 ): Promise<{ success: boolean; message: string }> {
-  if (isPrintingSupported()) return printTemplateLabel(template, data);
+  if (await isConnectorAvailable() || isPrintingSupported()) return printTemplateLabel(template, data);
   return shareLabelImage(template, data);
 }
 
-/** Render + print one label from a template. Connects to a Brother printer on demand. */
+/** Render + print one label from a template. Prefers the desktop connector (CUPS); falls back to
+ *  WebUSB. Used by single-slot print AND "Print all labels", so both go through the connector. */
 export async function printTemplateLabel(
   template: LabelTemplate,
   data: LabelData,
 ): Promise<{ success: boolean; message: string }> {
-  if (!isPrintingSupported()) {
-    return { success: false, message: "Printing needs a Chromium browser (WebUSB)." };
-  }
-  if (!printerService.isConnected) {
-    const ok = await printerService.connect();
-    if (!ok) return { success: false, message: "Could not connect to a Brother printer." };
-  }
   try {
     const canvas = await rasterizeTemplate(template, data, 696);
+
+    // Preferred path: the local connector (prints via CUPS — coexists with terminal, no USB claim).
+    if (await isConnectorAvailable()) {
+      const viaConn = await printImageViaConnector(canvas.toDataURL("image/png"));
+      if (viaConn) return viaConn;
+    }
+
+    // Fallback: WebUSB directly.
+    if (!isPrintingSupported()) {
+      return { success: false, message: "Printing needs the desktop connector or a Chromium browser (WebUSB)." };
+    }
+    if (!printerService.isConnected) {
+      const ok = await printerService.connect();
+      if (!ok) return { success: false, message: "Could not connect to a Brother printer." };
+    }
     const job = canvasToQLJob(canvas, 62);
     const ok = await printerService.print(job);
     return ok
