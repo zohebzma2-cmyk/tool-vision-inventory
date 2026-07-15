@@ -6,11 +6,26 @@ import json, subprocess, tempfile, os, datetime, base64, io
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image as _I, ImageDraw, ImageFont
 if not hasattr(_I, "ANTIALIAS"): _I.ANTIALIAS = _I.Resampling.LANCZOS
+# Cap decoded-image pixels to defuse decompression bombs (a 62mm label is ~696×~1000 px).
+_I.MAX_IMAGE_PIXELS = 4_000_000
 from brother_ql.raster import BrotherQLRaster
 from brother_ql.conversion import convert
 
 QUEUE = "ToolVision_QL800"
 PORT = 17777
+MAX_BODY = 8 * 1024 * 1024  # 8 MB — a label PNG is a few KB; reject anything larger.
+
+def _origin_ok(origin: str) -> bool:
+    """Only the Tool Vision app (prod, its preview deploys, or local dev) may drive the printer —
+    not any random site the user happens to visit."""
+    if not origin:
+        return False
+    return (
+        origin == "https://tool-vision.pages.dev"
+        or origin.endswith(".tool-vision.pages.dev")
+        or origin.startswith("http://localhost:")
+        or origin.startswith("http://127.0.0.1:")
+    )
 
 def _font(sz):
     for p in ["/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial.ttf"]:
@@ -60,7 +75,10 @@ def printer_status():
 
 class H(BaseHTTPRequestHandler):
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
+        origin = self.headers.get("Origin", "")
+        if _origin_ok(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)  # reflect only trusted origins
+            self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Private-Network", "true")
@@ -79,8 +97,13 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.path.startswith("/print"):
             return self._json(404, {"error": "not found"})
+        # Only the Tool Vision app may trigger a print (defends against any other local page).
+        if not _origin_ok(self.headers.get("Origin", "")):
+            return self._json(403, {"success": False, "message": "origin not allowed"})
         try:
             n = int(self.headers.get("Content-Length", 0))
+            if n <= 0 or n > MAX_BODY:
+                return self._json(413, {"success": False, "message": "request too large"})
             spec = json.loads(self.rfile.read(n) or b"{}")
             # Prefer the app's already-rendered label image (keeps its QR/layout); else text fallback.
             raster = render_image(spec["imageDataUrl"]) if spec.get("imageDataUrl") else render(spec)
