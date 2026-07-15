@@ -2,7 +2,7 @@
 """Tool Vision local print connector — bridges the web app (HTTP) to the QL-800 (CUPS).
 Both the browser app and the terminal print through the same CUPS queue, so they never fight
 over the USB device (no WebUSB needed). Listens on 127.0.0.1:17777."""
-import json, subprocess, tempfile, os, datetime, base64, io
+import json, subprocess, tempfile, os, datetime, base64, io, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image as _I, ImageDraw, ImageFont
 if not hasattr(_I, "ANTIALIAS"): _I.ANTIALIAS = _I.Resampling.LANCZOS
@@ -76,6 +76,55 @@ def printer_status():
     except Exception as e:
         return f"error: {e}"
 
+def _queue_has_jobs():
+    try:
+        out = subprocess.run(["lpstat", "-o", QUEUE], capture_output=True, text=True, timeout=5).stdout
+        return bool(out.strip())
+    except Exception:
+        return False
+
+def _wait_drained(seconds):
+    """True if the queue empties (label actually printed) within `seconds`; else False."""
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        if not _queue_has_jobs():
+            return True
+        time.sleep(0.4)
+    return False
+
+def _recover_queue():
+    """No-sudo recovery for a wedged CUPS backend ("Waiting for printer to become available"):
+    clear stuck jobs and re-enable the queue. The owner is in _lpadmin, so cancel/cupsenable need
+    no password. This is what lets the printer self-heal without the user power-cycling it."""
+    subprocess.run(["cancel", "-a", QUEUE], capture_output=True, text=True, timeout=5)
+    subprocess.run(["cupsenable", QUEUE], capture_output=True, text=True, timeout=5)
+    time.sleep(1.0)
+
+def _submit(path):
+    return subprocess.run(["lp", "-d", QUEUE, "-o", "raw", path], capture_output=True, text=True, timeout=20)
+
+def print_raw(path):
+    """Submit a raw raster job AND confirm it actually prints. `lp` returns as soon as CUPS accepts
+    the job (not when it prints), so a wedged backend used to look like success while nothing came
+    out. Here we wait for the queue to drain; if it stalls we auto-recover once and resubmit — so a
+    wedge clears itself instead of needing a power-cycle. Returns (ok, message)."""
+    r = _submit(path)
+    if r.returncode != 0:
+        return False, (r.stderr.strip() or "lp failed")
+    if _wait_drained(6):
+        return True, "Printed on the QL-800."
+    # Didn't drain in 6s. If it slipped through just now, we're done (avoid a double print).
+    if not _queue_has_jobs():
+        return True, "Printed on the QL-800."
+    # Genuinely wedged → recover without a power-cycle and resubmit once.
+    _recover_queue()
+    r2 = _submit(path)
+    if r2.returncode != 0:
+        return False, (r2.stderr.strip() or "lp failed after recovery")
+    if _wait_drained(7):
+        return True, "Printed on the QL-800 (auto-recovered)."
+    return False, "Printer didn't respond — check it's powered on with a label roll loaded."
+
 class H(BaseHTTPRequestHandler):
     def _cors(self):
         origin = self.headers.get("Origin", "")
@@ -133,12 +182,13 @@ class H(BaseHTTPRequestHandler):
             raster = render_image(spec["imageDataUrl"]) if spec.get("imageDataUrl") else render(spec)
             with tempfile.NamedTemporaryFile(suffix=".prn", delete=False) as f:
                 f.write(raster); path = f.name
-            r = subprocess.run(["lp", "-d", QUEUE, "-o", "raw", path], capture_output=True, text=True, timeout=20)
-            os.unlink(path)
-            if r.returncode == 0:
-                self._json(200, {"success": True, "message": "Sent to QL-800", "job": r.stdout.strip()})
-            else:
-                self._json(500, {"success": False, "message": r.stderr.strip() or "lp failed"})
+            try:
+                # Submit AND confirm it actually prints (self-heals a wedged queue, no power-cycle).
+                ok, msg = print_raw(path)
+            finally:
+                try: os.unlink(path)
+                except OSError: pass
+            self._json(200 if ok else 500, {"success": ok, "message": msg})
         except Exception as e:
             self._json(500, {"success": False, "message": str(e)})
     def log_message(self, *a): pass
