@@ -11,6 +11,7 @@ import { HowItWorks } from "@/components/onboarding/HowItWorks";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
 import { SortMode } from "@/components/inventory/SortMode";
 import { computeOrgReport } from "@/lib/organize";
+import { maybeRunWeeklyDigest } from "@/lib/digest";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -55,6 +56,12 @@ const Index = () => {
       .catch(() => { /* non-fatal — the badge just stays at its last value */ });
     return () => { cancelled = true; };
   }, [syncTick]);
+
+  // Weekly organization digest: self-throttles to once a week, texts (via the Mac connector) + emails
+  // when there's something to tidy. Fires once per app open for the signed-in user; silent otherwise.
+  useEffect(() => {
+    if (user?.id) maybeRunWeeklyDigest(user.id);
+  }, [user?.id]);
 
   // First-run onboarding: once per account, and only while the wall is empty.
   const onboardKey = user ? `tv-onboarded:${user.id}` : null;
