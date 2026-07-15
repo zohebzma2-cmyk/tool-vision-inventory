@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
-import { generateQRCode } from "@/lib/slots";
+import { mintShortCode } from "@/lib/shortcode";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 import { sortBinFromImage, detectSpotsFromImage, isVisionConfigured, VisionNotConfiguredError } from "@/lib/vision";
@@ -39,7 +39,6 @@ interface DraftItem {
 }
 
 /** A scannable per-item QR code (matches the Add-tool ITEM- convention). */
-const itemQr = () => `ITEM-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
 /** Crop a normalized box out of a data-URL image into a square JPEG thumbnail (cover-fit, white pad). */
 async function cropBox(src: string, box: { x: number; y: number; w: number; h: number }): Promise<string | undefined> {
@@ -161,7 +160,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
   const resolvePlace = async (type: string, name: string, parentId?: string): Promise<Place> => {
     const { data, error } = await supabase.from("locations").insert([{
-      name, type, is_slot: false, qr_code: generateQRCode(),
+      name, type, is_slot: false, qr_code: await mintShortCode(),
       parent_location_id: parentId ?? null, layout: { placeKind: type },
     }]).select("id, name, qr_code").single();
     if (error) throw error;
@@ -295,14 +294,17 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
 
   const storeItems = async (binId: string) => {
     if (!selected.length) return;
-    const rows = selected.map((d) => ({
-      name: d.name.trim(), category: d.category || "other",
-      kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
-      brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
-      qr_code: itemQr(),          // a scannable code per stored item (so item labels resolve on scan)
-      size_specs: d.size?.trim() || null, // size/spec for parts + fittings (irrigation heads, etc.)
-      photo_path: d.photo ?? null, // the crop of this item from the bin photo
-    }));
+    const rows = [];
+    for (const d of selected) {
+      rows.push({
+        name: d.name.trim(), category: d.category || "other",
+        kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
+        brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
+        qr_code: await mintShortCode(), // unique 5-char code per stored item (badge + scan resolve)
+        size_specs: d.size?.trim() || null, // size/spec for parts + fittings (irrigation heads, etc.)
+        photo_path: d.photo ?? null, // the crop of this item from the bin photo
+      });
+    }
     const sel = "id, quantity, name, qr_code";
     let { data: created, error } = await supabase.from("items").insert(rows).select(sel);
     if (error && /(kind|photo_path|size_specs|qr_code)/.test(error.message)) {
@@ -333,7 +335,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         const name = `Bin ${number}${summary.trim() || newName.trim() ? ` — ${binTitle}` : ""}`;
         const parentId = rack?.id ?? space.id;
         const { data: made, error } = await supabase.from("locations").insert([{
-          name, type: "bin", is_slot: false, qr_code: generateQRCode(),
+          name, type: "bin", is_slot: false, qr_code: await mintShortCode(),
           parent_location_id: parentId,
           image_path: imageDataUrl ?? null, // the photo of the bin's contents, kept with the bin
           layout: { placeKind: "bin", binNumber: number, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: imageDataUrl ?? undefined },

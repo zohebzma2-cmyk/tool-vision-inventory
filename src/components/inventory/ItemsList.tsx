@@ -181,6 +181,8 @@ export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
         item.quantity > 1 ? `Qty ${item.quantity}` : "",
       ].filter(Boolean);
       const res = await printLabel({
+        // The 5-char code is the big readable badge (say it / type it); QR resolves the same code.
+        badge: item.qr_code && item.qr_code.length <= 6 ? item.qr_code : undefined,
         title: item.name,
         lines,
         qr: item.qr_code || `ITEM:${item.id}`,   // scannable back to this exact item

@@ -358,6 +358,38 @@ export default {
       return json(200, { ok: true }, cors);
     }
 
+    // SKU / barcode lookup: resolve a UPC/EAN to a product (name/brand/category) so scanning a
+    // printed barcode can auto-fill a new item. Proxied server-side (no browser CORS). Auth-gated.
+    if (request.method === "POST" && url.pathname === "/sku-lookup") {
+      const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      if (!(await verifyUser(env, token))) return json(401, { error: "Sign in required." }, cors);
+      const upc = String(parseJson(await request.text()).upc || "").trim();
+      if (!/^\d{8}$|^\d{12,13}$/.test(upc)) return json(400, { error: "invalid barcode" }, cors);
+      try {
+        // UPCitemdb has a free (keyless, rate-limited) trial endpoint; a paid key can be added later
+        // as SKU_LOOKUP_URL/SKU_LOOKUP_KEY without touching the client.
+        const r = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(upc)}`, {
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!r.ok) return json(502, { error: `lookup ${r.status}` }, cors);
+        const data = await r.json();
+        const it = (data.items || [])[0];
+        if (!it || !it.title) return json(404, { error: "no match" }, cors);
+        // UPCitemdb category is a "A > B > C" path — the leaf is the most useful single category.
+        const category = String(it.category || "").split(">").pop().trim();
+        return json(200, {
+          title: String(it.title).trim(),
+          brand: String(it.brand || "").trim(),
+          model: String(it.model || "").trim(),
+          category,
+          upc,
+        }, cors);
+      } catch (e) {
+        return json(502, { error: "lookup failed" }, cors);
+      }
+    }
+
     if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin", "/detect-spots", "/generate-blueprint"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }

@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ScanBarcode, Check, X } from "lucide-react";
+import { mintShortCode } from "@/lib/shortcode";
+import { lookupSku, looksLikeSku, type SkuProduct } from "@/lib/sku";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/adaptive-dialog";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,12 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const [manualLocationId, setManualLocationId] = useState<string>('');
   const [locations, setLocations] = useState<any[]>([]);
 
+  // SKU / barcode lookup: enter or scan a UPC, confirm the matched product, then auto-fill.
+  const [sku, setSku] = useState('');
+  const [skuLoading, setSkuLoading] = useState(false);
+  const [skuMatch, setSkuMatch] = useState<SkuProduct | null>(null);
+  const [skuUpc, setSkuUpc] = useState('');
+
   useEffect(() => {
     if (!open) return;
     (async () => {
@@ -90,7 +98,44 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
     return categoryMap[aiCategory] || 'Other';
   };
 
-  const generateItemQrCode = () => `ITEM-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+  // Look up the entered barcode and surface the match for confirmation (don't auto-fill until the
+  // user says it's the right product — that's the confirm step they asked for).
+  const handleSkuLookup = async () => {
+    const code = sku.trim();
+    if (!looksLikeSku(code)) {
+      toast({ title: "Enter a barcode", description: "A UPC/EAN is 8, 12, or 13 digits.", variant: "destructive" });
+      return;
+    }
+    setSkuLoading(true);
+    setSkuMatch(null);
+    try {
+      const p = await lookupSku(code);
+      if (!p) {
+        toast({ title: "No match", description: `Couldn't find ${code}. Enter the details manually.`, variant: "destructive" });
+        return;
+      }
+      setSkuMatch(p);
+    } finally {
+      setSkuLoading(false);
+    }
+  };
+
+  // User confirmed the match → fill in the fields we don't already have (never clobber their edits).
+  const applySkuMatch = () => {
+    if (!skuMatch) return;
+    const p = skuMatch;
+    setSkuUpc(p.upc);
+    setFormData((prev) => ({
+      ...prev,
+      name: prev.name || p.title,
+      brand: prev.brand || p.brand,
+      model: prev.model || p.model,
+      category: prev.category || (p.category ? mapCategoryToFormCategory(p.category.toLowerCase()) : prev.category),
+      notes: prev.notes || `UPC ${p.upc}`,
+    }));
+    setSkuMatch(null);
+    toast({ title: "Filled from barcode", description: p.title });
+  };
 
   const normalizeDate = (v: string): string | null => {
     if (!v) return null;
@@ -124,7 +169,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const handlePreviewLabels = async () => {
     try {
       const finalCategory = formData.category || 'Other';
-      if (!previewItemQr) setPreviewItemQr(generateItemQrCode());
+      if (!previewItemQr) setPreviewItemQr(await mintShortCode());
 
       const norm = (s?: string) => (s || '').toLowerCase();
       const text = `${formData.name} ${formData.description} ${formData.notes}`.toLowerCase();
@@ -206,7 +251,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
       const safePurchaseDate = normalizeDate(formData.purchase_date) || null;
       // Reuse the QR already shown in the label preview so a printed label always resolves to
       // the saved item (minting a fresh one here made the printed QR a dead code).
-      const itemQr = previewItemQr ?? generateItemQrCode();
+      const itemQr = previewItemQr ?? (await mintShortCode());
 
       const { data: item, error } = await supabase
         .from('items')
@@ -452,6 +497,40 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
               height: dims.height ? Number(dims.height) : undefined,
             }}
           />
+
+          {/* SKU / barcode lookup — enter or scan a UPC, confirm the match, auto-fill the item. */}
+          <div className="space-y-2">
+            <Label htmlFor="sku">Barcode / SKU (optional)</Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="sku"
+                  className="pl-8"
+                  inputMode="numeric"
+                  placeholder="Scan or type a UPC (e.g. 854137003935)"
+                  value={sku}
+                  onChange={(e) => setSku(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSkuLookup(); } }}
+                />
+              </div>
+              <Button type="button" variant="secondary" onClick={handleSkuLookup} disabled={skuLoading || !sku.trim()}>
+                {skuLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Look up"}
+              </Button>
+            </div>
+            {skuMatch && (
+              <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-2.5 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium leading-tight">{skuMatch.title}</div>
+                  <div className="text-muted-foreground text-xs">
+                    {[skuMatch.brand, skuMatch.category].filter(Boolean).join(" · ") || "Is this the right product?"}
+                  </div>
+                </div>
+                <Button type="button" size="sm" onClick={applySkuMatch}><Check className="h-3.5 w-3.5 mr-1" />Use this</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={() => setSkuMatch(null)} aria-label="Not it"><X className="h-4 w-4" /></Button>
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
