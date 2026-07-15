@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Search, Package, Edit, Trash2, MapPin, Eye, ShieldCheck, Wrench } from "lucide-react";
+import { Search, Package, Edit, Trash2, MapPin, Eye, ShieldCheck, Wrench, Printer, Loader2 } from "lucide-react";
+import { printLabel } from "@/components/inventory/PrinterService";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { warrantyState, serviceState, todayISO } from "@/lib/upkeep";
 import { haptic } from "@/lib/haptics";
 import { Input } from "@/components/ui/input";
@@ -163,6 +165,34 @@ export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
     haptic.success();
     setItems(prev => prev.map(i => i.id === id ? { ...i, last_serviced: stamp } : i));
     toast({ title: "Service logged", description: "Marked serviced today.", variant: "success" });
+  };
+
+  const [printingId, setPrintingId] = useState<string | null>(null);
+
+  /** Compact, scannable item label: QR + name + where it belongs + size/spec. */
+  const printItemLabel = async (item: Item & { __locationName?: string | null }) => {
+    setPrintingId(item.id);
+    try {
+      const spec = item.size_specs?.trim();
+      const bm = [item.brand, item.model].filter(Boolean).join(" ").trim();
+      const lines = [
+        item.__locationName ? `→ ${item.__locationName}` : "",   // where it belongs
+        spec || bm,                                              // size/spec (fittings) or brand+model
+        item.quantity > 1 ? `Qty ${item.quantity}` : "",
+      ].filter(Boolean);
+      const res = await printLabel({
+        title: item.name,
+        lines,
+        qr: item.qr_code || `ITEM:${item.id}`,   // scannable back to this exact item
+      });
+      toast({
+        title: res.success ? "Label printed" : "Couldn't print",
+        description: res.message,
+        variant: res.success ? "success" : "destructive",
+      });
+    } finally {
+      setPrintingId(null);
+    }
   };
 
   const deleteItem = async (id: string) => {
@@ -379,7 +409,13 @@ export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
                       <p className="text-sm text-muted-foreground font-medium">{item.brand}</p>
                     )}
                   </div>
-                  <div className="flex gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                  <div className="flex gap-1 md:opacity-60 md:group-hover:opacity-100 transition-opacity">
+                    {isLabelOutputSupported() && (
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:text-primary" title="Print item label"
+                        disabled={printingId === item.id} onClick={() => printItemLabel(item)}>
+                        {printingId === item.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => { setPreviewItem(item); setShowPreview(true); }}>
                       <Eye className="h-4 w-4" />
                     </Button>
