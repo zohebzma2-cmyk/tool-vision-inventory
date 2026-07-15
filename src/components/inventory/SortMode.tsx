@@ -4,6 +4,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { computeOrgReport, dismissSuggestion, type OrgReport, type OrgSuggestion } from "@/lib/organize";
@@ -23,6 +25,17 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
   const [report, setReport] = useState<OrgReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // "Assign a spot" for a homeless item: which suggestion is being assigned + the chosen location.
+  const [assignFor, setAssignFor] = useState<OrgSuggestion | null>(null);
+  const [assignLoc, setAssignLoc] = useState("");
+  const [assignLocations, setAssignLocations] = useState<{ id: string; name: string; type: string }[]>([]);
+
+  useEffect(() => {
+    if (!assignFor) return;
+    setAssignLoc("");
+    supabase.from("locations").select("id,name,type").eq("is_slot", false).order("name")
+      .then(({ data }) => setAssignLocations(data ?? []));
+  }, [assignFor]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -87,6 +100,27 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
       const summary = parts.length ? `Found ${parts.join(", ")}.` : "Everything looks well organized — nothing to sort right now.";
       return { ...r, suggestions, counts, summary };
     });
+  }
+
+  async function assignItem() {
+    if (!assignFor?.itemId || !assignLoc) return;
+    setBusyId("assign");
+    try {
+      // Place the whole item (its full quantity) into the chosen location — gives a homeless item a home.
+      const { data: item } = await supabase.from("items").select("quantity").eq("id", assignFor.itemId).maybeSingle();
+      const { error } = await supabase.from("item_locations")
+        .insert({ item_id: assignFor.itemId, location_id: assignLoc, quantity: item?.quantity ?? 1 });
+      if (error) throw error;
+      haptic.success();
+      const locName = assignLocations.find((l) => l.id === assignLoc)?.name;
+      toast({ title: "Assigned", description: locName ? `Now in ${locName}.` : "Item now has a home." });
+      setAssignFor(null);
+      await load();
+    } catch (e) {
+      toast({ title: "Assign failed", description: e instanceof Error ? e.message : "Try again.", variant: "destructive" });
+    } finally {
+      setBusyId(null);
+    }
   }
 
   if (loading && !report) {
@@ -182,6 +216,11 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
                       )}
                     </Button>
                   )}
+                  {s.kind === "homeless" && (
+                    <Button size="sm" variant="secondary" onClick={() => setAssignFor(s)}>
+                      Assign <MapPin className="ml-1 h-3.5 w-3.5" />
+                    </Button>
+                  )}
                   <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground"
                     onClick={() => dismiss(s)} aria-label="Dismiss suggestion">
                     <X className="h-4 w-4" />
@@ -192,6 +231,34 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
           })}
         </div>
       )}
+
+      {/* Assign-a-spot picker for a homeless item. */}
+      <Dialog open={!!assignFor} onOpenChange={(o) => { if (!o) setAssignFor(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Assign a spot</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Choose where <span className="font-medium text-foreground">{assignFor?.title?.replace(/ has no home$/, "")}</span> belongs.
+            </p>
+            <Select value={assignLoc} onValueChange={setAssignLoc}>
+              <SelectTrigger><SelectValue placeholder="Pick a bin or location" /></SelectTrigger>
+              <SelectContent>
+                {assignLocations.length === 0 ? (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground">No locations yet — create one first.</div>
+                ) : assignLocations.map((l) => (
+                  <SelectItem key={l.id} value={l.id}>{l.name}{l.type ? ` · ${l.type}` : ""}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setAssignFor(null)}>Cancel</Button>
+            <Button onClick={assignItem} disabled={!assignLoc || busyId === "assign"}>
+              {busyId === "assign" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Assign"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
