@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
@@ -9,6 +9,8 @@ import { QRScanner } from "@/components/inventory/QRScanner";
 import { Onboarding } from "@/components/onboarding/Onboarding";
 import { HowItWorks } from "@/components/onboarding/HowItWorks";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { SortMode } from "@/components/inventory/SortMode";
+import { computeOrgReport } from "@/lib/organize";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -16,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
 import { leadsWithScanner } from "@/lib/platform";
 
-type Tab = "items" | "locations" | "overview";
+type Tab = "items" | "locations" | "overview" | "sort";
 
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
@@ -25,6 +27,7 @@ const Index = () => {
   const [scanCode, setScanCode] = useState<string | undefined>(undefined);
   const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>("items");
+  const [sortCount, setSortCount] = useState(0);
   const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
   const { user } = useAuth();
   const stats = useInventoryStats();
@@ -42,6 +45,16 @@ const Index = () => {
     setScanCode(code);
     setShowQRScanner(true);
   });
+
+  // Sort Mode badge: how many organization suggestions are outstanding (spaces filling up, items out
+  // of place / with no home). Recomputed whenever inventory changes so the header nudge stays live.
+  useEffect(() => {
+    let cancelled = false;
+    computeOrgReport()
+      .then((r) => { if (!cancelled) setSortCount(r.suggestions.length); })
+      .catch(() => { /* non-fatal — the badge just stays at its last value */ });
+    return () => { cancelled = true; };
+  }, [syncTick]);
 
   // First-run onboarding: once per account, and only while the wall is empty.
   const onboardKey = user ? `tv-onboarded:${user.id}` : null;
@@ -117,6 +130,7 @@ const Index = () => {
                 <Plus className="h-4 w-4 mr-2" />
                 Add tool
               </Button>
+              <SortNavButton count={sortCount} onClick={() => setTab("sort")} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -139,8 +153,9 @@ const Index = () => {
               </Button>
             </div>
 
-            {/* Mobile: help + settings — primary actions live in the bottom bar */}
+            {/* Mobile: sort + help + settings — primary actions live in the bottom bar */}
             <div className="flex items-center gap-1 md:hidden">
+              <SortNavButton count={sortCount} onClick={() => setTab("sort")} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -170,6 +185,7 @@ const Index = () => {
               [
                 { id: "items", label: "Tools", icon: Package },
                 { id: "locations", label: "Storage", icon: MapPin },
+                { id: "sort", label: "Sort", icon: Sparkles },
                 { id: "overview", label: "Overview", icon: LayoutGrid },
               ] as const
             ).map(({ id, label, icon: Icon }) => (
@@ -206,6 +222,11 @@ const Index = () => {
               openMapOnMount={openMapOnLocations}
               onMapOpened={() => setOpenMapOnLocations(false)}
             />
+          )}
+          {tab === "sort" && (
+            <div className="p-3 md:p-5">
+              <SortMode syncSignal={syncTick} />
+            </div>
           )}
           {tab === "overview" && (
             <Overview
@@ -303,6 +324,27 @@ const Index = () => {
     </div>
   );
 };
+
+/** Header button that jumps to Sort Mode, with a live badge counting outstanding org suggestions. */
+function SortNavButton({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => { haptic.light(); onClick(); }}
+      title={count > 0 ? `${count} organization suggestion${count > 1 ? "s" : ""}` : "Sort Mode"}
+      className="relative text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
+    >
+      <Sparkles className="h-4 w-4" />
+      {count > 0 && (
+        <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold leading-4 text-center">
+          {count > 99 ? "99+" : count}
+        </span>
+      )}
+      <span className="sr-only">Sort Mode</span>
+    </Button>
+  );
+}
 
 function MobileTab(props: {
   active: boolean;
