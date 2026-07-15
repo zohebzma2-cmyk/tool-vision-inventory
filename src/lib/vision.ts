@@ -83,6 +83,7 @@ export interface BinItemSuggestion {
   name: string;
   category: string;
   kind: "part" | "tool" | "set" | "consumable";
+  size?: string; // size/spec for parts + fittings (e.g. "3/4 in", "1/2 in MPT", "4 in pop-up")
   brand: string;
   model: string;
   quantity: number;
