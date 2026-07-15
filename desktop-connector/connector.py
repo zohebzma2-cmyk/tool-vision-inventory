@@ -14,6 +14,9 @@ from brother_ql.conversion import convert
 QUEUE = "ToolVision_QL800"
 PORT = 17777
 MAX_BODY = 8 * 1024 * 1024  # 8 MB — a label PNG is a few KB; reject anything larger.
+# Serve the built app so the whole thing is same-origin localhost (no HTTPS→localhost PNA block).
+DIST = os.path.expanduser("~/tool-vision-inventory/dist")
+import mimetypes, posixpath
 
 def _origin_ok(origin: str) -> bool:
     """Only the Tool Vision app (prod, its preview deploys, or local dev) may drive the printer —
@@ -91,9 +94,30 @@ class H(BaseHTTPRequestHandler):
         self.send_response(204); self._cors(); self.end_headers()
     def do_GET(self):
         if self.path.startswith("/health"):
-            self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE, "status": printer_status()})
-        else:
-            self._json(404, {"error": "not found"})
+            return self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE, "status": printer_status()})
+        # Otherwise serve the built app (same-origin localhost — printing works with no PNA/CORS).
+        self._serve_static(self.path.split("?", 1)[0])
+
+    def _serve_static(self, path):
+        rel = posixpath.normpath(path.lstrip("/"))
+        if rel.startswith("..") or os.path.isabs(rel):
+            return self._json(403, {"error": "bad path"})
+        full = os.path.join(DIST, rel)
+        if not os.path.isfile(full):
+            full = os.path.join(DIST, "index.html")  # SPA fallback
+        if not os.path.isfile(full):
+            return self._json(503, {"error": "app build not found — run `npm run build` in tool-vision-inventory"})
+        ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
+        try:
+            with open(full, "rb") as f:
+                body = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:
+            self._json(500, {"error": str(e)})
     def do_POST(self):
         if not self.path.startswith("/print"):
             return self._json(404, {"error": "not found"})

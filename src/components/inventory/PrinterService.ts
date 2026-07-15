@@ -45,12 +45,33 @@ class BrotherQLPrinterService implements PrinterService {
   public isConnected = false;
   private lastPaperInfo: any = null;
 
+  /**
+   * Silent reconnect: if this browser already has permission for a Brother device (granted in a
+   * prior session via the picker), open it WITHOUT showing the chooser. Returns false if none is
+   * permitted yet (caller then falls back to connect()/the picker). No user gesture required.
+   */
+  async autoConnect(): Promise<boolean> {
+    try {
+      if (!('usb' in navigator)) return false;
+      const devices: USBDevice[] = await (navigator as any).usb.getDevices();
+      const dev = devices.find((d) => d.vendorId === 0x04f9); // any already-permitted Brother device
+      if (!dev) return false;
+      this.device = dev;
+      return await this._openAndClaim();
+    } catch {
+      return false;
+    }
+  }
+
   async connect(): Promise<boolean> {
     try {
       // Check if WebUSB API is supported
       if (!('usb' in navigator)) {
         throw new Error('WebUSB API not supported in this browser. Please use Chrome, Edge, or another Chromium-based browser.');
       }
+
+      // First try an already-permitted device (no picker); only show the chooser if there's none.
+      if (await this.autoConnect()) return true;
 
       console.log('Requesting Brother QL printer connection via WebUSB...');
 
@@ -65,10 +86,20 @@ class BrotherQLPrinterService implements PrinterService {
       if (!this.device) {
         throw new Error('No Brother QL printer selected');
       }
+      return await this._openAndClaim();
+    } catch (error) {
+      console.error('Failed to connect to Brother QL printer:', error);
+      this.isConnected = false;
+      this.device = null;
+      return false;
+    }
+  }
 
-      console.log('Brother QL printer found:', this.device.productName || 'Unknown Model');
-      console.log('Vendor ID:', this.device.vendorId.toString(16));
-      console.log('Product ID:', this.device.productId.toString(16));
+  /** Open the current this.device and claim its printer interface. Shared by connect/autoConnect. */
+  private async _openAndClaim(): Promise<boolean> {
+    try {
+      if (!this.device) return false;
+      console.log('Brother QL printer:', this.device.productName || 'Unknown Model', this.device.productId.toString(16));
 
       // Open the device
       await this.device.open();
@@ -802,7 +833,11 @@ function resolvePrintMedia(detected?: { width?: number; printWidth?: number } | 
 // The local desktop print connector (a small helper on the user's Mac that owns CUPS printing).
 // When it's running, the app prints THROUGH it — so the browser never has to claim the USB device
 // via WebUSB, and the terminal + app can both print through the same queue without conflict.
-const CONNECTOR_URL = 'http://127.0.0.1:17777';
+// When the app is SERVED BY the connector (localhost:17777) use same-origin requests; otherwise
+// (a normal localhost dev server) reach the connector at its fixed loopback address.
+const CONNECTOR_URL = (typeof window !== 'undefined' && window.location.port === '17777')
+  ? ''
+  : 'http://127.0.0.1:17777';
 let connectorUp: boolean | null = null;
 
 export async function isConnectorAvailable(): Promise<boolean> {
