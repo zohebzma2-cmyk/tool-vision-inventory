@@ -45,6 +45,38 @@ type Placement = { item_id: string; location_id: string; quantity: number };
 
 const norm = (s: string | null | undefined) => (s || "").trim().toLowerCase();
 
+// --- Dismiss: let the user clear a suggestion they've handled or don't care about. Persisted with a
+// one-week expiry so a still-true issue (e.g. a space still overfull) quietly comes back next week
+// rather than being silenced forever. Shared by the Sort screen AND the header badge count. ---
+const DISMISS_KEY = "tv-sort-dismissed";
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+export function suggestionKey(s: OrgSuggestion): string {
+  return `${s.kind}:${s.itemId ?? ""}:${s.locationId ?? ""}`;
+}
+function loadDismissed(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}"); } catch { return {}; }
+}
+export function dismissSuggestion(s: OrgSuggestion): void {
+  try {
+    const d = loadDismissed();
+    d[suggestionKey(s)] = Date.now() + WEEK_MS;
+    localStorage.setItem(DISMISS_KEY, JSON.stringify(d));
+  } catch { /* ignore */ }
+}
+/** Live (non-expired) dismissals, pruning expired ones as a side effect. */
+function dismissedKeys(): Set<string> {
+  const d = loadDismissed();
+  const now = Date.now();
+  const live = new Set<string>();
+  const keep: Record<string, number> = {};
+  for (const [k, exp] of Object.entries(d)) if (exp > now) { live.add(k); keep[k] = exp; }
+  if (Object.keys(keep).length !== Object.keys(d).length) {
+    try { localStorage.setItem(DISMISS_KEY, JSON.stringify(keep)); } catch { /* ignore */ }
+  }
+  return live;
+}
+
 /** Capacity of a location: explicit capacity wins; else a slot grid; else its slot children count. */
 function capacityOf(loc: Loc, slotChildren: number): number | null {
   if (loc.capacity && loc.capacity > 0) return loc.capacity;
@@ -172,10 +204,14 @@ export async function computeOrgReport(): Promise<OrgReport> {
   suggestions.sort((a, b) => sevRank[a.severity] - sevRank[b.severity] || kindRank[a.kind] - kindRank[b.kind]);
   fullness.sort((a, b) => b.ratio - a.ratio);
 
+  // Drop anything the user has dismissed (until its one-week snooze expires).
+  const dismissed = dismissedKeys();
+  const visible = suggestions.filter((s) => !dismissed.has(suggestionKey(s)));
+
   const counts = {
-    overfull: suggestions.filter((s) => s.kind === "overfull").length,
-    misplaced: suggestions.filter((s) => s.kind === "misplaced").length,
-    homeless: suggestions.filter((s) => s.kind === "homeless").length,
+    overfull: visible.filter((s) => s.kind === "overfull").length,
+    misplaced: visible.filter((s) => s.kind === "misplaced").length,
+    homeless: visible.filter((s) => s.kind === "homeless").length,
   };
 
   const parts: string[] = [];
@@ -184,5 +220,5 @@ export async function computeOrgReport(): Promise<OrgReport> {
   if (counts.homeless) parts.push(`${counts.homeless} item${counts.homeless > 1 ? "s" : ""} with no home`);
   const summary = parts.length ? `Found ${parts.join(", ")}.` : "Everything looks well organized — nothing to sort right now.";
 
-  return { suggestions, fullness, summary, counts };
+  return { suggestions: visible, fullness, summary, counts };
 }

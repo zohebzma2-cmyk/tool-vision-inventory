@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowRight, PackageOpen, MapPin, AlertTriangle, Sparkles, RefreshCw, Loader2 } from "lucide-react";
+import { ArrowRight, PackageOpen, MapPin, AlertTriangle, Sparkles, RefreshCw, Loader2, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { computeOrgReport, type OrgReport, type OrgSuggestion } from "@/lib/organize";
+import { computeOrgReport, dismissSuggestion, type OrgReport, type OrgSuggestion } from "@/lib/organize";
+import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 
 const SEV: Record<OrgSuggestion["severity"], { ring: string; text: string; dot: string }> = {
@@ -49,6 +50,7 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
         .from("item_locations")
         .insert({ item_id: s.itemId, location_id: s.suggestedLocationId, quantity: 1 });
       if (addErr) throw addErr;
+      haptic.success();
       toast({ title: "Moved", description: `Now in ${s.suggestedLocationName}.` });
       await load();
     } catch (e) {
@@ -56,6 +58,13 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
     } finally {
       setBusyId(null);
     }
+  }
+
+  function dismiss(s: OrgSuggestion) {
+    haptic.light();
+    dismissSuggestion(s);
+    // Drop it from view immediately (it won't come back until its weekly snooze expires).
+    setReport((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
   }
 
   if (loading && !report) {
@@ -136,21 +145,26 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
                   <div className="font-medium leading-tight">{s.title}</div>
                   <div className="text-sm text-muted-foreground">{s.detail}</div>
                 </div>
-                {canMove && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="shrink-0"
-                    disabled={busyId === s.itemId! + s.locationId!}
-                    onClick={() => moveItem(s)}
-                  >
-                    {busyId === s.itemId! + s.locationId! ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <>Move <ArrowRight className="ml-1 h-3.5 w-3.5" /></>
-                    )}
+                <div className="flex shrink-0 items-center gap-1">
+                  {canMove && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={busyId === s.itemId! + s.locationId!}
+                      onClick={() => moveItem(s)}
+                    >
+                      {busyId === s.itemId! + s.locationId! ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <>Move <ArrowRight className="ml-1 h-3.5 w-3.5" /></>
+                      )}
+                    </Button>
+                  )}
+                  <Button size="icon" variant="ghost" className="h-8 w-8 text-muted-foreground"
+                    onClick={() => dismiss(s)} aria-label="Dismiss suggestion">
+                    <X className="h-4 w-4" />
                   </Button>
-                )}
+                </div>
               </Card>
             );
           })}
