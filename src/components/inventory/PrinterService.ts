@@ -906,7 +906,7 @@ export function connectorBase(): string {
   try {
     const cfg = typeof localStorage !== 'undefined' ? localStorage.getItem(CONNECTOR_HOST_KEY) : null;
     if (cfg && cfg.trim()) {
-      let h = cfg.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      let h = cfg.trim().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
       if (!/:\d+$/.test(h)) h += ':17777'; // default to the connector port if none given
       return `http://${h}`;
     }
@@ -931,11 +931,17 @@ export function getConnectorHost(): string {
 
 let connectorUp: boolean | null = null;
 let connectorUpBase = '';
+let connectorUpAt = 0;
+const CONNECTOR_CACHE_MS = 15000; // short TTL so a "connector wasn't up yet" false-negative self-heals
 
 export async function isConnectorAvailable(): Promise<boolean> {
   const base = connectorBase();
-  if (connectorUp !== null && connectorUpBase === base) return connectorUp;
+  const now = Date.now();
+  if (connectorUp !== null && connectorUpBase === base && now - connectorUpAt < CONNECTOR_CACHE_MS) {
+    return connectorUp;
+  }
   connectorUpBase = base;
+  connectorUpAt = now;
   try {
     const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(1800) });
     connectorUp = res.ok;

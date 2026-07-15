@@ -41,6 +41,13 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
     if (!s.itemId || !s.locationId || !s.suggestedLocationId) return;
     setBusyId(s.itemId + s.locationId);
     try {
+      // Carry the item's existing quantity to the new bin — don't silently collapse a qty>1 to 1.
+      const { data: cur } = await supabase
+        .from("item_locations")
+        .select("quantity")
+        .eq("item_id", s.itemId).eq("location_id", s.locationId).is("date_removed", null)
+        .order("date_placed", { ascending: false }).limit(1).maybeSingle();
+      const qty = cur?.quantity ?? 1;
       const { error: rmErr } = await supabase
         .from("item_locations")
         .update({ date_removed: new Date().toISOString() })
@@ -48,7 +55,7 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
       if (rmErr) throw rmErr;
       const { error: addErr } = await supabase
         .from("item_locations")
-        .insert({ item_id: s.itemId, location_id: s.suggestedLocationId, quantity: 1 });
+        .insert({ item_id: s.itemId, location_id: s.suggestedLocationId, quantity: qty });
       if (addErr) throw addErr;
       haptic.success();
       toast({ title: "Moved", description: `Now in ${s.suggestedLocationName}.` });
@@ -63,8 +70,23 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
   function dismiss(s: OrgSuggestion) {
     haptic.light();
     dismissSuggestion(s);
-    // Drop it from view immediately (it won't come back until its weekly snooze expires).
-    setReport((r) => r && { ...r, suggestions: r.suggestions.filter((x) => x !== s) });
+    // Drop it from view immediately AND keep the count chips + summary in sync (it won't come back
+    // until its weekly snooze expires).
+    setReport((r) => {
+      if (!r) return r;
+      const suggestions = r.suggestions.filter((x) => x !== s);
+      const counts = {
+        overfull: suggestions.filter((x) => x.kind === "overfull").length,
+        misplaced: suggestions.filter((x) => x.kind === "misplaced").length,
+        homeless: suggestions.filter((x) => x.kind === "homeless").length,
+      };
+      const parts: string[] = [];
+      if (counts.overfull) parts.push(`${counts.overfull} space${counts.overfull > 1 ? "s" : ""} filling up`);
+      if (counts.misplaced) parts.push(`${counts.misplaced} item${counts.misplaced > 1 ? "s" : ""} out of place`);
+      if (counts.homeless) parts.push(`${counts.homeless} item${counts.homeless > 1 ? "s" : ""} with no home`);
+      const summary = parts.length ? `Found ${parts.join(", ")}.` : "Everything looks well organized — nothing to sort right now.";
+      return { ...r, suggestions, counts, summary };
+    });
   }
 
   if (loading && !report) {

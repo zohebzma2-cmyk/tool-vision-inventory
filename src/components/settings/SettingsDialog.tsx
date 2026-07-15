@@ -35,9 +35,10 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     try {
       const res = await fetch(`${connectorBase()}/health`, { signal: AbortSignal.timeout(2500) });
       const j = await res.json().catch(() => ({}));
-      setConnOk(!!res.ok && !!j.ok);
+      const ok = !!res.ok && !!j.ok;   // a 200 from OUR connector, not just any server on that address
+      setConnOk(ok);
       if (j.lan) setDetectedLan(`${j.lan}:${j.port || 17777}`);
-      return !!res.ok;
+      return ok;
     } catch {
       setConnOk(false);
       return false;
