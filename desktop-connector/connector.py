@@ -19,24 +19,36 @@ DIST = os.path.expanduser("~/tool-vision-inventory/dist")
 import mimetypes, posixpath, ipaddress
 from urllib.parse import urlparse
 
+_PAGES = "tool-vision.pages.dev"
+
 def _origin_ok(origin: str) -> bool:
-    """Only the Tool Vision app (prod, its preview deploys, local dev, or the app served BY this
-    connector over the LAN) may drive the printer — not any random site the user happens to visit."""
+    """Only the Tool Vision app may drive the printer — prod, its Cloudflare preview deploys, local
+    dev, or the app served BY this connector over the LAN (for phone-relay printing). Parsed + host-
+    anchored (not substring/prefix matched) so lookalike hosts like `x.tool-vision.pages.dev.evil.com`
+    can't slip through. NOTE: Origin is browser-set and thus spoofable by non-browser LAN clients —
+    this stops malicious *websites*, not a hostile process already on your network (see /notify-text,
+    which is additionally locked to this computer)."""
     if not origin:
         return False
-    if (origin == "https://tool-vision.pages.dev"
-            or origin.endswith(".tool-vision.pages.dev")
-            or origin.startswith("http://localhost:")
-            or origin.startswith("http://127.0.0.1:")):
-        return True
-    # Phone-relay printing: the phone loads the app from this connector at the laptop's LAN address
-    # (http://<private-ip>:17777) and prints same-origin. Allow only private-network IPs on our port.
     try:
         u = urlparse(origin)
-        if u.scheme == "http" and u.port == PORT and u.hostname:
-            return ipaddress.ip_address(u.hostname).is_private
+        host, scheme, port = u.hostname, u.scheme, u.port
     except (ValueError, TypeError):
         return False
+    if not host:
+        return False
+    # Prod app + Cloudflare Pages preview deploys — HTTPS, exact host or a real subdomain.
+    if scheme == "https" and (host == _PAGES or host.endswith("." + _PAGES)):
+        return True
+    if scheme == "http":
+        if host in ("localhost", "127.0.0.1"):
+            return True  # local dev server (any port) or the connector itself
+        # Phone-relay: the app served by THIS connector at the laptop's private-LAN address, our port.
+        if port == PORT:
+            try:
+                return ipaddress.ip_address(host).is_private
+            except ValueError:
+                return False
     return False
 
 def _font(sz):
@@ -208,6 +220,12 @@ class H(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
 
             if self.path.startswith("/notify-text"):
+                # Texting the owner is the sensitive action — restrict it to requests from THIS
+                # computer (loopback). LAN devices can print labels but can't trigger texts, so
+                # opening the printer to the phone doesn't also open an iMessage-spam vector.
+                client_ip = self.client_address[0] if self.client_address else ""
+                if not (client_ip == "::1" or client_ip.startswith("127.")):
+                    return self._json(403, {"success": False, "message": "texts only from this computer"})
                 msg = str(body.get("message") or "").strip()[:1000]
                 if not msg:
                     return self._json(400, {"success": False, "message": "empty message"})
