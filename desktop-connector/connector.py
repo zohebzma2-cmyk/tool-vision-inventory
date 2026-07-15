@@ -2,7 +2,11 @@
 """Tool Vision local print connector — bridges the web app (HTTP) to the QL-800 (CUPS).
 Both the browser app and the terminal print through the same CUPS queue, so they never fight
 over the USB device (no WebUSB needed). Listens on 127.0.0.1:17777."""
-import json, subprocess, tempfile, os, datetime, base64, io, time, socket
+import json, subprocess, tempfile, os, datetime, base64, io, time, socket, threading
+
+# Serialize prints: the server is threaded, and the QL-800 prints one job at a time. Without this,
+# concurrent /print calls (e.g. "print all labels") race for the printer and some time out.
+_print_lock = threading.Lock()
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image as _I, ImageDraw, ImageFont
 if not hasattr(_I, "ANTIALIAS"): _I.ANTIALIAS = _I.Resampling.LANCZOS
@@ -19,15 +23,15 @@ DIST = os.path.expanduser("~/tool-vision-inventory/dist")
 import mimetypes, posixpath, ipaddress
 from urllib.parse import urlparse
 
-_PAGES = "tool-vision.pages.dev"
-
 def _origin_ok(origin: str) -> bool:
-    """Only the Tool Vision app may drive the printer — prod, its Cloudflare preview deploys, local
-    dev, or the app served BY this connector over the LAN (for phone-relay printing). Parsed + host-
-    anchored (not substring/prefix matched) so lookalike hosts like `x.tool-vision.pages.dev.evil.com`
-    can't slip through. NOTE: Origin is browser-set and thus spoofable by non-browser LAN clients —
-    this stops malicious *websites*, not a hostile process already on your network (see /notify-text,
-    which is additionally locked to this computer)."""
+    """Only the Tool Vision app may drive the printer. Every allowed origin is matched by EXACT host
+    (or a bounded set: private-LAN IPs, this Mac's own mDNS name, the fixed app scheme) — no substring
+    or suffix matching. The public https://tool-vision.pages.dev site is deliberately NOT allowed: it
+    physically can't reach this connector anyway (Chrome Private Network Access blocks a public HTTPS
+    origin from calling localhost/LAN — which is exactly why the app is served from localhost:17777),
+    so listing it would be dead code + needless attack surface. NOTE: Origin is browser-set and thus
+    spoofable by a non-browser LAN client — this stops malicious *websites*, not a hostile process
+    already on your network (see /notify-text, additionally locked to this computer)."""
     if not origin:
         return False
     try:
@@ -37,9 +41,6 @@ def _origin_ok(origin: str) -> bool:
         return False
     if not host:
         return False
-    # Prod app + Cloudflare Pages preview deploys — HTTPS, exact host or a real subdomain.
-    if scheme == "https" and (host == _PAGES or host.endswith("." + _PAGES)):
-        return True
     if scheme == "http":
         if host in ("localhost", "127.0.0.1"):
             return True  # local dev server (any port) or the connector itself
@@ -272,7 +273,9 @@ class H(BaseHTTPRequestHandler):
                 f.write(raster); path = f.name
             try:
                 # Submit AND confirm it actually prints (self-heals a wedged queue, no power-cycle).
-                ok, msg = print_raw(path)
+                # Serialized so overlapping prints queue cleanly instead of racing the one printer.
+                with _print_lock:
+                    ok, msg = print_raw(path)
             finally:
                 try: os.unlink(path)
                 except OSError: pass
