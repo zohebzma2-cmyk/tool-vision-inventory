@@ -9,7 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { ImageRecognition } from "./ImageRecognition";
-import { isPrintingSupported, autoPrintLabel, printTextLabel } from "./PrinterService";
+import { isPrintingSupported, autoPrintLabel, printTextLabel, printLabel } from "./PrinterService";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
+import { ToastAction } from "@/components/ui/toast";
 import { LabelPreview } from "./LabelPreview";
 import { useCategories } from "@/hooks/useCategories";
 
@@ -374,9 +376,28 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         console.error('Assign location failed:', assignErr);
       }
 
+      // Offer a compact item label right after logging (QR + name + where it belongs + size).
+      const labelSpec = {
+        title: item.name,
+        lines: [
+          assignedLocationName ? `→ ${assignedLocationName}` : "",
+          formData.size_specs?.trim() || [formData.brand, formData.model].filter(Boolean).join(" ").trim(),
+          formData.quantity > 1 ? `Qty ${formData.quantity}` : "",
+        ].filter(Boolean),
+        qr: itemQr,
+      };
       toast({
-        title: "Success",
-        description: `Tool added${assignedLocationName ? ` and placed in ${assignedLocationName}` : ''}.`
+        title: "Tool added",
+        description: `${item.name}${assignedLocationName ? ` — placed in ${assignedLocationName}` : ''}.`,
+        variant: "success",
+        action: isLabelOutputSupported() ? (
+          <ToastAction altText="Print label" onClick={() => {
+            void printLabel(labelSpec).then((r) =>
+              toast({ title: r.success ? "Label printed" : "Couldn't print", description: r.message, variant: r.success ? "success" : "destructive" }));
+          }}>
+            Print label
+          </ToastAction>
+        ) : undefined,
       });
 
       // Reset form

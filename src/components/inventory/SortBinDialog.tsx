@@ -34,8 +34,12 @@ const sizeText = (qt: number, unit: "qt" | "gal") =>
 
 interface DraftItem {
   name: string; category: string; kind: string; brand: string; model: string; quantity: number; include: boolean;
+  size?: string;  // size/spec (e.g. "3/4in", "1/2in MPT", "4in pop-up") — for parts + fittings
   photo?: string; // a crop of this item from the bin photo (best-effort, filled after analysis)
 }
+
+/** A scannable per-item QR code (matches the Add-tool ITEM- convention). */
+const itemQr = () => `ITEM-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
 /** Crop a normalized box out of a data-URL image into a square JPEG thumbnail (cover-fit, white pad). */
 async function cropBox(src: string, box: { x: number; y: number; w: number; h: number }): Promise<string | undefined> {
@@ -108,12 +112,13 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [printingKey, setPrintingKey] = useState<string | null>(null); // which label is printing
   const [savedBin, setSavedBin] = useState<{ number: number; title: string; qr: string } | null>(null);
+  const [storedItems, setStoredItems] = useState<{ id: string; name: string; qr?: string }[]>([]);
   // Which of the location labels have been printed this session (so we prompt for them just once).
   const [printed, setPrinted] = useState<{ space?: boolean; rack?: boolean }>({});
 
   const resetBinFields = () => {
     setImageDataUrl(null); setDrafts([]); setAnalyzed(false);
-    setSizeQt(0); setSizeUnit("gal"); setSummary(""); setNewName(""); setSavedBin(null);
+    setSizeQt(0); setSizeUnit("gal"); setSummary(""); setNewName(""); setSavedBin(null); setStoredItems([]);
   };
 
   useEffect(() => {
@@ -261,7 +266,7 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
       const { items, tote, summary: aiSummary } = await sortBinFromImage(dataUrl);
       const drafts: DraftItem[] = items.map((f) => ({
         name: f.name, category: f.category, kind: f.kind || "part", brand: f.brand, model: f.model,
-        quantity: f.quantity || 1, include: true,
+        size: (f as { size?: string }).size || "", quantity: f.quantity || 1, include: true,
       }));
       setDrafts(drafts);
       if (tote?.gallonsGuess) { setSizeQt(Math.round(tote.gallonsGuess * 4)); setSizeUnit("gal"); }
@@ -294,13 +299,16 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
       name: d.name.trim(), category: d.category || "other",
       kind: KINDS.includes(d.kind as (typeof KINDS)[number]) ? d.kind : null,
       brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
+      qr_code: itemQr(),          // a scannable code per stored item (so item labels resolve on scan)
+      size_specs: d.size?.trim() || null, // size/spec for parts + fittings (irrigation heads, etc.)
       photo_path: d.photo ?? null, // the crop of this item from the bin photo
     }));
-    let { data: created, error } = await supabase.from("items").insert(rows).select("id, quantity");
-    if (error && /(kind|photo_path)/.test(error.message)) {
-      // Older schemas may lack `kind` and/or `photo_path`; retry without the optional columns.
-      const trimmed = rows.map(({ kind: _k, photo_path: _p, ...r }) => r);
-      ({ data: created, error } = await supabase.from("items").insert(trimmed).select("id, quantity"));
+    const sel = "id, quantity, name, qr_code";
+    let { data: created, error } = await supabase.from("items").insert(rows).select(sel);
+    if (error && /(kind|photo_path|size_specs|qr_code)/.test(error.message)) {
+      // Older schemas may lack some optional columns; retry without them.
+      const trimmed = rows.map(({ kind: _k, photo_path: _p, size_specs: _z, qr_code: _q, ...r }) => r);
+      ({ data: created, error } = await supabase.from("items").insert(trimmed).select("id, quantity, name"));
     }
     if (error) throw error;
     const links = (created || []).map((it) => ({
@@ -310,6 +318,10 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
       const { error: linkErr } = await supabase.from("item_locations").insert(links);
       if (linkErr) throw linkErr;
     }
+    // Remember what we stored so the saved screen can offer per-item labels.
+    setStoredItems((created || []).map((it) => ({
+      id: it.id as string, name: (it as { name?: string }).name || "Item", qr: (it as { qr_code?: string }).qr_code,
+    })));
   };
 
   const save = async () => {
@@ -392,6 +404,30 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
     ctx.space && runPrint("space", { title: ctx.space.name, lines: ["Space"], qr: ctx.space.qr }, () => setPrinted((p) => ({ ...p, space: true })));
   const printRackLabel = () =>
     ctx.rack && runPrint("rack", { title: ctx.rack.name, lines: [ctx.space?.name ?? "", "Rack"].filter(Boolean), qr: ctx.rack.qr }, () => setPrinted((p) => ({ ...p, rack: true })));
+
+  // A compact, scannable label for EACH item stored in the bin (name + → where it lives + size).
+  const printItemLabels = async () => {
+    if (!storedItems.length) return;
+    setPrintingKey("items");
+    const binName = `Bin ${savedBin?.number || ""}`.trim();
+    const where = [binName, locationLine].filter(Boolean).join(" · ");
+    let ok = 0;
+    try {
+      for (const it of storedItems) {
+        const d = selected.find((s) => s.name.trim() === it.name);
+        const res = await printLabel({
+          title: it.name,
+          lines: [`→ ${where}`, d?.size?.trim() || [d?.brand, d?.model].filter(Boolean).join(" ").trim()].filter(Boolean),
+          qr: it.qr || `ITEM:${it.id}`,
+        });
+        if (res.success) ok++;
+        else { notify(res); break; }
+      }
+      if (ok) toast({ title: ok === storedItems.length ? "Item labels printed" : "Stopped", description: `Printed ${ok} of ${storedItems.length} item labels.`, variant: ok === storedItems.length ? "success" : "destructive" });
+    } finally {
+      setPrintingKey(null);
+    }
+  };
 
   // ---- Render --------------------------------------------------------------
   const heading = step === "location" ? "Where are you sorting?"
@@ -608,6 +644,11 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
                   <Button onClick={printBinLabel} disabled={!!printingKey}>
                     {printingKey === "bin" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />} Bin {savedBin.number || ""} label
                   </Button>
+                  {storedItems.length > 0 && (
+                    <Button variant="secondary" onClick={printItemLabels} disabled={!!printingKey}>
+                      {printingKey === "items" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />} Print {storedItems.length} item label{storedItems.length === 1 ? "" : "s"}
+                    </Button>
+                  )}
                   {ctx.rack && (
                     <Button variant={printed.rack ? "outline" : "secondary"} onClick={printRackLabel} disabled={!!printingKey}>
                       {printingKey === "rack" ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />} {printed.rack ? "Reprint" : "Print"} rack label · {ctx.rack.name}
