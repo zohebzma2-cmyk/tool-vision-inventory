@@ -175,10 +175,13 @@ export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
     try {
       const spec = item.size_specs?.trim();
       const bm = [item.brand, item.model].filter(Boolean).join(" ").trim();
+      // Put every relevant field on the tag, each on its own line (the rasterizer shrinks-to-fit and
+      // only grows the label as much as the content needs — so nothing's cut and no space is wasted).
       const lines = [
         item.__locationName ? `→ ${item.__locationName}` : "",   // where it belongs
-        spec || bm,                                              // size/spec (fittings) or brand+model
-        item.quantity > 1 ? `Qty ${item.quantity}` : "",
+        spec || "",                                              // size / spec (fittings, irrigation…)
+        bm || "",                                                // brand + model
+        item.quantity > 1 ? `Qty ${item.quantity}${item.quantity_unit && item.quantity_unit !== "piece" ? " " + item.quantity_unit : ""}` : "",
       ].filter(Boolean);
       const res = await printLabel({
         // The 5-char code is the big readable badge (say it / type it); QR resolves the same code.
