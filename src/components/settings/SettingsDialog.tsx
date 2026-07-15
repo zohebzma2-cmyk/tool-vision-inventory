@@ -37,7 +37,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
       const j = await res.json().catch(() => ({}));
       const ok = !!res.ok && !!j.ok;   // a 200 from OUR connector, not just any server on that address
       setConnOk(ok);
-      if (j.lan) setDetectedLan(`${j.lan}:${j.port || 17777}`);
+      // Prefer the stable mDNS .local name (survives DHCP IP changes); fall back to the raw LAN IP.
+      if (j.host) setDetectedLan(`${j.host}:${j.port || 17777}`);
+      else if (j.lan) setDetectedLan(`${j.lan}:${j.port || 17777}`);
       return ok;
     } catch {
       setConnOk(false);
@@ -147,7 +149,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             {detectedLan && (
               <p className="text-xs text-muted-foreground">
                 This computer's printer address: <span className="font-mono text-foreground">{detectedLan}</span>
-                {" "}— enter it in this field in the app on your phone.
+                {detectedLan.endsWith(".local:17777") || detectedLan.includes(".local:")
+                  ? " — enter this in the app on your phone (it stays valid even if the Wi-Fi IP changes)."
+                  : " — enter it in this field in the app on your phone."}
               </p>
             )}
             <div className="flex gap-2">

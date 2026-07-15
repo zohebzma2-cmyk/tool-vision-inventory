@@ -43,12 +43,13 @@ def _origin_ok(origin: str) -> bool:
     if scheme == "http":
         if host in ("localhost", "127.0.0.1"):
             return True  # local dev server (any port) or the connector itself
-        # Phone-relay: the app served by THIS connector at the laptop's private-LAN address, our port.
+        # Phone-relay: the app served by THIS connector at the laptop's private-LAN address OR its
+        # stable mDNS .local name (survives DHCP changes) — on our port.
         if port == PORT:
             try:
                 return ipaddress.ip_address(host).is_private
             except ValueError:
-                return False
+                return host.endswith(".local")
     # The Capacitor iOS/Android app runs at capacitor://localhost (native shell, not a website) and
     # reaches this connector over the LAN to print — allow that fixed app origin.
     if scheme in ("capacitor", "ionic") and host == "localhost":
@@ -131,6 +132,15 @@ def _lan_ip():
     except Exception:
         return ""
 
+def _mdns_host():
+    """This Mac's Bonjour/mDNS name (e.g. zohebs-MacBook-Pro.local). Preferred over the LAN IP for the
+    iOS/phone app because it stays valid even when DHCP reassigns the IP."""
+    try:
+        n = subprocess.run(["scutil", "--get", "LocalHostName"], capture_output=True, text=True, timeout=3).stdout.strip()
+        return f"{n}.local" if n else ""
+    except Exception:
+        return ""
+
 def _queue_has_jobs():
     try:
         out = subprocess.run(["lpstat", "-o", QUEUE], capture_output=True, text=True, timeout=5).stdout
@@ -199,7 +209,8 @@ class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/health"):
             return self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE,
-                                    "status": printer_status(), "lan": _lan_ip(), "port": PORT})
+                                    "status": printer_status(), "lan": _lan_ip(),
+                                    "host": _mdns_host(), "port": PORT})
         # Otherwise serve the built app (same-origin localhost — printing works with no PNA/CORS).
         self._serve_static(self.path.split("?", 1)[0])
 
