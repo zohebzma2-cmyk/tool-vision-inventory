@@ -287,6 +287,17 @@ async function verifyUser(env, token) {
   return r.ok;
 }
 
+// Resolve the signed-in user (with their verified email) from a Supabase token — used by /digest so
+// the digest can ONLY ever be emailed to the requester's own address (never an attacker-chosen one).
+async function getUser(env, token) {
+  if (!env.SUPABASE_URL || !token) return null;
+  const r = await fetch(`${env.SUPABASE_URL.replace(/\/$/, "")}/auth/v1/user`, {
+    headers: { Authorization: `Bearer ${token}`, apikey: env.SUPABASE_ANON_KEY || "" },
+  });
+  if (!r.ok) return null;
+  return await r.json().catch(() => null);
+}
+
 async function rateLimited(env, request) {
   if (!env.RATE_LIMIT_KV) return false;
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
@@ -321,13 +332,19 @@ export default {
     // OpenRouter key. No-ops with 503 until RESEND_API_KEY is set, so the client just skips email.
     if (request.method === "POST" && url.pathname === "/digest") {
       const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-      if (!(await verifyUser(env, token))) return json(401, { error: "Sign in required." }, cors);
+      // Recipient is the AUTHENTICATED user's own email, resolved server-side — never taken from the
+      // request body. Prevents this endpoint being used as an open relay to email arbitrary victims
+      // from the shared Resend domain (which would also risk blacklisting the other apps on that key).
+      const user = await getUser(env, token);
+      if (!user?.email) return json(401, { error: "Sign in required." }, cors);
       if (!env.RESEND_API_KEY) return json(503, { error: "email not configured" }, cors);
+      // Cap the body so a large HTML payload can't be relayed through the shared account.
+      if (Number(request.headers.get("content-length") || 0) > 256 * 1024) return json(413, { error: "too large" }, cors);
       const body = parseJson(await request.text());
-      const to = typeof body.to === "string" ? body.to.trim() : "";
-      const subject = typeof body.subject === "string" && body.subject ? body.subject : "Your weekly garage tidy-up";
-      const html = typeof body.html === "string" ? body.html : "";
-      if (!to || !html) return json(400, { error: "missing to/html" }, cors);
+      const to = user.email;
+      const subject = typeof body.subject === "string" && body.subject ? body.subject.slice(0, 200) : "Your weekly garage tidy-up";
+      const html = typeof body.html === "string" ? body.html.slice(0, 200_000) : "";
+      if (!html) return json(400, { error: "missing html" }, cors);
       const from = env.DIGEST_FROM || "Tool Vision <onboarding@resend.dev>";
       const r = await fetch("https://api.resend.com/emails", {
         method: "POST",
