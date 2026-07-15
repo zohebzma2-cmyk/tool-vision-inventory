@@ -2,7 +2,7 @@
 """Tool Vision local print connector — bridges the web app (HTTP) to the QL-800 (CUPS).
 Both the browser app and the terminal print through the same CUPS queue, so they never fight
 over the USB device (no WebUSB needed). Listens on 127.0.0.1:17777."""
-import json, subprocess, tempfile, os, datetime, base64, io, time
+import json, subprocess, tempfile, os, datetime, base64, io, time, socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from PIL import Image as _I, ImageDraw, ImageFont
 if not hasattr(_I, "ANTIALIAS"): _I.ANTIALIAS = _I.Resampling.LANCZOS
@@ -49,6 +49,10 @@ def _origin_ok(origin: str) -> bool:
                 return ipaddress.ip_address(host).is_private
             except ValueError:
                 return False
+    # The Capacitor iOS/Android app runs at capacitor://localhost (native shell, not a website) and
+    # reaches this connector over the LAN to print — allow that fixed app origin.
+    if scheme in ("capacitor", "ionic") and host == "localhost":
+        return True
     return False
 
 def _font(sz):
@@ -115,6 +119,17 @@ def printer_status():
         return out.strip().splitlines()[0] if out.strip() else "unknown"
     except Exception as e:
         return f"error: {e}"
+
+def _lan_ip():
+    """This machine's LAN IP (so the app can tell the user what address to point the iOS app at)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))  # no packets sent; just picks the outbound interface
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return ""
 
 def _queue_has_jobs():
     try:
@@ -183,7 +198,8 @@ class H(BaseHTTPRequestHandler):
         self.send_response(204); self._cors(); self.end_headers()
     def do_GET(self):
         if self.path.startswith("/health"):
-            return self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE, "status": printer_status()})
+            return self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE,
+                                    "status": printer_status(), "lan": _lan_ip(), "port": PORT})
         # Otherwise serve the built app (same-origin localhost — printing works with no PNA/CORS).
         self._serve_static(self.path.split("?", 1)[0])
 

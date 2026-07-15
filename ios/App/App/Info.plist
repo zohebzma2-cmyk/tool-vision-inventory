@@ -34,6 +34,13 @@
 	<false/>
 	<key>NSMotionUsageDescription</key>
 	<string>Tool Vision uses motion data while scanning a room with LiDAR to measure walls and dimensions.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Tool Vision connects to the label printer on your computer over your local Wi-Fi network to print labels.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
