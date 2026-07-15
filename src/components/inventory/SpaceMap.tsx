@@ -155,19 +155,25 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
   };
 
   const printAll = async () => {
-    if (!isPrintingSupported()) {
-      toast({ title: "Printing unavailable", description: "Use a Chromium browser with a Brother printer.", variant: "destructive" });
+    if (!isLabelOutputSupported()) {
+      toast({ title: "Printing unavailable", description: "Open the app at localhost:17777 (desktop connector) or use a Chromium browser with a Brother printer.", variant: "destructive" });
       return;
     }
     setPrintingAll(true);
     let ok = 0;
+    let lastErr = "";
     for (const s of slots) {
+      // printTemplateLabel prefers the desktop connector (CUPS), falls back to WebUSB.
       const res = await printTemplateLabel(template, labelData(s));
       if (res.success) ok++;
-      else break; // stop on first failure (e.g. out of tape)
+      else { lastErr = res.message; break; } // stop on first failure (e.g. out of tape / printer error)
     }
     setPrintingAll(false);
-    toast({ title: "Batch print", description: `Printed ${ok} of ${slots.length} labels.` });
+    toast({
+      title: ok === slots.length ? "All labels printed" : "Batch print stopped",
+      description: ok === slots.length ? `Printed ${ok} labels.` : `Printed ${ok} of ${slots.length} — ${lastErr}`,
+      variant: ok === slots.length ? "success" : "destructive",
+    });
   };
 
   const occupied = slots.filter((s) => s.items.length > 0).length;
@@ -191,7 +197,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
               <p className="text-sm text-muted-foreground">
                 {occupied} of {slots.length} slots filled
               </p>
-              {isPrintingSupported() && slots.length > 0 && (
+              {isLabelOutputSupported() && slots.length > 0 && (
                 <Button size="sm" variant="outline" onClick={printAll} disabled={printingAll}>
                   {printingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />}
                   Print all labels

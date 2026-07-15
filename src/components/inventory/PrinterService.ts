@@ -849,24 +849,29 @@ export async function isConnectorAvailable(): Promise<boolean> {
   return connectorUp;
 }
 
-async function printViaConnector(spec: LabelSpec): Promise<{ success: boolean; message: string } | null> {
+/** POST an already-rendered label PNG to the connector, which rasters + prints it via CUPS.
+ *  Returns null if the connector is unreachable (caller falls back to WebUSB / share). Shared by
+ *  the LabelSpec path AND template/slot printing, so every print route goes through one bridge. */
+export async function printImageViaConnector(imageDataUrl: string): Promise<{ success: boolean; message: string } | null> {
   try {
-    // Render the exact clean canvas (QR + badge + text) and hand the PNG to the connector, which
-    // rasters + prints it via CUPS. One rendering source; the connector is a dumb print bridge.
-    const canvas = await rasterizeLabel(spec, 696);
-    const imageDataUrl = canvas.toDataURL('image/png');
     const res = await fetch(`${CONNECTOR_URL}/print`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageDataUrl, badge: spec.badge, title: spec.title, lines: spec.lines }),
+      body: JSON.stringify({ imageDataUrl }),
       signal: AbortSignal.timeout(15000),
     });
     const j = await res.json().catch(() => ({}));
     if (res.ok && j.success) return { success: true, message: 'Printed on the QL-800 (via desktop connector).' };
     return { success: false, message: j.message || `Connector error ${res.status}` };
   } catch {
-    return null; // not reachable → caller falls back to WebUSB / share
+    return null;
   }
+}
+
+async function printViaConnector(spec: LabelSpec): Promise<{ success: boolean; message: string } | null> {
+  // Render the exact clean canvas (QR + badge + text) and hand the PNG to the connector.
+  const canvas = await rasterizeLabel(spec, 696);
+  return printImageViaConnector(canvas.toDataURL('image/png'));
 }
 
 export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; message: string }> {
