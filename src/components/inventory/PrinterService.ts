@@ -892,15 +892,52 @@ function resolvePrintMedia(detected?: { width?: number; printWidth?: number } | 
 // via WebUSB, and the terminal + app can both print through the same queue without conflict.
 // When the app is SERVED BY the connector (localhost:17777) use same-origin requests; otherwise
 // (a normal localhost dev server) reach the connector at its fixed loopback address.
-const CONNECTOR_URL = (typeof window !== 'undefined' && window.location.port === '17777')
-  ? ''
-  : 'http://127.0.0.1:17777';
+export const CONNECTOR_HOST_KEY = 'tv-connector-host';
+
+/**
+ * Base URL of the desktop print connector, resolved per call so it follows the user's setting:
+ *  - App SERVED BY the connector (localhost:17777, or the LAN address a phone opened) → same-origin ''.
+ *  - A configured host (Settings → Printer connector) → that host. This is how the iOS app reaches
+ *    the laptop: the user enters the laptop's LAN address (e.g. 192.168.68.118) once.
+ *  - Otherwise loopback (desktop running the connector locally).
+ */
+export function connectorBase(): string {
+  if (typeof window !== 'undefined' && window.location.port === '17777') return '';
+  try {
+    const cfg = typeof localStorage !== 'undefined' ? localStorage.getItem(CONNECTOR_HOST_KEY) : null;
+    if (cfg && cfg.trim()) {
+      let h = cfg.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '');
+      if (!/:\d+$/.test(h)) h += ':17777'; // default to the connector port if none given
+      return `http://${h}`;
+    }
+  } catch { /* ignore */ }
+  return 'http://127.0.0.1:17777';
+}
+
+/** Persist the connector host the app should print through (the laptop's LAN address for the phone/
+ *  iOS app). Empty clears it. Resets the reachability cache so the next print re-checks immediately. */
+export function setConnectorHost(host: string): void {
+  try {
+    if (host.trim()) localStorage.setItem(CONNECTOR_HOST_KEY, host.trim());
+    else localStorage.removeItem(CONNECTOR_HOST_KEY);
+  } catch { /* ignore */ }
+  connectorUp = null;
+}
+
+export function getConnectorHost(): string {
+  try { return (typeof localStorage !== 'undefined' && localStorage.getItem(CONNECTOR_HOST_KEY)) || ''; }
+  catch { return ''; }
+}
+
 let connectorUp: boolean | null = null;
+let connectorUpBase = '';
 
 export async function isConnectorAvailable(): Promise<boolean> {
-  if (connectorUp !== null) return connectorUp;
+  const base = connectorBase();
+  if (connectorUp !== null && connectorUpBase === base) return connectorUp;
+  connectorUpBase = base;
   try {
-    const res = await fetch(`${CONNECTOR_URL}/health`, { signal: AbortSignal.timeout(1200) });
+    const res = await fetch(`${base}/health`, { signal: AbortSignal.timeout(1800) });
     connectorUp = res.ok;
   } catch { connectorUp = false; }
   return connectorUp;
@@ -911,7 +948,7 @@ export async function isConnectorAvailable(): Promise<boolean> {
  *  the LabelSpec path AND template/slot printing, so every print route goes through one bridge. */
 export async function printImageViaConnector(imageDataUrl: string): Promise<{ success: boolean; message: string } | null> {
   try {
-    const res = await fetch(`${CONNECTOR_URL}/print`, {
+    const res = await fetch(`${connectorBase()}/print`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ imageDataUrl }),
@@ -931,7 +968,7 @@ export async function printImageViaConnector(imageDataUrl: string): Promise<{ su
  *  null if the connector is unreachable. The connector only ever texts the owner's own fixed number. */
 export async function notifyTextViaConnector(message: string): Promise<{ success: boolean } | null> {
   try {
-    const res = await fetch(`${CONNECTOR_URL}/notify-text`, {
+    const res = await fetch(`${connectorBase()}/notify-text`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message }),

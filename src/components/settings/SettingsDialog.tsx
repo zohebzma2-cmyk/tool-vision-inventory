@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
-import { Printer, TestTube, LogOut, Share, Loader2, Download } from "lucide-react";
+import { Printer, TestTube, LogOut, Share, Loader2, Download, Wifi } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { setupPrinter, testPrint, isPrintingSupported, printerService } from "@/components/inventory/PrinterService";
+import { setupPrinter, testPrint, isPrintingSupported, printerService, connectorBase, getConnectorHost, setConnectorHost } from "@/components/inventory/PrinterService";
 import { PaperTypeConfig } from "@/components/inventory/PaperTypeConfig";
 import { exportInventoryCsv } from "@/lib/exportCsv";
 import { haptic } from "@/lib/haptics";
@@ -24,6 +25,33 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   // Reflect the real printer state when Settings opens (the service is a singleton shared with the
   // Spaces tab), so it never falsely shows "Connect" while a printer is already live.
   useEffect(() => { if (open) setConnected(printerService.isConnected); }, [open]);
+
+  // Printer connector (for the phone / iPad app to reach the computer's printer over Wi-Fi).
+  const [connHost, setConnHost] = useState(getConnectorHost());
+  const [detectedLan, setDetectedLan] = useState("");
+  const [connOk, setConnOk] = useState<boolean | null>(null);
+
+  const probeConnector = async () => {
+    try {
+      const res = await fetch(`${connectorBase()}/health`, { signal: AbortSignal.timeout(2500) });
+      const j = await res.json().catch(() => ({}));
+      setConnOk(!!res.ok && !!j.ok);
+      if (j.lan) setDetectedLan(`${j.lan}:${j.port || 17777}`);
+      return !!res.ok;
+    } catch {
+      setConnOk(false);
+      return false;
+    }
+  };
+  useEffect(() => { if (open) { setConnHost(getConnectorHost()); probeConnector(); } }, [open]);
+
+  const saveConnector = async () => {
+    setConnectorHost(connHost);
+    const ok = await probeConnector();
+    toast(ok
+      ? { title: "Connected to printer", description: "The app will print through this computer over Wi-Fi.", variant: "success" }
+      : { title: "Not reachable", description: "Check the address, same Wi-Fi, and that the connector is running on the computer.", variant: "destructive" });
+  };
 
   const connect = async () => {
     setBusy(true);
@@ -107,6 +135,36 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               </div>
             )}
             <PaperTypeConfig onPaperTypeChange={() => { /* persisted by the component */ }} />
+          </section>
+
+          {/* Printer connector: lets the phone / iPad print on the computer's Brother printer over
+              Wi-Fi. On the computer this shows the address to type into the app on your phone. */}
+          <section className="space-y-2">
+            <h3 className="font-display text-sm font-semibold text-muted-foreground flex items-center gap-2">
+              <Wifi className="h-4 w-4" /> Printer connector (phone / iPad)
+            </h3>
+            {detectedLan && (
+              <p className="text-xs text-muted-foreground">
+                This computer's printer address: <span className="font-mono text-foreground">{detectedLan}</span>
+                {" "}— enter it in this field in the app on your phone.
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Input
+                inputMode="url"
+                placeholder="192.168.1.50"
+                value={connHost}
+                onChange={(e) => setConnHost(e.target.value)}
+              />
+              <Button onClick={saveConnector}>Save</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {connOk === true
+                ? "Connected — labels print on the computer's Brother printer."
+                : connOk === false
+                ? "Not reachable. Make sure the computer is on the same Wi-Fi with the connector running."
+                : "Point the phone/iPad app at the computer running the printer connector."}
+            </p>
           </section>
 
           <section className="space-y-2">
