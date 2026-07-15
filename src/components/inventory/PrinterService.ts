@@ -799,9 +799,49 @@ function resolvePrintMedia(detected?: { width?: number; printWidth?: number } | 
   return { widthMm: savedMm, printWidth: dotsForWidthMm(savedMm) };
 }
 
+// The local desktop print connector (a small helper on the user's Mac that owns CUPS printing).
+// When it's running, the app prints THROUGH it — so the browser never has to claim the USB device
+// via WebUSB, and the terminal + app can both print through the same queue without conflict.
+const CONNECTOR_URL = 'http://127.0.0.1:17777';
+let connectorUp: boolean | null = null;
+
+export async function isConnectorAvailable(): Promise<boolean> {
+  if (connectorUp !== null) return connectorUp;
+  try {
+    const res = await fetch(`${CONNECTOR_URL}/health`, { signal: AbortSignal.timeout(1200) });
+    connectorUp = res.ok;
+  } catch { connectorUp = false; }
+  return connectorUp;
+}
+
+async function printViaConnector(spec: LabelSpec): Promise<{ success: boolean; message: string } | null> {
+  try {
+    // Render the exact clean canvas (QR + badge + text) and hand the PNG to the connector, which
+    // rasters + prints it via CUPS. One rendering source; the connector is a dumb print bridge.
+    const canvas = await rasterizeLabel(spec, 696);
+    const imageDataUrl = canvas.toDataURL('image/png');
+    const res = await fetch(`${CONNECTOR_URL}/print`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageDataUrl, badge: spec.badge, title: spec.title, lines: spec.lines }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j.success) return { success: true, message: 'Printed on the QL-800 (via desktop connector).' };
+    return { success: false, message: j.message || `Connector error ${res.status}` };
+  } catch {
+    return null; // not reachable → caller falls back to WebUSB / share
+  }
+}
+
 export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; message: string }> {
   const heading = spec.badge ? `${spec.badge} · ${spec.title}` : spec.title;
   try {
+    // Prefer the local desktop connector if it's running (prints via CUPS — coexists with terminal).
+    if (await isConnectorAvailable()) {
+      const viaConn = await printViaConnector(spec);
+      if (viaConn) return viaConn;
+    }
     if (isPrintingSupported()) {
       // Laptop Brother QL over WebUSB: raster the exact clean label canvas (QR + badge + text).
       if (!printerService.isConnected) {
