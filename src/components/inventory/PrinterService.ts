@@ -761,8 +761,15 @@ async function rasterizeLabel(spec: LabelSpec, widthPx = 696): Promise<HTMLCanva
 
   const fit = fitTitle(meas, title, textW, badge ? 48 : 66, 30);
   const titleLineH = Math.round(fit.px * 1.16);
-  const detailPx = 36;
-  const detailLineH = 48;
+  // Detail lines carry the sizes (e.g. "1/4 in QC · 0° · 3.0 orifice") — the user needs these FULLY
+  // visible, never cut with an ellipsis. Shrink the detail font (36→24px) to the largest size at
+  // which every line fits the text column; only ellipsize if it still overflows at the 24px floor.
+  let detailPx = 36;
+  for (; detailPx > 24; detailPx -= 2) {
+    meas.font = `400 ${detailPx}px ${LABEL_FONT}`;
+    if (details.every((d) => meas.measureText(d).width <= textW)) break;
+  }
+  const detailLineH = Math.round(detailPx * 1.34);
   meas.font = `400 ${detailPx}px ${LABEL_FONT}`;
   const detailLines = details.map((d) => ellipsizeCtx(meas, d, textW));
 
