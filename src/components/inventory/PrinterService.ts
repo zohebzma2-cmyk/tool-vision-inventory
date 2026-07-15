@@ -687,11 +687,22 @@ function fitTitle(ctx: CanvasRenderingContext2D, title: string, maxW: number, ma
   for (let px = maxPx; px >= minPx; px -= 2) {
     ctx.font = `700 ${px}px ${LABEL_FONT}`;
     if (ctx.measureText(title).width <= maxW) return { px, lines: [title] };
+    // Among all valid 2-line splits, pick the most BALANCED one (smallest width gap between lines),
+    // not the first that fits — so "Hex Bolt — Grade 5" breaks as "Hex Bolt —"/"Grade 5", never a
+    // lone "Hex" on line one. Balanced wrapping is what makes a multi-line label read professionally.
+    let best: string[] | null = null;
+    let bestGap = Infinity;
     for (let i = 1; i < words.length; i++) {
       const a = words.slice(0, i).join(' ');
       const b = words.slice(i).join(' ');
-      if (ctx.measureText(a).width <= maxW && ctx.measureText(b).width <= maxW) return { px, lines: [a, b] };
+      const wa = ctx.measureText(a).width;
+      const wb = ctx.measureText(b).width;
+      if (wa <= maxW && wb <= maxW) {
+        const gap = Math.abs(wa - wb);
+        if (gap < bestGap) { bestGap = gap; best = [a, b]; }
+      }
     }
+    if (best) return { px, lines: best };
   }
   ctx.font = `700 ${minPx}px ${LABEL_FONT}`;
   return { px: minPx, lines: [ellipsizeCtx(ctx, title, maxW)] };
