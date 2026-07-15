@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
+import { mintShortCode } from "@/lib/shortcode";
 import { LabelPreview } from "@/components/inventory/LabelPreview";
 import { deleteLocationCascade } from "@/lib/slots";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
@@ -157,9 +158,6 @@ export function LocationsList({
     }
   };
 
-  const generateQRCode = () => {
-    return `LOC-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,7 +169,7 @@ export function LocationsList({
         .from('locations')
         .insert([{
           ...formData,
-          qr_code: generateQRCode(),
+          qr_code: await mintShortCode(),
           capacity: formData.capacity ? parseInt(formData.capacity) : null,
           parent_location_id: formData.parent_location_id === "none" ? null : formData.parent_location_id || null
         }])

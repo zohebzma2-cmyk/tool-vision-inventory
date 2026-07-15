@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { renderTokens, type LabelData } from "./labelTemplates";
+import { mintShortCode } from "./shortcode";
 
 /** Unique, human-scannable QR/location code. Matches the app's existing LOC- convention. */
 export function generateQRCode(prefix = "LOC"): string {
@@ -101,7 +102,7 @@ export async function findOrCreatePlace(name: string, type = "space") {
 
   const { data, error } = await supabase
     .from("locations")
-    .insert([{ name: trimmed, type, qr_code: generateQRCode(), is_slot: false }])
+    .insert([{ name: trimmed, type, qr_code: await mintShortCode(), is_slot: false }])
     .select("id, name")
     .single();
   if (error) throw error;
@@ -123,7 +124,7 @@ export async function createSpaceWithSlots(input: CreateSpaceInput) {
       {
         name: input.name,
         type: input.type,
-        qr_code: generateQRCode(),
+        qr_code: await mintShortCode(),
         description: input.description || null,
         grid_rows: input.gridRows,
         grid_cols: input.gridCols,
