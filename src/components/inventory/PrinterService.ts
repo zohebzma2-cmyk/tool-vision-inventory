@@ -518,6 +518,57 @@ class BrotherQLPrinterService implements PrinterService {
 // Singleton printer service
 export const printerService = new BrotherQLPrinterService();
 
+/**
+ * Build the label for a bin/location: a BIN number badge (so it reads from across the garage), the
+ * bin's contents as the title, the rack/place it lives on (→ Garage · Rack A), and its 5-char code.
+ * Non-bin locations (racks, spaces, shelves) get the code as the badge + their type. Resolves the
+ * parent chain (rack, then place) so the rack is always shown properly.
+ */
+export async function buildLocationLabelSpec(locationId: string): Promise<LabelSpec | null> {
+  const { supabase } = await import('@/integrations/supabase/client');
+  const { data: loc } = await supabase
+    .from('locations')
+    .select('id,name,qr_code,type,parent_location_id,layout')
+    .eq('id', locationId)
+    .single();
+  if (!loc) return null;
+
+  const layout = (loc.layout as { binNumber?: number } | null) ?? null;
+  const binNumber = Number(layout?.binNumber) || null;
+  const isBin = loc.type === 'bin' || !!binNumber;
+  const code = loc.qr_code || `LOC:${loc.id}`;
+
+  // Walk up to two parents (rack, then place) for the "where it lives" path — grandparent first.
+  const pathParts: string[] = [];
+  let parentId = (loc.parent_location_id as string | null) ?? null;
+  for (let depth = 0; depth < 2 && parentId; depth++) {
+    const { data: p } = await supabase
+      .from('locations').select('name,parent_location_id').eq('id', parentId).single();
+    if (!p) break;
+    if (p.name) pathParts.unshift(p.name);
+    parentId = (p.parent_location_id as string | null) ?? null;
+  }
+  const path = pathParts.join(' · '); // e.g. "Garage · Rack A"
+
+  if (isBin) {
+    // Strip any "Bin N" / "Bin N — " prefix from the name — the number is now the badge.
+    const content = (loc.name || '').replace(/^\s*bin\s*\d+\s*(?:[—\-·]\s*)?/i, '').trim();
+    return {
+      badge: binNumber ? `BIN ${binNumber}` : 'BIN',
+      title: content || path || 'Storage bin',
+      lines: (content && path ? [`→ ${path}`] : []).concat(code.length <= 6 ? [code] : []),
+      qr: code,
+    };
+  }
+  // Rack / space / shelf / pegboard: code as the badge, name as title, type + path as details.
+  return {
+    badge: code.length <= 6 ? code : undefined,
+    title: loc.name || 'Location',
+    lines: [loc.type ? String(loc.type) : '', path].filter(Boolean),
+    qr: code,
+  };
+}
+
 // Auto-print function using Supabase edge function with status reporting
 export async function autoPrintLabel(
   locationId: string, 
@@ -530,18 +581,9 @@ export async function autoPrintLabel(
     if (await isConnectorAvailable()) {
       onStatusUpdate?.('Printing via desktop connector...');
       try {
-        const { supabase } = await import('@/integrations/supabase/client');
-        const { data: loc } = await supabase
-          .from('locations')
-          .select('id,name,qr_code,type')
-          .eq('id', locationId)
-          .single();
-        if (loc) {
-          const res = await printLabel({
-            title: loc.name || 'Location',
-            lines: loc.type ? [String(loc.type)] : [],
-            qr: loc.qr_code || `LOC:${loc.id}`,
-          });
+        const spec = await buildLocationLabelSpec(locationId);
+        if (spec) {
+          const res = await printLabel(spec);
           onStatusUpdate?.(res.success ? 'Print complete!' : res.message);
           return res;
         }
