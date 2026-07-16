@@ -167,6 +167,57 @@ def set_bin_category(bin_name_or_code: str, category: str, parent_id: str = "") 
     return json.dumps({"bin": b["name"], "code": b["qr_code"], "category": category})
 
 
+@mcp.tool()
+def list_bins(location_name_or_code: str) -> str:
+    """Drill into a location (wall/shelf/space, by name or code) and list every bin under it — each with
+    its category and how many items are in it. Use this to see a bin wall at a glance."""
+    loc = _sb("GET", "locations", params={"name": f"eq.{location_name_or_code}", "select": "id,name", "limit": "1"}) \
+        or _sb("GET", "locations", params={"qr_code": f"eq.{location_name_or_code}", "select": "id,name", "limit": "1"})
+    if not loc:
+        return json.dumps({"error": f"no location matching {location_name_or_code!r}"})
+    lid = loc[0]["id"]
+    bins = _sb("GET", "locations", params={
+        "parent_location_id": f"eq.{lid}", "is_slot": "eq.true",
+        "select": "id,name,qr_code,category,slot_index", "order": "slot_index"})
+    ids = [b["id"] for b in bins]
+    counts = {}
+    if ids:
+        links = _sb("GET", "item_locations", params={
+            "location_id": f"in.({','.join(ids)})", "date_removed": "is.null", "select": "location_id"})
+        for l in links:
+            counts[l["location_id"]] = counts.get(l["location_id"], 0) + 1
+    out = [{"bin": b["name"], "code": b["qr_code"], "category": b.get("category"), "items": counts.get(b["id"], 0)}
+           for b in bins]
+    return json.dumps({"location": loc[0]["name"], "bin_count": len(bins), "bins": out}, indent=2)
+
+
+@mcp.tool()
+def bin_contents(bin_name_or_code: str, parent_id: str = "") -> str:
+    """List everything in a bin (by name or code): each item's name, code, category, brand, size, and
+    quantity. Pass parent_id to disambiguate a bin name that exists under multiple shelves."""
+    params = {"is_slot": "eq.true", "select": "id,name,category", "limit": "1"}
+    if parent_id:
+        params["parent_location_id"] = f"eq.{parent_id}"
+    b = _sb("GET", "locations", params={**params, "name": f"eq.{bin_name_or_code}"}) \
+        or _sb("GET", "locations", params={**params, "qr_code": f"eq.{bin_name_or_code}"})
+    if not b:
+        return json.dumps({"error": f"no bin matching {bin_name_or_code!r}"})
+    bid = b[0]["id"]
+    links = _sb("GET", "item_locations", params={
+        "location_id": f"eq.{bid}", "date_removed": "is.null", "select": "quantity,item_id"})
+    items = []
+    for l in links:
+        it = _sb("GET", "items", params={
+            "id": f"eq.{l['item_id']}", "select": "name,qr_code,category,brand,size_specs,notes", "limit": "1"})
+        if it:
+            r = it[0]
+            items.append({"name": r["name"], "code": r["qr_code"], "category": r.get("category"),
+                          "brand": r.get("brand"), "size": r.get("size_specs"), "notes": r.get("notes"),
+                          "quantity": l.get("quantity", 1)})
+    return json.dumps({"bin": b[0]["name"], "category": b[0].get("category"),
+                       "item_count": len(items), "items": items}, indent=2)
+
+
 # ---------------- item tools ----------------
 @mcp.tool()
 def list_items() -> str:

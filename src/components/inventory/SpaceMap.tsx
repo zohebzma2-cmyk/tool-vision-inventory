@@ -285,7 +285,10 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
                 {Array.from({ length: rows }).flatMap((_, ri) =>
                   Array.from({ length: cols }).map((__, ci) => {
                     const r = ri + 1, c = ci + 1;
-                    const slot = slotAt(r, c);
+                    // Bins may be 0-indexed (slot_row/col 0..n) or 1-indexed, or only carry a linear
+                    // slot_index — match all three so the grid always fills, never renders empty.
+                    const idx = ri * cols + ci;
+                    const slot = slotAt(ri, ci) ?? slotAt(r, c) ?? slots.find((s) => s.slot_index === idx);
                     const count = slot?.items.length ?? 0;
                     const filled = count > 0;
                     const tint = slot ? categoryTint(slot.category) : null;
