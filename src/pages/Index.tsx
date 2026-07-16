@@ -252,6 +252,7 @@ const Index = () => {
               onNavigate={setTab}
               onAddTool={() => setShowAddItem(true)}
               onScan={() => setShowQRScanner(true)}
+              onFind={() => setShowFind(true)}
               onMapSpace={() => { setTab("locations"); setOpenMapOnLocations(true); }}
               onSettings={() => setShowSettings(true)}
               onHelp={() => setShowHelp(true)}
@@ -521,6 +522,7 @@ function HomeDashboard(props: {
   onNavigate: (t: Tab) => void;
   onAddTool: () => void;
   onScan: () => void;
+  onFind: () => void;
   onMapSpace: () => void;
   onSettings: () => void;
   onHelp: () => void;
@@ -560,6 +562,7 @@ function HomeDashboard(props: {
         <h2 className="mb-3 font-display text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quick access</h2>
         <div className="grid grid-cols-2 gap-3">
           <QuickTile icon={Plus} label="Add tool" accent onClick={props.onAddTool} />
+          <QuickTile icon={Search} label="Find a tool" onClick={props.onFind} />
           <QuickTile icon={ScanLine} label="Scan a label" onClick={props.onScan} />
           <QuickTile icon={Package} label="Tools" onClick={() => props.onNavigate("items")} />
           <QuickTile icon={MapPin} label="Storage" onClick={() => props.onNavigate("locations")} />

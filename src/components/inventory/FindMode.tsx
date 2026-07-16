@@ -49,24 +49,32 @@ async function search(raw: string): Promise<Hit[]> {
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
 
-  // Resolve each match's bin + shelf.
-  const hits: Hit[] = [];
-  for (const { it } of ranked) {
-    const { data: loc } = await supabase
-      .from("item_locations").select("location_id,quantity").eq("item_id", it.id).limit(1).maybeSingle();
-    let bin: string | null = null, shelf: string | null = null;
-    if (loc?.location_id) {
-      const { data: l } = await supabase
-        .from("locations").select("name,parent_location_id").eq("id", loc.location_id).maybeSingle();
-      bin = l?.name ?? null;
-      if (l?.parent_location_id) {
-        const { data: p } = await supabase.from("locations").select("name").eq("id", l.parent_location_id).maybeSingle();
-        shelf = p?.name ?? null;
-      }
-    }
-    hits.push({ id: it.id, name: it.name, category: it.category, qr_code: it.qr_code, bin, shelf, quantity: loc?.quantity || 1 });
-  }
-  return hits;
+  // Resolve every match's bin + shelf in 3 batched round-trips (not a per-hit N+1). Only ACTIVE
+  // links count (date_removed null) so a tool that was pulled/moved doesn't report a stale bin.
+  const ids = ranked.map((r) => r.it.id);
+  const { data: links } = await supabase
+    .from("item_locations").select("item_id,location_id,quantity").in("item_id", ids).is("date_removed", null);
+  const linkFor = new Map<string, { location_id: string; quantity: number }>();
+  for (const l of links ?? []) if (!linkFor.has(l.item_id)) linkFor.set(l.item_id, { location_id: l.location_id, quantity: l.quantity || 1 });
+
+  const binIds = [...new Set([...linkFor.values()].map((l) => l.location_id))];
+  const { data: bins } = binIds.length
+    ? await supabase.from("locations").select("id,name,parent_location_id").in("id", binIds)
+    : { data: [] };
+  const binFor = new Map((bins ?? []).map((b) => [b.id, b]));
+
+  const shelfIds = [...new Set((bins ?? []).map((b) => b.parent_location_id).filter(Boolean) as string[])];
+  const { data: shelves } = shelfIds.length
+    ? await supabase.from("locations").select("id,name").in("id", shelfIds)
+    : { data: [] };
+  const shelfFor = new Map((shelves ?? []).map((s) => [s.id, s.name]));
+
+  return ranked.map(({ it }) => {
+    const link = linkFor.get(it.id);
+    const bin = link ? binFor.get(link.location_id) : null;
+    const shelf = bin?.parent_location_id ? shelfFor.get(bin.parent_location_id) ?? null : null;
+    return { id: it.id, name: it.name, category: it.category, qr_code: it.qr_code, bin: bin?.name ?? null, shelf, quantity: link?.quantity || 1 };
+  });
 }
 
 function spokenAnswer(query: string, hits: Hit[]): string {
