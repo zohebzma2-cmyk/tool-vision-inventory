@@ -153,8 +153,8 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     };
 
     const saveAndPrint = async (
-      item: { name: string; category?: string; brand?: string; model?: string }, frame: string, qty: number,
-    ): Promise<{ merged: boolean; total?: number }> => {
+      item: { name: string; category?: string; brand?: string; model?: string; text?: string }, frame: string, qty: number,
+    ): Promise<{ merged: boolean; total?: number; noLabel?: boolean }> => {
       // Already in this bin? Bump its quantity instead of creating a duplicate row + a second label.
       const dup = await findItemInBin(bin!.id, item.name);
       if (dup) {
@@ -162,12 +162,16 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         lastCreated = null; // a merge isn't a fresh row to undo
         return { merged: true, total };
       }
+      // If the package already carries a real barcode (UPC/EAN in the OCR), store the item with its
+      // SKU and DON'T print a Tool Vision label — that's the owner's rule for SKU'd parts.
+      const upc = (item.text || "").match(/\b(\d{12,14})\b/)?.[1];
       const code = await mintShortCode();
       const media = getLabelMedia();
       const insert: Record<string, unknown> = {
         name: item.name, category: item.category || "other", quantity: qty,
         quantity_unit: "piece", qr_code: code, photo_path: frame,
       };
+      if (upc) insert.notes = `UPC ${upc}`;
       if (item.brand) insert.brand = item.brand;
       if (item.model) insert.model = item.model;
       let { data: created, error } = await supabase.from("items").insert(insert).select("id").single();
@@ -182,6 +186,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       if (linkErr) throw linkErr;
       lastCreated = { id: created!.id, name: item.name };
       if (item.category) labeledCategories.push(item.category);
+      if (upc) return { merged: false, noLabel: true }; // SKU'd part — stored with its UPC, no TV label
       const sub = [item.category, [item.brand, item.model].filter(Boolean).join(" "), qty > 1 ? `×${qty}` : ""]
         .filter(Boolean) as string[];
       const label = renderItemLabel({ name: item.name, code, sub, media }).toDataURL("image/png");
@@ -270,7 +275,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         await sleep(250); // brief "captured" flash
 
         setPhase("identifying");
-        let item: { name?: string; category?: string; brand?: string; model?: string };
+        let item: { name?: string; category?: string; brand?: string; model?: string; text?: string };
         try {
           item = await identifyItemFromImage(frame);
         } catch {
@@ -308,6 +313,9 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
           haptic.success();
           if (r.merged) {
             await say(`You already have ${item.name} here — now ${r.total}.`);
+          } else if (r.noLabel) {
+            countRef.current += 1; setCount(countRef.current);
+            await say(`${item.name} has a barcode — stored without a new label.`);
           } else {
             countRef.current += 1; setCount(countRef.current);
             await say(`Labeled ${item.name}${qty > 1 ? `, quantity ${qty}` : ""}.`);
