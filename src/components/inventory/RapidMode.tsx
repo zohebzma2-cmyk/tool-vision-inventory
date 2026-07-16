@@ -13,7 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { haptic } from "@/lib/haptics";
 import { identifyItemFromImage, isVisionConfigured } from "@/lib/vision";
 import { mintShortCode } from "@/lib/shortcode";
-import { renderItemLabel } from "@/lib/itemLabel";
+import { renderItemLabel, loadBrandLogo } from "@/lib/itemLabel";
 import { renderBinLabel } from "@/lib/binLabel";
 import { getLabelMedia } from "@/components/inventory/PrinterService";
 import { printResilient } from "@/lib/printQueue";
@@ -159,6 +159,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
 
     const saveAndPrint = async (
       item: { name: string; category?: string; brand?: string; model?: string; text?: string }, frame: string, qty: number,
+      logoP: Promise<HTMLImageElement | null>,
     ): Promise<{ merged: boolean; total?: number; noLabel?: boolean }> => {
       // Already in this bin? Bump its quantity instead of creating a duplicate row — but still print a
       // label for each newly-added physical unit so every one on the shelf is labeled.
@@ -168,7 +169,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         lastCreated = null; // a merge isn't a fresh row to undo
         if (dup.code) {
           const media = getLabelMedia();
-          const label = renderItemLabel({ name: dup.name, code: dup.code, sub: [], media }).toDataURL("image/png");
+          const label = renderItemLabel({ name: dup.name, code: dup.code, sub: [], media, logo: await logoP }).toDataURL("image/png");
           await printCopies(label, media, dup.name, qty);
         }
         return { merged: true, total };
@@ -200,7 +201,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       if (upc) return { merged: false, noLabel: true }; // SKU'd part — stored with its UPC, no TV label
       const sub = [item.category, [item.brand, item.model].filter(Boolean).join(" "), qty > 1 ? `×${qty}` : ""]
         .filter(Boolean) as string[];
-      const label = renderItemLabel({ name: item.name, code, sub, media }).toDataURL("image/png");
+      const label = renderItemLabel({ name: item.name, code, sub, media, logo: await logoP }).toDataURL("image/png");
       await printCopies(label, media, item.name, qty); // ×N → one label per unit
       return { merged: false };
     };
@@ -295,6 +296,10 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         }
         if (!item?.name) { await say("I couldn't tell what that is. Hold it steady and try again."); continue; }
 
+        // Kick off the brand-logo fetch NOW, in parallel with the speak/listen conversation, so it's
+        // already loaded and ready to composite by the time we print.
+        const logoP = loadBrandLogo(item.brand);
+
         setPhase("confirming");
         // Confirm the captured item by voice. "repeat"/unclear re-prompts the SAME item (no re-scan);
         // "done"/"skip"/"undo" exit; "yes"/"it's a X" commit. Bounded so a silent mic can't spin forever.
@@ -320,7 +325,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
 
         setPhase("saving");
         try {
-          const r = await saveAndPrint(item, frame, qty);
+          const r = await saveAndPrint(item, frame, qty, logoP);
           haptic.success();
           if (r.merged) {
             await say(`You already have ${item.name} here — now ${r.total}.`);
