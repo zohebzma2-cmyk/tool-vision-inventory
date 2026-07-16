@@ -327,6 +327,29 @@ export default {
       }, cors);
     }
 
+    // Brand-logo lookup (logos.dev): resolve a brand name → its domain using the SECRET key server-
+    // side; the client then builds the public image URL with the publishable key. Auth-gated; the
+    // client caches results so this is hit at most once per brand.
+    if (request.method === "GET" && url.pathname === "/brand-logo") {
+      const token = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+      if (!(await verifyUser(env, token))) return json(401, { error: "Sign in required." }, cors);
+      if (!env.LOGODEV_SECRET_KEY) return json(503, { error: "logos not configured" }, cors);
+      const q = (url.searchParams.get("q") || "").trim();
+      if (!q) return json(400, { error: "missing q" }, cors);
+      try {
+        const r = await fetch(`https://api.logo.dev/search?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${env.LOGODEV_SECRET_KEY}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return json(502, { error: `logo search ${r.status}` }, cors);
+        const arr = await r.json();
+        const top = Array.isArray(arr) ? arr[0] : null;
+        return json(200, top && top.domain ? { domain: top.domain, name: top.name || q } : { domain: null }, cors);
+      } catch {
+        return json(502, { error: "logo lookup failed" }, cors);
+      }
+    }
+
     // Weekly organization digest email (client-triggered): the signed-in app posts its own report as
     // ready-to-send HTML; we relay it via Resend. Kept separate from the vision routes — no image, no
     // OpenRouter key. No-ops with 503 until RESEND_API_KEY is set, so the client just skips email.

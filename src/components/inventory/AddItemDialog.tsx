@@ -15,6 +15,7 @@ import { isPrintingSupported, autoPrintLabel, printTextLabel, printLabel } from 
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { ToastAction } from "@/components/ui/toast";
 import { LabelPreview } from "./LabelPreview";
+import { BrandLogo } from "./BrandLogo";
 import { useCategories } from "@/hooks/useCategories";
 
 interface AddItemDialogProps {
@@ -527,6 +528,7 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
             </div>
             {skuMatch && (
               <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-2.5 text-sm">
+                <BrandLogo brand={skuMatch.brand} size={32} className="mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <div className="font-medium leading-tight">{skuMatch.title}</div>
                   <div className="text-muted-foreground text-xs">
