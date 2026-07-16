@@ -59,7 +59,8 @@ img#pv{width:100%;border-radius:14px;display:none;margin-top:6px}
 const st=document.getElementById('st'),pv=document.getElementById('pv'),req=document.getElementById('req');
 let curPrompt='';
 async function poll(){try{const r=await fetch('/capture-request',{cache:'no-store'});const j=await r.json();
- if(j.prompt){curPrompt=j.prompt;req.style.display='block';req.innerHTML='Claude asked for: <b>'+j.prompt+'</b>';}
+ if(j.prompt){curPrompt=j.prompt;req.style.display='block';
+  req.textContent='Claude asked for: ';const b=document.createElement('b');b.textContent=j.prompt;req.append(b);}
  else{curPrompt='';req.style.display='none';}}catch(e){}}
 poll();setInterval(poll,2500);
 document.getElementById('f').onchange=async e=>{
