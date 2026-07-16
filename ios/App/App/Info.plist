@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Tool Vision uses the camera to identify tools and map storage spaces into labeled slots.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Tool Vision uses the microphone in Rapid Mode so you can label bins hands-free with voice commands.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Tool Vision can read photos of tools or spaces you choose from your library.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

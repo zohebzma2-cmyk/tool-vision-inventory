@@ -28,6 +28,33 @@ from urllib.parse import urlparse
 # lets Claude ask for a specific shot ("photo of the bin wall") and the phone shows that prompt. ---
 CAPTURES_DIR = os.path.expanduser("~/.tool-vision-connector/captures")
 os.makedirs(CAPTURES_DIR, exist_ok=True)
+
+# --- Rapid Mode voice: the app records a short mic clip and POSTs it to /transcribe; whisper.cpp
+# (local, offline, open-source) turns it into text so the hands-free station can act on spoken
+# commands ("yes", "skip", "bin three", "done") without the user ever typing. ---
+FFMPEG = "/opt/homebrew/bin/ffmpeg" if os.path.exists("/opt/homebrew/bin/ffmpeg") else "ffmpeg"
+WHISPER_BIN = "/opt/homebrew/bin/whisper-cli" if os.path.exists("/opt/homebrew/bin/whisper-cli") else "whisper-cli"
+WHISPER_MODEL = os.path.expanduser("~/.tool-vision-connector/ggml-base.en.bin")
+
+def transcribe_audio(raw: bytes, ext: str = "webm") -> str:
+    """Decode a short audio clip (webm/ogg/wav/m4a) → 16 kHz mono wav → whisper.cpp → text."""
+    if not os.path.exists(WHISPER_MODEL):
+        raise RuntimeError("whisper model missing")
+    ext = "".join(c for c in (ext or "webm") if c.isalnum()) or "webm"
+    ain = tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False).name
+    awav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False).name
+    try:
+        with open(ain, "wb") as f:
+            f.write(raw)
+        subprocess.run([FFMPEG, "-y", "-i", ain, "-ar", "16000", "-ac", "1", awav],
+                       capture_output=True, timeout=30)
+        out = subprocess.run([WHISPER_BIN, "-m", WHISPER_MODEL, "-f", awav, "-nt", "-np"],
+                             capture_output=True, text=True, timeout=60)
+        return " ".join(out.stdout.split()).strip()
+    finally:
+        for p in (ain, awav):
+            try: os.unlink(p)
+            except OSError: pass
 _capture_req = {"id": 0, "prompt": "", "ts": 0}  # set by Claude (loopback), polled by the phone
 
 CAPTURE_HTML = """<!doctype html><html><head><meta charset=utf-8>
@@ -351,7 +378,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"error": str(e)})
     def do_POST(self):
-        if not any(self.path.startswith(p) for p in ("/print", "/notify-text", "/upload", "/capture-request")):
+        if not any(self.path.startswith(p) for p in ("/print", "/notify-text", "/upload", "/capture-request", "/transcribe")):
             return self._json(404, {"error": "not found"})
         # Only the Tool Vision app / capture page may POST (defends against any other local page).
         if not _origin_ok(self.headers.get("Origin", "")):
@@ -364,6 +391,22 @@ class H(BaseHTTPRequestHandler):
 
             client_ip = self.client_address[0] if self.client_address else ""
             is_loopback = client_ip == "::1" or client_ip.startswith("127.")
+
+            if self.path.startswith("/transcribe"):
+                # Speech → text for hands-free Rapid Mode. Audio is a data URL in `audio`. Origin-gated
+                # (app origins only); allowed over LAN so the iOS app can transcribe on this computer.
+                data_url = body.get("audio") or ""
+                if "," not in data_url:
+                    return self._json(400, {"ok": False, "text": "", "message": "no audio"})
+                head, b64 = data_url.split(",", 1)
+                ext = "webm"
+                if "audio/" in head:
+                    ext = head.split("audio/", 1)[1].split(";", 1)[0].split("/")[0] or "webm"
+                try:
+                    text = transcribe_audio(base64.b64decode(b64), ext)
+                    return self._json(200, {"ok": True, "text": text})
+                except Exception as e:
+                    return self._json(500, {"ok": False, "text": "", "message": str(e)})
 
             if self.path.startswith("/capture-request"):
                 # Claude (loopback) queues a photo request the phone will display.
