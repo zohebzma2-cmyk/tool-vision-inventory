@@ -18,7 +18,7 @@ export async function printBinLabels(
     .from("locations").select("id,name").eq("id", shelfId).maybeSingle();
   const locationText = shelf?.name || "Bin";
   const { data: bins } = await supabase
-    .from("locations").select("id,name,qr_code,slot_index")
+    .from("locations").select("id,name,qr_code,slot_index,category")
     .eq("parent_location_id", shelfId).eq("is_slot", true)
     .order("slot_index");
   const list = bins ?? [];
@@ -29,7 +29,9 @@ export async function printBinLabels(
     const b = list[i];
     const num = (b.slot_index ?? i) + 1;
     const code = b.qr_code || `BIN${num}`;
-    const dataUrl = renderBinLabel({ number: num, code, location: locationText, media }).toDataURL("image/png");
+    const dataUrl = renderBinLabel({
+      number: num, code, location: locationText, category: (b as { category?: string }).category || undefined, media,
+    }).toDataURL("image/png");
     let ok = false;
     for (let t = 0; t < 3 && !ok; t++) {
       const res = await printImageViaConnector(dataUrl, media);
