@@ -1,12 +1,12 @@
 // Rapid Mode — a hands-free labeling station. You open a bin, the webcam turns on, and you present
 // tools to the camera one at a time. When an item holds still the AI identifies it, the assistant
-// SPEAKS what it sees, and you answer by voice ("yes" / "skip" / "done"). On "yes" it mints a code,
-// stores the item in this bin with its photo, and prints a barcode label — no typing, ever. Closing
-// the bin prints the bin's categorized label. Works on the desktop station (Logitech webcam) and in
-// the iOS app (device camera), transcribing speech on the connector's local whisper.cpp.
+// SPEAKS what it sees, and you answer by voice ("yes" / "skip" / "done" / "two" / "undo"). On "yes"
+// it mints a code, stores the item in this bin with its photo, and prints a barcode label — no
+// typing, ever. Closing the bin prints the bin's categorized label. Works on the desktop station
+// (Logitech webcam) and in the iOS app (device camera), transcribing on the connector's whisper.cpp.
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, Loader2, X, Sparkles, Volume2 } from "lucide-react";
+import { Mic, Loader2, X, Sparkles, Volume2, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -15,7 +15,8 @@ import { identifyItemFromImage, isVisionConfigured } from "@/lib/vision";
 import { mintShortCode } from "@/lib/shortcode";
 import { renderItemLabel } from "@/lib/itemLabel";
 import { renderBinLabel } from "@/lib/binLabel";
-import { printImageViaConnector, getLabelMedia } from "@/components/inventory/PrinterService";
+import { getLabelMedia } from "@/components/inventory/PrinterService";
+import { printResilient } from "@/lib/printQueue";
 import { speak, stopSpeaking } from "@/lib/speech";
 import { listen } from "@/lib/whisperStt";
 
@@ -26,11 +27,29 @@ interface Props {
   onSaved?: () => void;
 }
 
-type Phase = "starting" | "scanning" | "identifying" | "confirming" | "saving" | "finishing" | "error";
+type Phase = "starting" | "scanning" | "captured" | "identifying" | "confirming" | "saving" | "finishing" | "error";
 
 const YES = /\b(yes|yeah|yep|yup|label|add|do it|okay|ok|sure|correct|print|go)\b/;
 const SKIP = /\b(skip|no|nope|next|pass|wrong|another)\b/;
 const DONE = /\b(done|finish|finished|close|complete|that'?s it|stop|end|exit|quit)\b/;
+const UNDO = /\b(undo|remove last|delete that|take that back|scratch that|oops)\b/;
+const WORD_NUM: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+/** Pull a quantity out of a spoken command ("yes two", "add 3"). Defaults to 1. */
+function parseQty(cmd: string): number {
+  const digit = cmd.match(/\b(\d{1,2})\b/);
+  if (digit) return Math.max(1, Math.min(99, parseInt(digit[1], 10)));
+  for (const [w, n] of Object.entries(WORD_NUM)) if (new RegExp(`\\b${w}\\b`).test(cmd)) return n;
+  return 1;
+}
+
+/** A spoken correction like "no, it's a chalk line" / "actually a torque wrench" → the corrected name. */
+function parseCorrection(cmd: string): string | null {
+  const m = cmd.match(/\b(?:it'?s|it is|that'?s|actually|its)\b\s+(?:an?\s+)?(.+)/);
+  if (!m) return null;
+  const name = m[1].replace(/[^\w\s-]/g, "").trim();
+  return name.length >= 2 ? name.replace(/\b\w/g, (c) => c.toUpperCase()) : null;
+}
 
 /** Draw the current video frame to a JPEG data URL, scaled so the longer side ≈ maxW. */
 function grabFrame(video: HTMLVideoElement, maxW = 960, quality = 0.72): string {
@@ -49,42 +68,53 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
   const aliveRef = useRef(false);
   const finishRef = useRef(false);
   const prevGrayRef = useRef<Uint8ClampedArray | null>(null);
+  const countRef = useRef(0);            // live count (the effect closure can't see React state updates)
 
   const [phase, setPhase] = useState<Phase>("starting");
   const [caption, setCaption] = useState("");   // what the assistant just said
   const [heard, setHeard] = useState("");        // last thing it understood
-  const [count, setCount] = useState(0);         // items labeled this session
+  const [count, setCount] = useState(0);         // items labeled this session (for display)
   const [errorMsg, setErrorMsg] = useState("");
 
   const say = async (text: string) => { setCaption(text); await speak(text); };
+  /** The audio-only stream for the recorder — null if we've been torn down mid-await. */
+  const audioStream = (): MediaStream | null => {
+    const s = streamRef.current;
+    return s && aliveRef.current ? new MediaStream(s.getAudioTracks()) : null;
+  };
 
   useEffect(() => {
     if (!open || !bin) return;
     aliveRef.current = true;
     finishRef.current = false;
+    countRef.current = 0;
     setPhase("starting"); setCount(0); setHeard(""); setErrorMsg("");
     const labeledCategories: string[] = [];
+    let lastCreated: { id: string; name: string } | null = null;
 
     // --- camera + mic ---
     const startMedia = async (): Promise<MediaStream> => {
-      let stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 } },
         audio: { echoCancellation: true, noiseSuppression: true },
       });
-      // On a desktop, prefer an external USB webcam (Logitech/Brio/C920…) over the built-in FaceTime cam.
+      // On a desktop, prefer an external USB webcam (Logitech/Brio/C920…) over the built-in FaceTime.
+      // Acquire the new stream FIRST, and only stop the old one once it succeeds — a failed switch
+      // must never leave us holding a dead (already-stopped) stream.
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const cams = devices.filter((d) => d.kind === "videoinput");
         const ext = cams.find((d) => /logitech|brio|c9\d\d|webcam|usb|razer|elgato/i.test(d.label));
         const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId;
         if (ext && ext.deviceId && ext.deviceId !== currentId) {
-          stream.getTracks().forEach((t) => t.stop());
-          stream = await navigator.mediaDevices.getUserMedia({
+          const better = await navigator.mediaDevices.getUserMedia({
             video: { deviceId: { exact: ext.deviceId }, width: { ideal: 1280 } },
             audio: { echoCancellation: true, noiseSuppression: true },
           });
+          stream.getTracks().forEach((t) => t.stop()); // safe now: `better` is live
+          return better;
         }
-      } catch { /* enumerate/switch failed — keep the default camera */ }
+      } catch { /* switch failed — the original stream is still live, keep it */ }
       return stream;
     };
 
@@ -103,49 +133,52 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         if (prev) diff += Math.abs(gray[p] - prev[p]);
       }
       prevGrayRef.current = gray;
-      return prev ? diff / gray.length : 999;
+      return prev ? diff / gray.length : 0; // no baseline yet → report "no motion", don't false-trigger
     };
 
     const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-    // Watch for a new item to be held steady; between watch windows, briefly listen for "done".
-    // Returns a captured frame, or null if the session should finish.
-    const waitForItemOrDone = async (video: HTMLVideoElement): Promise<string | null> => {
-      const MOVE = 11, STILL = 5, STEADY_NEEDED = 2;
-      let moved = false, steady = 0, watched = 0;
-      prevGrayRef.current = null; // reset baseline so the first ticks re-learn the scene
+    // Watch for a NEW item held steady. After a capture we require the scene to CLEAR (a real motion
+    // spike — the item being taken away) before arming again, so the same item isn't re-scanned.
+    // `prevGray` persists across calls (never nulled) so motion is measured against the real scene.
+    const MOVE = 12, STILL = 5, STEADY_NEEDED = 2;
+    const waitForItemOrDone = async (video: HTMLVideoElement, requireClearFirst: boolean): Promise<string | null> => {
+      let moved = false, steady = 0, watched = 0, cleared = !requireClearFirst;
       while (aliveRef.current && !finishRef.current) {
         const d = frameDiff(video);
-        if (d > MOVE) { moved = true; steady = 0; }
+        if (!cleared) {
+          if (d > MOVE) cleared = true;        // item removed / scene changed — now we can arm
+        } else if (d > MOVE) { moved = true; steady = 0; }
         else if (moved && d < STILL) {
           steady++;
           if (steady >= STEADY_NEEDED) return grabFrame(video);
         }
         watched += 320;
         await sleep(320);
-        // Every ~6s of quiet watching, give a voice window to say "done".
-        if (watched >= 6000 && !moved) {
+        if (watched >= 6000 && !moved) {       // periodic voice window to say "done"
           watched = 0;
-          const cmd = await listen(new MediaStream(streamRef.current!.getAudioTracks()), 2600);
-          if (cmd) setHeard(cmd);
-          if (DONE.test(cmd)) return null;
+          const s = audioStream();
+          if (s) { const cmd = await listen(s, 2600); if (cmd) setHeard(cmd); if (DONE.test(cmd)) return null; }
         }
       }
       return null;
     };
 
-    const listenCommand = async (): Promise<string> => {
-      const cmd = await listen(new MediaStream(streamRef.current!.getAudioTracks()), 3200);
+    const listenCommand = async (ms = 3200): Promise<string> => {
+      const s = audioStream();
+      if (!s) return "";
+      const cmd = await listen(s, ms);
       setHeard(cmd || "…");
       return cmd;
     };
 
-    const saveAndPrint = async (item: { name: string; category?: string; brand?: string; model?: string }, frame: string) => {
+    const saveAndPrint = async (
+      item: { name: string; category?: string; brand?: string; model?: string }, frame: string, qty: number,
+    ) => {
       const code = await mintShortCode();
       const media = getLabelMedia();
-      // Store the item in this bin, with the captured photo inline (no storage bucket needed).
       const insert: Record<string, unknown> = {
-        name: item.name, category: item.category || "other", quantity: 1,
+        name: item.name, category: item.category || "other", quantity: qty,
         quantity_unit: "piece", qr_code: code, photo_path: frame,
       };
       if (item.brand) insert.brand = item.brand;
@@ -156,27 +189,39 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         ({ data: created, error } = await supabase.from("items").insert(insert).select("id").single());
       }
       if (error) throw error;
-      await supabase.from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: 1 });
+      // Filing the item into the bin is the whole point — a failure here must surface, not be swallowed.
+      const { error: linkErr } = await supabase
+        .from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: qty });
+      if (linkErr) throw linkErr;
+      lastCreated = { id: created!.id, name: item.name };
       if (item.category) labeledCategories.push(item.category);
-      const sub = [item.category, [item.brand, item.model].filter(Boolean).join(" ")].filter(Boolean) as string[];
+      const sub = [item.category, [item.brand, item.model].filter(Boolean).join(" "), qty > 1 ? `×${qty}` : ""]
+        .filter(Boolean) as string[];
       const label = renderItemLabel({ name: item.name, code, sub, media }).toDataURL("image/png");
-      await printImageViaConnector(label, media);
+      await printResilient(label, media, item.name);
+    };
+
+    const undoLast = async (): Promise<string> => {
+      if (!lastCreated) return "Nothing to undo.";
+      const name = lastCreated.name;
+      await supabase.from("item_locations").delete().eq("item_id", lastCreated.id);
+      await supabase.from("items").delete().eq("id", lastCreated.id);
+      lastCreated = null;
+      countRef.current = Math.max(0, countRef.current - 1);
+      setCount(countRef.current);
+      return `Removed ${name}.`;
     };
 
     const printBinLabel = async () => {
       const media = getLabelMedia();
       const { data: b } = await supabase
-        .from("locations")
-        .select("qr_code,slot_index,category,parent_location_id")
-        .eq("id", bin!.id).maybeSingle();
+        .from("locations").select("qr_code,slot_index,category,parent_location_id").eq("id", bin!.id).maybeSingle();
       if (!b) return;
-      // If the bin has no category yet, adopt the most common category of what we just labeled.
       let category = (b as { category?: string }).category || "";
       if (!category && labeledCategories.length) {
         const counts = new Map<string, number>();
         labeledCategories.forEach((c) => counts.set(c, (counts.get(c) || 0) + 1));
-        category = [...counts.entries()].sort((a, b2) => b2[1] - a[1])[0][0];
-        category = category.replace(/\b\w/g, (m) => m.toUpperCase());
+        category = [...counts.entries()].sort((a, b2) => b2[1] - a[1])[0][0].replace(/\b\w/g, (m) => m.toUpperCase());
         await supabase.from("locations").update({ category }).eq("id", bin!.id);
       }
       let location = bin!.name;
@@ -185,18 +230,18 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         const { data: p } = await supabase.from("locations").select("name").eq("id", parentId).maybeSingle();
         if (p?.name) location = p.name;
       }
-      const num = (parseInt(bin!.name.replace(/\D/g, ""), 10) || ((b as { slot_index?: number }).slot_index ?? 0) + 1);
+      const num = parseInt(bin!.name.replace(/\D/g, ""), 10) || ((b as { slot_index?: number }).slot_index ?? 0) + 1;
       const canvas = renderBinLabel({
         number: num, code: (b as { qr_code?: string }).qr_code || bin!.name, location, category, media,
       });
-      await printImageViaConnector(canvas.toDataURL("image/png"), media);
+      await printResilient(canvas.toDataURL("image/png"), media, `${bin!.name} label`);
     };
 
     const finishSession = async () => {
       if (!aliveRef.current) return;
       setPhase("finishing");
-      await say(count ? "Printing the bin label. All set." : "No items added. Printing the bin label.");
-      try { await printBinLabel(); } catch { /* printer offline — data is saved regardless */ }
+      await say(countRef.current ? "Printing the bin label. All set." : "No items added. Printing the bin label.");
+      try { await printBinLabel(); } catch { /* queued/retried by printResilient regardless */ }
       onSaved?.();
       onOpenChange(false);
     };
@@ -216,6 +261,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         setPhase("error");
         return;
       }
+      if (!aliveRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
       streamRef.current = stream;
       const video = videoRef.current;
       if (!video) return;
@@ -223,11 +269,17 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       await video.play().catch(() => { /* autoplay guard */ });
 
       await say(`Rapid mode for ${bin!.name}. Show me an item.`);
+      let firstScan = true;
       while (aliveRef.current && !finishRef.current) {
         setPhase("scanning");
-        const frame = await waitForItemOrDone(video);
+        const frame = await waitForItemOrDone(video, !firstScan); // after the 1st, require the scene to clear
+        firstScan = false;
         if (!aliveRef.current) return;
         if (finishRef.current || frame === null) break;
+
+        setPhase("captured");
+        haptic.light();
+        await sleep(250); // brief "captured" flash
 
         setPhase("identifying");
         let item: { name?: string; category?: string; brand?: string; model?: string };
@@ -240,24 +292,37 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         if (!item?.name) { await say("I couldn't tell what that is. Hold it steady and try again."); continue; }
 
         setPhase("confirming");
-        await say(`${item.name}. Say yes to label it, skip to pass, or done to finish.`);
-        const cmd = await listenCommand();
-        if (DONE.test(cmd)) break;
-        if (SKIP.test(cmd)) { await say("Skipped."); continue; }
-        if (YES.test(cmd)) {
-          setPhase("saving");
-          try {
-            await saveAndPrint(item, frame);
-            haptic.success();
-            setCount((c) => c + 1);
-            await say(`Labeled ${item.name}.`);
-          } catch (e) {
-            await say("I couldn't save that one.");
-            toast({ title: "Couldn't save item", description: String((e as Error)?.message || e), variant: "destructive" });
-          }
-          continue;
+        // Confirm the captured item by voice. "repeat"/unclear re-prompts the SAME item (no re-scan);
+        // "done"/"skip"/"undo" exit; "yes"/"it's a X" commit. Bounded so a silent mic can't spin forever.
+        let decision: "yes" | "skip" | "done" | "none" = "none";
+        let qty = 1;
+        for (let tries = 0; tries < 3 && decision === "none" && aliveRef.current; tries++) {
+          await say(tries === 0
+            ? `${item.name}. Say yes to label it, skip to pass, or done to finish.`
+            : `${item.name}. Yes, skip, or done?`);
+          const cmd = await listenCommand();
+          if (!aliveRef.current) return;
+          if (DONE.test(cmd)) { finishRef.current = true; decision = "done"; break; }
+          if (UNDO.test(cmd)) { await say(await undoLast()); decision = "skip"; break; }
+          const corrected = parseCorrection(cmd);
+          if (corrected) { item = { ...item, name: corrected }; qty = parseQty(cmd); decision = "yes"; }
+          else if (SKIP.test(cmd)) { decision = "skip"; }
+          else if (YES.test(cmd)) { qty = parseQty(cmd); decision = "yes"; }
+          // else: REPEAT or unclear → loop and re-prompt the same item
         }
-        await say("I didn't catch that. Show me the next item, or say done.");
+        if (finishRef.current) break;
+        if (decision !== "yes") { if (decision === "skip") await say("Skipped."); continue; }
+
+        setPhase("saving");
+        try {
+          await saveAndPrint(item, frame, qty);
+          haptic.success();
+          countRef.current += 1; setCount(countRef.current);
+          await say(`Labeled ${item.name}${qty > 1 ? `, quantity ${qty}` : ""}.`);
+        } catch (e) {
+          await say("I couldn't save that one.");
+          toast({ title: "Couldn't save item", description: String((e as Error)?.message || e), variant: "destructive" });
+        }
       }
       await finishSession();
     };
@@ -281,6 +346,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
   const phaseLabel: Record<Phase, string> = {
     starting: "Starting camera…",
     scanning: "Show me an item — hold it steady",
+    captured: "Got it",
     identifying: "Looking…",
     confirming: "Say yes, skip, or done",
     saving: "Labeling & printing…",
@@ -292,7 +358,6 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     <div className="fixed inset-0 z-[100] bg-black text-white flex flex-col">
       <video ref={videoRef} playsInline muted className="absolute inset-0 h-full w-full object-cover opacity-90" />
 
-      {/* top bar */}
       <div className="relative z-10 flex items-center justify-between p-4 bg-gradient-to-b from-black/70 to-transparent">
         <div className="flex items-center gap-2 font-display">
           <Sparkles className="h-5 w-5 text-primary" />
@@ -304,20 +369,17 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         </Button>
       </div>
 
-      {/* center status */}
       <div className="relative z-10 flex-1 flex items-center justify-center pointer-events-none">
         <div className="flex flex-col items-center gap-3 text-center px-6">
           {(phase === "identifying" || phase === "saving" || phase === "finishing" || phase === "starting") && (
             <Loader2 className="h-10 w-10 animate-spin text-primary" />
           )}
-          {phase === "scanning" && (
-            <div className="h-40 w-40 rounded-2xl border-4 border-primary/70 animate-pulse" />
-          )}
+          {phase === "captured" && <Check className="h-14 w-14 text-primary" />}
+          {phase === "scanning" && <div className="h-40 w-40 rounded-2xl border-4 border-primary/70 animate-pulse" />}
           <div className="text-lg font-display drop-shadow">{phaseLabel[phase]}</div>
         </div>
       </div>
 
-      {/* bottom captions */}
       <div className="relative z-10 p-4 pb-8 bg-gradient-to-t from-black/80 to-transparent space-y-2">
         {errorMsg ? (
           <p className="text-sm text-center text-red-200">{errorMsg}</p>

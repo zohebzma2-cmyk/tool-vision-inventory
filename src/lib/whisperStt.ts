@@ -29,7 +29,7 @@ export function recordClip(stream: MediaStream, ms = 3500): Promise<Blob> {
     rec.onstop = () => resolve(new Blob(chunks, { type: rec.mimeType || "audio/webm" }));
     rec.onerror = () => resolve(new Blob(chunks, { type: rec.mimeType || "audio/webm" }));
     rec.start();
-    setTimeout(() => { try { rec.state !== "inactive" && rec.stop(); } catch { /* ignore */ } }, ms);
+    setTimeout(() => { try { if (rec.state !== "inactive") rec.stop(); } catch { /* ignore */ } }, ms);
   });
 }
 
@@ -42,22 +42,31 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-/** Send a recorded clip to the connector's whisper.cpp and return the recognized text (lowercased). */
+/** Send a recorded clip to the connector's whisper.cpp and return the recognized text (lowercased).
+ *  Never throws — a dropped connector / offline network resolves to "" so callers' loops can't hang. */
 export async function transcribe(blob: Blob): Promise<string> {
   if (!blob.size) return "";
-  const audio = await blobToDataUrl(blob);
-  const res = await fetch(`${connectorBase()}/transcribe`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ audio }),
-    signal: AbortSignal.timeout(90000),
-  });
-  if (!res.ok) return "";
-  const j = (await res.json().catch(() => ({}))) as { text?: string };
-  return (j.text || "").toString().trim().toLowerCase();
+  try {
+    const audio = await blobToDataUrl(blob);
+    const res = await fetch(`${connectorBase()}/transcribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio }),
+      signal: AbortSignal.timeout(90000),
+    });
+    if (!res.ok) return "";
+    const j = (await res.json().catch(() => ({}))) as { text?: string };
+    return (j.text || "").toString().trim().toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
-/** Record then transcribe in one call. */
+/** Record then transcribe in one call. Never throws — returns "" if recording/transcription fails. */
 export async function listen(stream: MediaStream, ms = 3500): Promise<string> {
-  return transcribe(await recordClip(stream, ms));
+  try {
+    return await transcribe(await recordClip(stream, ms));
+  } catch {
+    return "";
+  }
 }
