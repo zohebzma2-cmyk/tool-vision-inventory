@@ -4,9 +4,10 @@
 
 import { supabase } from "@/integrations/supabase/client";
 import { renderBinLabel } from "@/lib/binLabel";
-import { printImageViaConnector, getLabelMedia } from "@/components/inventory/PrinterService";
+import { getLabelMedia } from "@/components/inventory/PrinterService";
+import { printResilient } from "@/lib/printQueue";
 
-export interface BinPrintResult { printed: number; total: number; failed: number[] }
+export interface BinPrintResult { printed: number; total: number; failed: number[]; queued: number[] }
 
 /** Print a label for every slot/bin directly under `shelfId`. `onProgress(done,total,label)` fires per bin. */
 export async function printBinLabels(
@@ -24,6 +25,7 @@ export async function printBinLabels(
   const list = bins ?? [];
   let printed = 0;
   const failed: number[] = [];
+  const queued: number[] = [];
 
   for (let i = 0; i < list.length; i++) {
     const b = list[i];
@@ -32,13 +34,12 @@ export async function printBinLabels(
     const dataUrl = renderBinLabel({
       number: num, code, location: locationText, category: (b as { category?: string }).category || undefined, media,
     }).toDataURL("image/png");
-    let ok = false;
-    for (let t = 0; t < 3 && !ok; t++) {
-      const res = await printImageViaConnector(dataUrl, media);
-      ok = !!res?.success;
-    }
-    if (ok) printed++; else failed.push(num);
+    // Print now; anything that can't land (printer asleep, connector down) is queued and retried
+    // in the background so a batch is never silently short a label.
+    const res = await printResilient(dataUrl, media, `Bin ${num}`);
+    if (res.success) printed++;
+    else { failed.push(num); queued.push(num); }
     onProgress?.(i + 1, list.length, `Bin ${num}`);
   }
-  return { printed, total: list.length, failed };
+  return { printed, total: list.length, failed, queued };
 }
