@@ -11,6 +11,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { speak, stopSpeaking } from "@/lib/speech";
 import { listen } from "@/lib/whisperStt";
 import { haptic } from "@/lib/haptics";
+import { normalizeQuery, rankItems, spokenAnswer } from "@/lib/findSearch";
 
 interface Props {
   open: boolean;
@@ -27,27 +28,16 @@ interface Hit {
   quantity: number;
 }
 
-const FILLER = /\b(where'?s?|is|are|the|my|a|an|find|me|located|do i have|any|show|look for|got)\b/g;
-
 /** Look up items whose name (or category) matches the spoken/typed query, with their bin + shelf. */
 async function search(raw: string): Promise<Hit[]> {
-  const q = raw.toLowerCase().replace(FILLER, " ").replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
-  if (!q) return [];
-  const tokens = q.split(" ").filter((t) => t.length > 2);
-  const needles = tokens.length ? tokens : [q];
-  // OR across tokens on name and category, then rank by how many tokens hit the name.
+  const { needles } = normalizeQuery(raw);
+  if (!needles.length) return [];
+  // OR across tokens on name and category, then rank (name hits weigh more).
   const ors = needles.flatMap((t) => [`name.ilike.%${t}%`, `category.ilike.%${t}%`]).join(",");
   const { data: items } = await supabase
     .from("items").select("id,name,category,qr_code").or(ors).limit(25);
   if (!items?.length) return [];
-  const ranked = items
-    .map((it) => {
-      const nl = (it.name || "").toLowerCase();
-      const score = needles.reduce((s, t) => s + (nl.includes(t) ? 2 : 0) + ((it.category || "").toLowerCase().includes(t) ? 1 : 0), 0);
-      return { it, score };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+  const ranked = rankItems(items, needles).map((it) => ({ it }));
 
   // Resolve every match's bin + shelf in 3 batched round-trips (not a per-hit N+1). Only ACTIVE
   // links count (date_removed null) so a tool that was pulled/moved doesn't report a stale bin.
@@ -75,16 +65,6 @@ async function search(raw: string): Promise<Hit[]> {
     const shelf = bin?.parent_location_id ? shelfFor.get(bin.parent_location_id) ?? null : null;
     return { id: it.id, name: it.name, category: it.category, qr_code: it.qr_code, bin: bin?.name ?? null, shelf, quantity: link?.quantity || 1 };
   });
-}
-
-function spokenAnswer(query: string, hits: Hit[]): string {
-  if (!hits.length) return `I couldn't find anything matching ${query}.`;
-  const top = hits[0];
-  const where = top.bin
-    ? `${top.bin}${top.category ? `, in ${top.category}` : ""}${top.shelf ? `, on ${top.shelf}` : ""}`
-    : "the inventory, but it isn't filed in a bin yet";
-  const more = hits.length > 1 ? ` I found ${hits.length - 1} other match${hits.length - 1 === 1 ? "" : "es"} too.` : "";
-  return `${top.name} is in ${where}.${more}`;
 }
 
 export function FindMode({ open, onOpenChange }: Props) {
