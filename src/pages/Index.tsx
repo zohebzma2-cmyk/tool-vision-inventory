@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
@@ -9,6 +9,7 @@ import { QRScanner } from "@/components/inventory/QRScanner";
 import { Onboarding } from "@/components/onboarding/Onboarding";
 import { HowItWorks } from "@/components/onboarding/HowItWorks";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
+import { FindMode } from "@/components/inventory/FindMode";
 import { SortMode } from "@/components/inventory/SortMode";
 import { computeOrgReport } from "@/lib/organize";
 import { maybeRunWeeklyDigest } from "@/lib/digest";
@@ -25,6 +26,7 @@ const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showFind, setShowFind] = useState(false);
   const [scanCode, setScanCode] = useState<string | undefined>(undefined);
   const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>("home");
@@ -127,6 +129,14 @@ const Index = () => {
             <div className="hidden md:flex items-center gap-2">
               <Button
                 variant="outline"
+                onClick={() => setShowFind(true)}
+                className="bg-transparent border-tile-edge text-tile-foreground hover:bg-tile-foreground/10 hover:text-tile-foreground"
+              >
+                <Search className="h-4 w-4 mr-2" />
+                Find
+              </Button>
+              <Button
+                variant="outline"
                 onClick={() => setShowQRScanner(true)}
                 className="bg-transparent border-tile-edge text-tile-foreground hover:bg-tile-foreground/10 hover:text-tile-foreground"
               >
@@ -160,8 +170,18 @@ const Index = () => {
               </Button>
             </div>
 
-            {/* Mobile: sort + help + settings — primary actions live in the bottom bar */}
+            {/* Mobile: find + sort + help + settings — primary actions live in the bottom bar */}
             <div className="flex items-center gap-1 md:hidden">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowFind(true)}
+                title="Find a tool"
+                className="text-tile-foreground/70 hover:bg-tile-foreground/10 hover:text-tile-foreground"
+              >
+                <Search className="h-4 w-4" />
+                <span className="sr-only">Find a tool</span>
+              </Button>
               <SortNavButton count={sortCount} onClick={() => setTab("sort")} />
               <Button
                 variant="ghost"
@@ -320,6 +340,8 @@ const Index = () => {
       />
 
       <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
+
+      <FindMode open={showFind} onOpenChange={setShowFind} />
 
       <HowItWorks open={showHelp} onOpenChange={setShowHelp} />
 
