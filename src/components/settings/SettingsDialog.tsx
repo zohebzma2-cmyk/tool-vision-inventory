@@ -12,6 +12,8 @@ import { TAPE_PRESETS } from "@/lib/binLabel";
 import { PaperTypeConfig } from "@/components/inventory/PaperTypeConfig";
 import { exportInventoryCsv } from "@/lib/exportCsv";
 import { haptic } from "@/lib/haptics";
+import { onQueueChange, flushQueue } from "@/lib/printQueue";
+import { RotateCw } from "lucide-react";
 
 interface Props {
   open: boolean;
@@ -28,6 +30,10 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   // Reflect the real printer state when Settings opens (the service is a singleton shared with the
   // Spaces tab), so it never falsely shows "Connect" while a printer is already live.
   useEffect(() => { if (open) setConnected(printerService.isConnected); }, [open]);
+
+  // Labels that couldn't print yet (printer asleep / connector down) — retried automatically.
+  const [pending, setPending] = useState(0);
+  useEffect(() => onQueueChange(setPending), []);
 
   // Printer connector (for the phone / iPad app to reach the computer's printer over Wi-Fi).
   const [media, setMedia] = useState(getLabelMedia());
@@ -157,6 +163,17 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                 Must match the tape loaded in the printer. Used for bin-label printing (barcode labels).
               </p>
             </div>
+
+            {pending > 0 && (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3">
+                <span className="text-sm">
+                  {pending} label{pending === 1 ? "" : "s"} waiting to print — retrying automatically.
+                </span>
+                <Button size="sm" variant="outline" onClick={() => flushQueue()}>
+                  <RotateCw className="h-4 w-4 mr-1.5" /> Retry now
+                </Button>
+              </div>
+            )}
           </section>
 
           {/* Printer connector: lets the phone / iPad print on the computer's Brother printer over
