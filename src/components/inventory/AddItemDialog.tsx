@@ -50,6 +50,18 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
   const [locations, setLocations] = useState<any[]>([]);
 
   // SKU / barcode lookup: enter or scan a UPC, confirm the matched product, then auto-fill.
+  // Non-blocking hint if a tool with this exact name already exists (catches accidental duplicates).
+  const [dupCount, setDupCount] = useState(0);
+  useEffect(() => {
+    const name = formData.name.trim();
+    if (name.length < 3) { setDupCount(0); return; }
+    const t = setTimeout(async () => {
+      const { data } = await supabase.from('items').select('id,name').ilike('name', name).limit(10);
+      setDupCount((data ?? []).filter(d => (d.name || '').trim().toLowerCase() === name.toLowerCase()).length);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.name]);
+
   const [sku, setSku] = useState('');
   const [skuLoading, setSkuLoading] = useState(false);
   const [skuMatch, setSkuMatch] = useState<SkuProduct | null>(null);
@@ -550,6 +562,11 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 required
               />
+              {dupCount > 0 && (
+                <p className="text-xs text-amber-600 dark:text-amber-400">
+                  You already have {dupCount} tool{dupCount === 1 ? "" : "s"} named “{formData.name.trim()}”. Adding another is fine — just checking.
+                </p>
+              )}
             </div>
             
             <div className="space-y-2">
