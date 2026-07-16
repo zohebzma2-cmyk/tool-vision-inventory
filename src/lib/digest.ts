@@ -78,8 +78,19 @@ async function sendEmail(subject: string, html: string): Promise<boolean> {
  * stays silent when there's nothing to organize (so a well-kept garage never gets nagged). Best-effort:
  * a missing connector or unset email key just means that channel is skipped this week.
  */
+let digestInFlight = false;
+
 export async function maybeRunWeeklyDigest(userId: string): Promise<void> {
-  if (!userId || !dueForDigest(userId)) return;
+  if (!userId || digestInFlight || !dueForDigest(userId)) return;
+  digestInFlight = true; // guard against a double-mount / second tab sending twice before markRun
+  try {
+    await runDigest(userId);
+  } finally {
+    digestInFlight = false;
+  }
+}
+
+async function runDigest(userId: string): Promise<void> {
   let report: OrgReport;
   try {
     report = await computeOrgReport();

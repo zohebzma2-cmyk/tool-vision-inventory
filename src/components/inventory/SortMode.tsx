@@ -54,13 +54,13 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
     if (!s.itemId || !s.locationId || !s.suggestedLocationId) return;
     setBusyId(s.itemId + s.locationId);
     try {
-      // Carry the item's existing quantity to the new bin — don't silently collapse a qty>1 to 1.
-      const { data: cur } = await supabase
+      // Carry the item's existing quantity to the new bin — summed across every active row in the
+      // source location (not just one), so a split placement isn't silently collapsed to a single qty.
+      const { data: curRows } = await supabase
         .from("item_locations")
         .select("quantity")
-        .eq("item_id", s.itemId).eq("location_id", s.locationId).is("date_removed", null)
-        .order("date_placed", { ascending: false }).limit(1).maybeSingle();
-      const qty = cur?.quantity ?? 1;
+        .eq("item_id", s.itemId).eq("location_id", s.locationId).is("date_removed", null);
+      const qty = (curRows ?? []).reduce((sum, r) => sum + (r.quantity ?? 1), 0) || 1;
       const { error: rmErr } = await supabase
         .from("item_locations")
         .update({ date_removed: new Date().toISOString() })
