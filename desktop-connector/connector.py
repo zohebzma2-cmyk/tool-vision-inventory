@@ -46,10 +46,14 @@ def transcribe_audio(raw: bytes, ext: str = "webm") -> str:
     try:
         with open(ain, "wb") as f:
             f.write(raw)
-        subprocess.run([FFMPEG, "-y", "-i", ain, "-ar", "16000", "-ac", "1", awav],
-                       capture_output=True, timeout=30)
+        conv = subprocess.run([FFMPEG, "-y", "-i", ain, "-ar", "16000", "-ac", "1", awav],
+                              capture_output=True, timeout=30)
+        if conv.returncode != 0 or not os.path.exists(awav) or os.path.getsize(awav) == 0:
+            raise RuntimeError(f"audio decode failed: {conv.stderr.decode('utf-8', 'ignore')[-200:]}")
         out = subprocess.run([WHISPER_BIN, "-m", WHISPER_MODEL, "-f", awav, "-nt", "-np"],
                              capture_output=True, text=True, timeout=60)
+        if out.returncode != 0:
+            raise RuntimeError(f"whisper failed: {(out.stderr or '')[-200:]}")
         return " ".join(out.stdout.split()).strip()
     finally:
         for p in (ain, awav):
