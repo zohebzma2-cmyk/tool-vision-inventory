@@ -9,6 +9,10 @@ A free, open-source web app for small home garages to inventory their tools, usi
 - **Customizable label templates** - Adjust the Brother label layout to fit your labeling workflow.
 - **Any-Brother-printer aim** - Templates are designed to print on common Brother label printers.
 - **AI tool identification** - Point the vision model at a tool to help identify what it is when adding it to inventory.
+- **Rapid Mode (hands-free labeling)** - Open a bin, present tools to the webcam one at a time, and label the whole bin by voice — no typing. Speech is transcribed locally by whisper.cpp on the desktop connector. See [docs/RAPID-MODE.md](docs/RAPID-MODE.md).
+- **Find Mode (voice search)** - Ask "where's my chalk line" and it tells you (and highlights) the bin.
+- **Durable print queue** - Labels that can't print (printer asleep) are queued and retried automatically, so a batch is never silently short a label.
+- **Installable (PWA)** - Add the station to a home screen; the app shell works offline.
 - **Accounts and per-user data** - Sign in and keep your inventory private to your own account.
 
 ## Screenshots
