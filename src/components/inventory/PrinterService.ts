@@ -997,12 +997,22 @@ export async function isConnectorAvailable(): Promise<boolean> {
 /** POST an already-rendered label PNG to the connector, which rasters + prints it via CUPS.
  *  Returns null if the connector is unreachable (caller falls back to WebUSB / share). Shared by
  *  the LabelSpec path AND template/slot printing, so every print route goes through one bridge. */
-export async function printImageViaConnector(imageDataUrl: string): Promise<{ success: boolean; message: string } | null> {
+export const LABEL_MEDIA_KEY = 'tv-label-media';
+/** The DK tape the labels print on (e.g. "62", "29x90"). Must match the tape actually loaded. */
+export function getLabelMedia(): string {
+  try { return (typeof localStorage !== 'undefined' && localStorage.getItem(LABEL_MEDIA_KEY)) || '62'; }
+  catch { return '62'; }
+}
+export function setLabelMedia(media: string): void {
+  try { localStorage.setItem(LABEL_MEDIA_KEY, media); } catch { /* ignore */ }
+}
+
+export async function printImageViaConnector(imageDataUrl: string, media?: string): Promise<{ success: boolean; message: string } | null> {
   try {
     const res = await fetch(`${connectorBase()}/print`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ imageDataUrl }),
+      body: JSON.stringify({ imageDataUrl, media: media || getLabelMedia() }),
       // The connector now confirms the label actually printed (and self-heals a wedge + resubmits),
       // so allow headroom for that submit → confirm → recover → resubmit worst case.
       signal: AbortSignal.timeout(25000),

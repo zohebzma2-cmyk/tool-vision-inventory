@@ -5,7 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth";
-import { setupPrinter, testPrint, isPrintingSupported, printerService, connectorBase, getConnectorHost, setConnectorHost } from "@/components/inventory/PrinterService";
+import { setupPrinter, testPrint, isPrintingSupported, printerService, connectorBase, getConnectorHost, setConnectorHost, getLabelMedia, setLabelMedia } from "@/components/inventory/PrinterService";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { TAPE_PRESETS } from "@/lib/binLabel";
 import { PaperTypeConfig } from "@/components/inventory/PaperTypeConfig";
 import { exportInventoryCsv } from "@/lib/exportCsv";
 import { haptic } from "@/lib/haptics";
@@ -27,6 +30,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   useEffect(() => { if (open) setConnected(printerService.isConnected); }, [open]);
 
   // Printer connector (for the phone / iPad app to reach the computer's printer over Wi-Fi).
+  const [media, setMedia] = useState(getLabelMedia());
   const [connHost, setConnHost] = useState(getConnectorHost());
   const [detectedLan, setDetectedLan] = useState("");
   const [connOk, setConnOk] = useState<boolean | null>(null);
@@ -138,6 +142,21 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               </div>
             )}
             <PaperTypeConfig onPaperTypeChange={() => { /* persisted by the component */ }} />
+
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Tape / label size</Label>
+              <Select value={media} onValueChange={(v) => { setMedia(v); setLabelMedia(v); }}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TAPE_PRESETS).map(([id, p]) => (
+                    <SelectItem key={id} value={id}>{p.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Must match the tape loaded in the printer. Used for bin-label printing (barcode labels).
+              </p>
+            </div>
           </section>
 
           {/* Printer connector: lets the phone / iPad print on the computer's Brother printer over
