@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3, Map as MapIcon, Boxes } from "lucide-react";
+import { Plus, MapPin, QrCode, Edit, Trash2, Printer, Settings, TestTube, Eye, Grid3x3, Map as MapIcon, Boxes, Loader2 } from "lucide-react";
 import { MapSpaceDialog } from "./MapSpaceDialog";
 import { SortBinDialog } from "./SortBinDialog";
 import { SpaceMap } from "./SpaceMap";
@@ -23,6 +23,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { autoPrintLabel, setupPrinter, isPrintingSupported, printerService, testPrint } from "./PrinterService";
 import { mintShortCode } from "@/lib/shortcode";
+import { printBinLabels } from "@/lib/binPrint";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { LabelPreview } from "@/components/inventory/LabelPreview";
 import { deleteLocationCascade } from "@/lib/slots";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
@@ -75,6 +77,7 @@ export function LocationsList({
   const [showTemplates, setShowTemplates] = useState(false);
   const [autoPrintEnabled, setAutoPrintEnabled] = useState(true);
   const [printerConnected, setPrinterConnected] = useState(false);
+  const [binPrintingId, setBinPrintingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     type: "",
@@ -330,6 +333,30 @@ export function LocationsList({
     }
   };
 
+  // Batch: print a barcode label for every bin under this location (the in-app bin-wall flow).
+  const handlePrintBinLabels = async (id: string, name: string) => {
+    setBinPrintingId(id);
+    const t = toast({ title: "Printing bin labels", description: "Starting…", duration: 600000 });
+    try {
+      const res = await printBinLabels(id, (done, total, label) => {
+        t.dismiss();
+        toast({ title: "Printing bin labels", description: `${label} (${done}/${total})`, duration: 600000 });
+      });
+      t.dismiss();
+      if (res.total === 0) toast({ title: "No bins here", description: `${name} has no bins to label yet.` });
+      else toast({
+        title: "Bin labels printed",
+        description: `${res.printed}/${res.total}` + (res.failed.length ? ` · failed: ${res.failed.join(", ")}` : ""),
+        variant: res.failed.length ? "destructive" : "success",
+      });
+    } catch (e: any) {
+      t.dismiss();
+      toast({ title: "Print error", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBinPrintingId(null);
+    }
+  };
+
   const openEdit = (loc: Location) => {
     setEditingId(loc.id);
     setEditFormData({
@@ -520,6 +547,13 @@ export function LocationsList({
                       {isLabelOutputSupported() && (
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Print label" onClick={() => handlePrintLocation(location.id)}>
                           <Printer className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {isLabelOutputSupported() && (
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Print all bin labels"
+                          disabled={binPrintingId === location.id}
+                          onClick={() => handlePrintBinLabels(location.id, location.name)}>
+                          {binPrintingId === location.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Boxes className="h-4 w-4" />}
                         </Button>
                       )}
                       <Button
