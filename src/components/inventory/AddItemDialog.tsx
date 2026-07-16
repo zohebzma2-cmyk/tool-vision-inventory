@@ -459,6 +459,13 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
         purchase_price: "",
         notes: ""
       });
+      // Clear the minted QR + SKU state too — otherwise the NEXT item reuses this item's code (the
+      // dialog stays mounted), producing two items with the same qr_code.
+      setPreviewItemQr(null);
+      setPreviewLocation(null);
+      setSku("");
+      setSkuMatch(null);
+      setSkuUpc("");
       onOpenChange(false);
     } catch (error) {
       toast({

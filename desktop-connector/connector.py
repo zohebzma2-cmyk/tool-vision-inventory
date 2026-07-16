@@ -2,7 +2,7 @@
 """Tool Vision local print connector — bridges the web app (HTTP) to the QL-800 (CUPS).
 Both the browser app and the terminal print through the same CUPS queue, so they never fight
 over the USB device (no WebUSB needed). Listens on 127.0.0.1:17777."""
-import json, subprocess, tempfile, os, datetime, base64, io, time, socket, threading
+import json, subprocess, tempfile, os, datetime, base64, io, time, socket, threading, re
 
 # Serialize prints: the server is threaded, and the QL-800 prints one job at a time. Without this,
 # concurrent /print calls (e.g. "print all labels") race for the printer and some time out.
@@ -155,46 +155,83 @@ def _queue_has_jobs():
     except Exception:
         return False
 
-def _wait_drained(seconds):
-    """True if the queue empties (label actually printed) within `seconds`; else False."""
-    deadline = time.time() + seconds
-    while time.time() < deadline:
-        if not _queue_has_jobs():
-            return True
-        time.sleep(0.4)
-    return False
-
-def _recover_queue():
-    """No-sudo recovery for a wedged CUPS backend ("Waiting for printer to become available"):
-    clear stuck jobs and re-enable the queue. The owner is in _lpadmin, so cancel/cupsenable need
-    no password. This is what lets the printer self-heal without the user power-cycling it."""
-    subprocess.run(["cancel", "-a", QUEUE], capture_output=True, text=True, timeout=5)
-    subprocess.run(["cupsenable", QUEUE], capture_output=True, text=True, timeout=5)
-    time.sleep(1.0)
-
 def _submit(path):
     return subprocess.run(["lp", "-d", QUEUE, "-o", "raw", path], capture_output=True, text=True, timeout=20)
 
+def _job_id(submit_stdout):
+    # lp prints e.g. "request id is ToolVision_QL800-205 (1 file(s))".
+    m = re.search(r"([A-Za-z0-9_\-]+-\d+)", submit_stdout or "")
+    return m.group(1) if m else None
+
+def _job_in_queue(job_id):
+    """Is THIS job still pending/printing? (Falls back to any-job if we couldn't parse the id.)"""
+    try:
+        out = subprocess.run(["lpstat", "-o", QUEUE], capture_output=True, text=True, timeout=5).stdout
+        if not job_id:
+            return bool(out.strip())
+        return any(line.split()[0] == job_id for line in out.splitlines() if line.strip())
+    except Exception:
+        return False
+
+def _printer_wedged():
+    """The printer can't reach the device (backend stuck), is marked offline, or the queue is disabled
+    — the states that actually need recovery, as opposed to a job that's simply slow to print."""
+    try:
+        out = subprocess.run(["lpstat", "-p", QUEUE], capture_output=True, text=True, timeout=5).stdout.lower()
+        return any(s in out for s in ("waiting for printer to become available", "offline", "disabled"))
+    except Exception:
+        return False
+
+def _cancel(job):
+    """Cancel just OUR job (never `cancel -a`, which would nuke a concurrent terminal print)."""
+    if job:
+        subprocess.run(["cancel", job], capture_output=True, text=True, timeout=5)
+
 def print_raw(path):
-    """Submit a raw raster job AND confirm it actually prints. `lp` returns as soon as CUPS accepts
-    the job (not when it prints), so a wedged backend used to look like success while nothing came
-    out. Here we wait for the queue to drain; if it stalls we auto-recover once and resubmit — so a
-    wedge clears itself instead of needing a power-cycle. Returns (ok, message)."""
+    """Submit a raw raster job AND confirm OUR job actually printed. `lp` returns as soon as CUPS
+    accepts the job, so we track our job id and wait for it to leave the queue. A slow-but-printing
+    job is left alone — we only auto-recover on a SUSTAINED wedge (printer can't reach the device),
+    and then cancel only OUR job (never `cancel -a`, which would kill a concurrent terminal print).
+    Returns (ok, message)."""
+    def wait_outcome(job, timeout):
+        # "done" = left the queue (printed); "wedged" = sustained can't-reach-device; "timeout" = neither.
+        deadline = time.time() + timeout
+        wedged_since = None
+        while time.time() < deadline:
+            if not _job_in_queue(job):
+                return "done"
+            if _printer_wedged():
+                wedged_since = wedged_since or time.time()
+                if time.time() - wedged_since > 3:   # sustained, not a momentary blip
+                    return "wedged"
+            else:
+                wedged_since = None
+            time.sleep(0.5)
+        return "timeout"
+
     r = _submit(path)
     if r.returncode != 0:
         return False, (r.stderr.strip() or "lp failed")
-    if _wait_drained(6):
+    job = _job_id(r.stdout)
+    outcome = wait_outcome(job, 11)
+    if outcome == "done":
         return True, "Printed on the QL-800."
-    # Didn't drain in 6s. If it slipped through just now, we're done (avoid a double print).
-    if not _queue_has_jobs():
-        return True, "Printed on the QL-800."
-    # Genuinely wedged → recover without a power-cycle and resubmit once.
-    _recover_queue()
+    if outcome == "timeout":
+        # Never confirmed it printed, but not clearly wedged either — do NOT resubmit (that's how a
+        # slow-but-healthy job turns into a double print). Cancel it so it can't print later, report honestly.
+        _cancel(job)
+        return False, "Printer didn't finish in time — check it's on with a label roll loaded."
+    # Genuinely wedged/offline → cancel only OUR job, re-enable the queue (no sudo), resubmit once.
+    _cancel(job)
+    subprocess.run(["cupsenable", QUEUE], capture_output=True, text=True, timeout=5)
+    time.sleep(1.0)
     r2 = _submit(path)
     if r2.returncode != 0:
         return False, (r2.stderr.strip() or "lp failed after recovery")
-    if _wait_drained(7):
+    job2 = _job_id(r2.stdout)
+    if wait_outcome(job2, 11) == "done":
         return True, "Printed on the QL-800 (auto-recovered)."
+    _cancel(job2)  # don't leave the retry stuck to print when the printer returns
     return False, "Printer didn't respond — check it's powered on with a label roll loaded."
 
 class H(BaseHTTPRequestHandler):

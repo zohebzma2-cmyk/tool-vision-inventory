@@ -52,7 +52,9 @@ const DISMISS_KEY = "tv-sort-dismissed";
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export function suggestionKey(s: OrgSuggestion): string {
-  return `${s.kind}:${s.itemId ?? ""}:${s.locationId ?? ""}`;
+  // Include severity so dismissing a "getting full" (warning) doesn't also silence the later
+  // "is full" (urgent) alert for the same space — the escalation must still surface.
+  return `${s.kind}:${s.severity}:${s.itemId ?? ""}:${s.locationId ?? ""}`;
 }
 function loadDismissed(): Record<string, number> {
   try { return JSON.parse(localStorage.getItem(DISMISS_KEY) || "{}"); } catch { return {}; }

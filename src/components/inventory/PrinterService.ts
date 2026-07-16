@@ -751,7 +751,10 @@ async function rasterizeLabel(spec: LabelSpec, widthPx = 696): Promise<HTMLCanva
   const gap = 30; // between QR and text
 
   const qrImg = await loadQrImage(spec.qr);
-  const qrSize = 220;
+  // Scale the QR to the roll so the text column always keeps ≥120px — otherwise on a narrow roll
+  // (29 mm/12 mm) a fixed 220px QR pushes textW to zero/negative and the whole label collapses to "…".
+  // On the standard 62 mm roll this still resolves to 220 (unchanged output).
+  const qrSize = Math.max(90, Math.min(220, W - 2 * pad - gap - 120));
   const textX = pad + (qrImg ? qrSize + gap : 0);
   const textW = W - textX - pad;
 
