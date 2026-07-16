@@ -84,7 +84,11 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const cams = devices.filter((d) => d.kind === "videoinput");
-        const ext = cams.find((d) => /logitech|brio|c9\d\d|webcam|usb|razer|elgato/i.test(d.label));
+        // Prefer a known external webcam by name; else ANY camera that isn't the built-in FaceTime /
+        // Continuity (iPhone) / Desk View — that's the plugged-in USB cam (e.g. a Logitech that macOS
+        // exposes only as "UVC Camera VendorID_1133").
+        const ext = cams.find((d) => /logitech|brio|c9\d\d|webcam|uvc|razer|elgato|streamcam|hd pro|vendorid_1133/i.test(d.label))
+          || cams.find((d) => d.label && !/facetime|built-?in|iphone|continuity|desk\s*view/i.test(d.label));
         const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId;
         if (ext && ext.deviceId && ext.deviceId !== currentId) {
           const better = await navigator.mediaDevices.getUserMedia({
