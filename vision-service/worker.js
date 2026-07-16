@@ -245,7 +245,7 @@ async function enrichWithWeb(env, apiKey, ident) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://github.com/zalvi22/tool-vision-inventory",
+        "HTTP-Referer": "https://github.com/zohebzma2-cmyk/tool-vision-inventory",
         "X-Title": "Tool Vision Inventory",
       },
       body: JSON.stringify({
