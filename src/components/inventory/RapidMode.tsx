@@ -17,6 +17,7 @@ import { renderItemLabel } from "@/lib/itemLabel";
 import { renderBinLabel } from "@/lib/binLabel";
 import { getLabelMedia } from "@/components/inventory/PrinterService";
 import { printResilient } from "@/lib/printQueue";
+import { findItemInBin, mergeQuantity } from "@/lib/itemDedupe";
 import { speak, stopSpeaking } from "@/lib/speech";
 import { listen } from "@/lib/whisperStt";
 
@@ -174,7 +175,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
 
     const saveAndPrint = async (
       item: { name: string; category?: string; brand?: string; model?: string }, frame: string, qty: number,
-    ) => {
+    ): Promise<{ merged: boolean; total?: number }> => {
+      // Already in this bin? Bump its quantity instead of creating a duplicate row + a second label.
+      const dup = await findItemInBin(bin!.id, item.name);
+      if (dup) {
+        const total = await mergeQuantity(dup, qty);
+        lastCreated = null; // a merge isn't a fresh row to undo
+        return { merged: true, total };
+      }
       const code = await mintShortCode();
       const media = getLabelMedia();
       const insert: Record<string, unknown> = {
@@ -199,6 +207,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         .filter(Boolean) as string[];
       const label = renderItemLabel({ name: item.name, code, sub, media }).toDataURL("image/png");
       await printResilient(label, media, item.name);
+      return { merged: false };
     };
 
     const undoLast = async (): Promise<string> => {
@@ -315,10 +324,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
 
         setPhase("saving");
         try {
-          await saveAndPrint(item, frame, qty);
+          const r = await saveAndPrint(item, frame, qty);
           haptic.success();
-          countRef.current += 1; setCount(countRef.current);
-          await say(`Labeled ${item.name}${qty > 1 ? `, quantity ${qty}` : ""}.`);
+          if (r.merged) {
+            await say(`You already have ${item.name} here — now ${r.total}.`);
+          } else {
+            countRef.current += 1; setCount(countRef.current);
+            await say(`Labeled ${item.name}${qty > 1 ? `, quantity ${qty}` : ""}.`);
+          }
         } catch (e) {
           await say("I couldn't save that one.");
           toast({ title: "Couldn't save item", description: String((e as Error)?.message || e), variant: "destructive" });
