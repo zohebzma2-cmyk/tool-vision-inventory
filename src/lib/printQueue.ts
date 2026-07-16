@@ -1,7 +1,8 @@
 // A durable, self-retrying print queue. The QL-800 regularly drops off USB (asleep/off) and the
 // connector can be briefly unreachable, so a label that can't print *right now* is persisted to
-// localStorage and retried automatically until it lands — a labeling session never silently loses a
-// label. Rendered PNGs are stored inline (capped so storage can't blow up).
+// localStorage and retried automatically until it lands. Rendered PNGs are stored inline; the queue
+// keeps only the newest MAX jobs. If a write fails (quota), printResilient reports queued:false so
+// the caller can flag a manual reprint rather than silently dropping the label.
 
 import { printImageViaConnector } from "@/components/inventory/PrinterService";
 
@@ -17,9 +18,13 @@ const listeners = new Set<(n: number) => void>();
 function read(): Job[] {
   try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
 }
-function write(jobs: Job[]): void {
-  try { localStorage.setItem(KEY, JSON.stringify(jobs)); } catch { /* storage full/unavailable */ }
+/** Persist the queue. Returns false if the write failed (e.g. quota) — the caller must NOT then
+ *  claim the job is safely queued, or a label would be lost with no trace. */
+function write(jobs: Job[]): boolean {
+  let ok = false;
+  try { localStorage.setItem(KEY, JSON.stringify(jobs)); ok = true; } catch { ok = false; }
   listeners.forEach((l) => { try { l(jobs.length); } catch { /* ignore */ } });
+  return ok;
 }
 function newId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -44,7 +49,10 @@ export async function printResilient(
   const jobs = read();
   jobs.push({ id: newId(), imageDataUrl, media, label, ts: Date.now(), tries: 1 });
   while (jobs.length > MAX) jobs.shift(); // drop oldest to stay under storage
-  write(jobs);
+  // If persistence fails (quota), report queued:false so the caller can flag a manual reprint —
+  // never claim a label is safely queued when it wasn't actually stored.
+  const persisted = write(jobs);
+  if (!persisted) { console.warn(`[printQueue] could not persist "${label}" — reprint it manually.`); return { success: false, queued: false }; }
   scheduleFlush(4000);
   return { success: false, queued: true };
 }

@@ -38,7 +38,7 @@ export async function printBinLabels(
     // in the background so a batch is never silently short a label.
     const res = await printResilient(dataUrl, media, `Bin ${num}`);
     if (res.success) printed++;
-    else { failed.push(num); queued.push(num); }
+    else { failed.push(num); if (res.queued) queued.push(num); }
     onProgress?.(i + 1, list.length, `Bin ${num}`);
   }
   return { printed, total: list.length, failed, queued };
