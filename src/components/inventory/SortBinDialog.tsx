@@ -132,11 +132,13 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         const { data } = await supabase
           .from("locations")
           .select("id,name,qr_code,type,parent_location_id")
-          .in("type", ["space", "rack"])
+          // The mid-tier that lives in a space and holds bins is a shelf/rack/cabinet — treat them
+          // all the same so a "shelf" (the plywood bin wall) is a first-class bin container here too.
+          .in("type", ["space", "rack", "shelf", "cabinet"])
           .eq("is_slot", false);
         const rows = (data as LocRow[]) || [];
         setSpaces(rows.filter((r) => r.type === "space"));
-        setRacks(rows.filter((r) => r.type === "rack"));
+        setRacks(rows.filter((r) => r.type !== "space")); // any non-space unit = a shelf/rack to hold bins
       })();
     } else {
       setStep("bin");
