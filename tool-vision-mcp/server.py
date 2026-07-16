@@ -269,8 +269,23 @@ def request_phone_photo(prompt: str) -> str:
 
 
 @mcp.tool()
+def capture_webcam(prompt: str = "") -> str:
+    """Grab a still frame from the desktop webcam (the Logitech Brio) via the connector and save it, so
+    Claude can look at what's on the workbench RIGHT NOW and identify it. Returns the saved image's
+    absolute path (read it directly). Loopback-only, so only this computer can trigger the camera."""
+    try:
+        r = _post_connector("/webcam", {"prompt": prompt})
+    except Exception as e:
+        return json.dumps({"error": f"connector not reachable: {e}"})
+    if not r.get("ok"):
+        return json.dumps({"error": r.get("message", "webcam capture failed")})
+    return json.dumps({"path": r.get("path"), "prompt": prompt,
+                       "note": "Read this image file to see the webcam frame."})
+
+
+@mcp.tool()
 def list_captured_photos() -> str:
-    """List captured phone photos, newest first — absolute file paths Claude can read directly."""
+    """List captured photos (phone + webcam), newest first — absolute file paths Claude can read directly."""
     if not os.path.isdir(CAPTURES_DIR):
         return json.dumps([])
     files = [os.path.join(CAPTURES_DIR, f) for f in os.listdir(CAPTURES_DIR) if not f.startswith(".")]

@@ -36,6 +36,36 @@ FFMPEG = "/opt/homebrew/bin/ffmpeg" if os.path.exists("/opt/homebrew/bin/ffmpeg"
 WHISPER_BIN = "/opt/homebrew/bin/whisper-cli" if os.path.exists("/opt/homebrew/bin/whisper-cli") else "whisper-cli"
 WHISPER_MODEL = os.path.expanduser("~/.tool-vision-connector/ggml-base.en.bin")
 
+def _webcam_index():
+    """Pick the external USB webcam's avfoundation index (Logitech/Brio), else any non-built-in cam."""
+    try:
+        out = subprocess.run([FFMPEG, "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                             capture_output=True, text=True, timeout=8).stderr
+    except Exception:
+        return "0"
+    vids, in_video = [], False
+    for line in out.splitlines():
+        if "AVFoundation video devices" in line: in_video = True; continue
+        if "AVFoundation audio devices" in line: in_video = False; continue
+        m = re.search(r"\[(\d+)\]\s+(.*)", line)
+        if in_video and m: vids.append((m.group(1), m.group(2).strip()))
+    for idx, name in vids:
+        if re.search(r"brio|logitech|c9\d\d|webcam|uvc|streamcam", name, re.I): return idx
+    for idx, name in vids:
+        if not re.search(r"facetime|iphone|desk view|capture screen|built-?in", name, re.I): return idx
+    return vids[0][0] if vids else "0"
+
+def capture_webcam_frame():
+    """Grab one still frame from the desktop webcam → save to captures dir → return its path."""
+    idx = _webcam_index()
+    fn = os.path.join(CAPTURES_DIR, f"webcam-{int(time.time())}.jpg")
+    r = subprocess.run([FFMPEG, "-y", "-f", "avfoundation", "-video_size", "1280x720", "-framerate", "30",
+                        "-i", idx, "-frames:v", "1", "-update", "1", fn], capture_output=True, text=True, timeout=30)
+    if r.returncode != 0 or not os.path.exists(fn) or os.path.getsize(fn) < 2000:
+        raise RuntimeError(f"webcam capture failed (device {idx}) — the connector may need Camera permission. "
+                           + (r.stderr or "")[-200:])
+    return fn
+
 def transcribe_audio(raw: bytes, ext: str = "webm") -> str:
     """Decode a short audio clip (webm/ogg/wav/m4a) → 16 kHz mono wav → whisper.cpp → text."""
     if not os.path.exists(WHISPER_MODEL):
@@ -478,7 +508,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"error": str(e)})
     def do_POST(self):
-        if not any(self.path.startswith(p) for p in ("/print", "/notify-text", "/upload", "/capture-request", "/transcribe")):
+        if not any(self.path.startswith(p) for p in ("/print", "/notify-text", "/upload", "/capture-request", "/transcribe", "/webcam")):
             return self._json(404, {"error": "not found"})
         # Only the Tool Vision app / capture page may POST (defends against any other local page).
         if not _origin_ok(self.headers.get("Origin", "")):
@@ -491,6 +521,17 @@ class H(BaseHTTPRequestHandler):
 
             client_ip = self.client_address[0] if self.client_address else ""
             is_loopback = client_ip == "::1" or client_ip.startswith("127.")
+
+            if self.path.startswith("/webcam"):
+                # Grab a still off the desktop webcam. Loopback-only (only this computer / the MCP
+                # server can trigger the camera), so a LAN device or website can't spy through it.
+                if not is_loopback:
+                    return self._json(403, {"ok": False, "message": "webcam capture only from this computer"})
+                try:
+                    fn = capture_webcam_frame()
+                    return self._json(200, {"ok": True, "file": os.path.basename(fn), "path": fn})
+                except Exception as e:
+                    return self._json(500, {"ok": False, "message": str(e)})
 
             if self.path.startswith("/transcribe"):
                 # Speech → text for hands-free Rapid Mode. Audio is a data URL in `audio`. Origin-gated
