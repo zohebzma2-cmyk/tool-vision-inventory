@@ -520,8 +520,15 @@ export function LocationsList({
               <Card key={location.id} className="group hover:shadow-soft transition-all duration-200 border-0 shadow-sm">
                 <CardContent className="p-5">
                   <div className="flex justify-between items-start mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-foreground text-lg mb-1">{location.name}</h3>
+                    <div className="flex-1 min-w-0">
+                      <button
+                        className="group/name flex items-center gap-1.5 text-left"
+                        title="Open bins"
+                        onClick={() => setMapLoc(location)}
+                      >
+                        <h3 className="font-semibold text-foreground text-lg mb-1 truncate group-hover/name:text-primary transition-colors">{location.name}</h3>
+                        <Grid3x3 className="h-4 w-4 shrink-0 text-muted-foreground group-hover/name:text-primary transition-colors" />
+                      </button>
                       <div className="flex items-center gap-1 text-sm text-muted-foreground bg-muted/50 rounded-md px-2 py-1 w-fit">
                         <QrCode className="h-3 w-3" />
                         <span className="font-mono text-xs">{location.qr_code}</span>
