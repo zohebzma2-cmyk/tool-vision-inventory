@@ -20,6 +20,7 @@ import { printResilient } from "@/lib/printQueue";
 import { findItemInBin, mergeQuantity } from "@/lib/itemDedupe";
 import { speak, stopSpeaking } from "@/lib/speech";
 import { listen } from "@/lib/whisperStt";
+import { classifyCommand, DONE } from "@/lib/voiceCommands";
 
 interface Props {
   open: boolean;
@@ -29,28 +30,6 @@ interface Props {
 }
 
 type Phase = "starting" | "scanning" | "captured" | "identifying" | "confirming" | "saving" | "finishing" | "error";
-
-const YES = /\b(yes|yeah|yep|yup|label|add|do it|okay|ok|sure|correct|print|go)\b/;
-const SKIP = /\b(skip|no|nope|next|pass|wrong|another)\b/;
-const DONE = /\b(done|finish|finished|close|complete|that'?s it|stop|end|exit|quit)\b/;
-const UNDO = /\b(undo|remove last|delete that|take that back|scratch that|oops)\b/;
-const WORD_NUM: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
-
-/** Pull a quantity out of a spoken command ("yes two", "add 3"). Defaults to 1. */
-function parseQty(cmd: string): number {
-  const digit = cmd.match(/\b(\d{1,2})\b/);
-  if (digit) return Math.max(1, Math.min(99, parseInt(digit[1], 10)));
-  for (const [w, n] of Object.entries(WORD_NUM)) if (new RegExp(`\\b${w}\\b`).test(cmd)) return n;
-  return 1;
-}
-
-/** A spoken correction like "no, it's a chalk line" / "actually a torque wrench" → the corrected name. */
-function parseCorrection(cmd: string): string | null {
-  const m = cmd.match(/\b(?:it'?s|it is|that'?s|actually|its)\b\s+(?:an?\s+)?(.+)/);
-  if (!m) return null;
-  const name = m[1].replace(/[^\w\s-]/g, "").trim();
-  return name.length >= 2 ? name.replace(/\b\w/g, (c) => c.toUpperCase()) : null;
-}
 
 /** Draw the current video frame to a JPEG data URL, scaled so the longer side ≈ maxW. */
 function grabFrame(video: HTMLVideoElement, maxW = 960, quality = 0.72): string {
@@ -311,13 +290,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
             : `${item.name}. Yes, skip, or done?`);
           const cmd = await listenCommand();
           if (!aliveRef.current) return;
-          if (DONE.test(cmd)) { finishRef.current = true; decision = "done"; break; }
-          if (UNDO.test(cmd)) { await say(await undoLast()); decision = "skip"; break; }
-          const corrected = parseCorrection(cmd);
-          if (corrected) { item = { ...item, name: corrected }; qty = parseQty(cmd); decision = "yes"; }
-          else if (SKIP.test(cmd)) { decision = "skip"; }
-          else if (YES.test(cmd)) { qty = parseQty(cmd); decision = "yes"; }
-          // else: REPEAT or unclear → loop and re-prompt the same item
+          const parsed = classifyCommand(cmd);
+          if (parsed.kind === "done") { finishRef.current = true; decision = "done"; break; }
+          if (parsed.kind === "undo") { await say(await undoLast()); decision = "skip"; break; }
+          if (parsed.kind === "yes") {
+            if (parsed.correctedName) item = { ...item, name: parsed.correctedName };
+            qty = parsed.qty; decision = "yes";
+          } else if (parsed.kind === "skip") { decision = "skip"; }
+          // else: unclear → loop and re-prompt the same item
         }
         if (finishRef.current) break;
         if (decision !== "yes") { if (decision === "skip") await say("Skipped."); continue; }
