@@ -23,6 +23,62 @@ DIST = os.path.expanduser("~/tool-vision-inventory/dist")
 import mimetypes, posixpath, ipaddress
 from urllib.parse import urlparse
 
+# --- Phone capture station: the phone opens /capture, the NATIVE camera opens (a file-capture input,
+# so it works over the LAN with no HTTPS), and photos upload here for Claude to read. A request queue
+# lets Claude ask for a specific shot ("photo of the bin wall") and the phone shows that prompt. ---
+CAPTURES_DIR = os.path.expanduser("~/.tool-vision-connector/captures")
+os.makedirs(CAPTURES_DIR, exist_ok=True)
+_capture_req = {"id": 0, "prompt": "", "ts": 0}  # set by Claude (loopback), polled by the phone
+
+CAPTURE_HTML = """<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Tool Vision — Capture</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.4 -apple-system,system-ui,sans-serif;background:#12151b;color:#eef1f5;
+ padding:20px;display:flex;flex-direction:column;gap:18px;min-height:100vh}
+h1{font-size:20px;margin:0}.sub{color:#9aa4b2;font-size:14px;margin-top:-10px}
+.req{background:#1b2430;border:1px solid #2b3a4d;border-radius:14px;padding:14px 16px}
+.req b{color:#ffb020}
+label.shoot{display:flex;align-items:center;justify-content:center;gap:10px;background:#E35F22;color:#fff;
+ font-weight:700;font-size:18px;padding:20px;border-radius:16px;cursor:pointer;box-shadow:0 6px 20px #0006}
+label.shoot input{display:none}
+img#pv{width:100%;border-radius:14px;display:none;margin-top:6px}
+.status{font-size:14px;color:#9aa4b2;min-height:20px}
+.ok{color:#37d67a}.err{color:#ff5a5f}
+</style></head><body>
+<h1>Tool Vision · Capture</h1>
+<div class=sub>Snap a photo — it goes straight to Claude.</div>
+<div class=req id=req style=display:none></div>
+<label class=shoot>📷 Take photo
+ <input type=file accept="image/*" capture="environment" id=f></label>
+<img id=pv>
+<div class=status id=st></div>
+<script>
+const st=document.getElementById('st'),pv=document.getElementById('pv'),req=document.getElementById('req');
+let curPrompt='';
+async function poll(){try{const r=await fetch('/capture-request',{cache:'no-store'});const j=await r.json();
+ if(j.prompt){curPrompt=j.prompt;req.style.display='block';req.innerHTML='Claude asked for: <b>'+j.prompt+'</b>';}
+ else{curPrompt='';req.style.display='none';}}catch(e){}}
+poll();setInterval(poll,2500);
+document.getElementById('f').onchange=async e=>{
+ const file=e.target.files[0];if(!file)return;
+ st.textContent='Processing…';st.className='status';
+ const img=new Image();img.src=URL.createObjectURL(file);await img.decode();
+ const max=1600,sc=Math.min(1,max/Math.max(img.width,img.height));
+ const c=document.createElement('canvas');c.width=Math.round(img.width*sc);c.height=Math.round(img.height*sc);
+ c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+ const data=c.toDataURL('image/jpeg',0.85);pv.src=data;pv.style.display='block';
+ st.textContent='Sending to Claude…';
+ try{const r=await fetch('/upload',{method:'POST',headers:{'Content-Type':'application/json'},
+   body:JSON.stringify({image:data,label:curPrompt})});const j=await r.json();
+  if(r.ok&&j.ok){st.textContent='✓ Sent to Claude'+(curPrompt?' — '+curPrompt:'');st.className='status ok';}
+  else{st.textContent='Upload failed: '+(j.message||r.status);st.className='status err';}}
+ catch(err){st.textContent='Upload error — same Wi-Fi as the computer?';st.className='status err';}
+ e.target.value='';};
+</script></body></html>"""
+
 def _origin_ok(origin: str) -> bool:
     """Only the Tool Vision app may drive the printer. Every allowed origin is matched by EXACT host
     (or a bounded set: private-LAN IPs, this Mac's own mDNS name, the fixed app scheme) — no substring
@@ -255,6 +311,15 @@ class H(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE,
                                     "status": printer_status(), "lan": _lan_ip(),
                                     "host": _mdns_host(), "port": PORT})
+        if self.path.startswith("/capture-request"):
+            # The phone polls this to see if Claude has asked for a specific shot.
+            return self._json(200, {"id": _capture_req["id"], "prompt": _capture_req["prompt"]})
+        if self.path.startswith("/capture"):
+            # The mobile capture page (native camera → upload).
+            body = CAPTURE_HTML.encode()
+            self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            return
         # Otherwise serve the built app (same-origin localhost — printing works with no PNA/CORS).
         self._serve_static(self.path.split("?", 1)[0])
 
@@ -279,9 +344,9 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             self._json(500, {"error": str(e)})
     def do_POST(self):
-        if not (self.path.startswith("/print") or self.path.startswith("/notify-text")):
+        if not any(self.path.startswith(p) for p in ("/print", "/notify-text", "/upload", "/capture-request")):
             return self._json(404, {"error": "not found"})
-        # Only the Tool Vision app may trigger a print/text (defends against any other local page).
+        # Only the Tool Vision app / capture page may POST (defends against any other local page).
         if not _origin_ok(self.headers.get("Origin", "")):
             return self._json(403, {"success": False, "message": "origin not allowed"})
         try:
@@ -289,6 +354,32 @@ class H(BaseHTTPRequestHandler):
             if n <= 0 or n > MAX_BODY:
                 return self._json(413, {"success": False, "message": "request too large"})
             body = json.loads(self.rfile.read(n) or b"{}")
+
+            client_ip = self.client_address[0] if self.client_address else ""
+            is_loopback = client_ip == "::1" or client_ip.startswith("127.")
+
+            if self.path.startswith("/capture-request"):
+                # Claude (loopback) queues a photo request the phone will display.
+                if not is_loopback:
+                    return self._json(403, {"ok": False, "message": "requests only from this computer"})
+                _capture_req["id"] += 1
+                _capture_req["prompt"] = str(body.get("prompt") or "").strip()[:200]
+                _capture_req["ts"] = int(time.time())
+                return self._json(200, {"ok": True, "id": _capture_req["id"]})
+
+            if self.path.startswith("/upload"):
+                # The phone uploads a captured photo (data URL). Saved for Claude to read.
+                data_url = body.get("image") or ""
+                if "," not in data_url:
+                    return self._json(400, {"ok": False, "message": "no image"})
+                raw = base64.b64decode(data_url.split(",", 1)[1])
+                label = "".join(c if c.isalnum() or c in "-_" else "-" for c in (body.get("label") or "photo"))[:40]
+                fname = f"{int(time.time())}-{label or 'photo'}.jpg"
+                with open(os.path.join(CAPTURES_DIR, fname), "wb") as f:
+                    f.write(raw)
+                # A capture fulfills the outstanding request.
+                _capture_req["prompt"] = ""
+                return self._json(200, {"ok": True, "file": fname})
 
             if self.path.startswith("/notify-text"):
                 # Texting the owner is the sensitive action — restrict it to requests from THIS
