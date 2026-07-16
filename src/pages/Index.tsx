@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { AddItemDialog } from "@/components/inventory/AddItemDialog";
@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
 import { leadsWithScanner } from "@/lib/platform";
 
-type Tab = "items" | "locations" | "overview" | "sort";
+type Tab = "home" | "items" | "locations" | "overview" | "sort";
 
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
@@ -27,7 +27,7 @@ const Index = () => {
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [scanCode, setScanCode] = useState<string | undefined>(undefined);
   const [showHelp, setShowHelp] = useState(false);
-  const [tab, setTab] = useState<Tab>("items");
+  const [tab, setTab] = useState<Tab>("home");
   const [sortCount, setSortCount] = useState(0);
   const [openMapOnLocations, setOpenMapOnLocations] = useState(false);
   const { user } = useAuth();
@@ -190,6 +190,7 @@ const Index = () => {
           <nav className="hidden md:flex gap-1 mt-4 -mb-px" aria-label="Sections">
             {(
               [
+                { id: "home", label: "Home", icon: Home },
                 { id: "items", label: "Tools", icon: Package },
                 { id: "locations", label: "Storage", icon: MapPin },
                 { id: "sort", label: "Sort", icon: Sparkles },
@@ -220,6 +221,18 @@ const Index = () => {
         {/* No per-tab entrance animation — a native tab bar swaps content instantly, not with
             a fade-up on every tap (that reads web-y). */}
         <div className="bg-card rounded-lg shadow-soft border">
+          {tab === "home" && (
+            <HomeDashboard
+              stats={stats}
+              sortCount={sortCount}
+              onNavigate={setTab}
+              onAddTool={() => setShowAddItem(true)}
+              onScan={() => setShowQRScanner(true)}
+              onMapSpace={() => { setTab("locations"); setOpenMapOnLocations(true); }}
+              onSettings={() => setShowSettings(true)}
+              onHelp={() => setShowHelp(true)}
+            />
+          )}
           {tab === "items" && (
             <ItemsList syncSignal={syncTick} />
           )}
@@ -265,41 +278,24 @@ const Index = () => {
             icon={MapPin}
             label="Storage"
           />
-          {/* Hero action: the iOS app leads with the scanner (field/remote use);
-              the web app leads with Add (setup). Both keep the other in the bar. */}
-          {leadsWithScanner ? (
-            <>
-              <button
-                onClick={() => { haptic.medium(); setShowQRScanner(true); }}
-                className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
-                aria-label="Scan a label"
-              >
-                <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
-                  <ScanLine className="h-5 w-5" aria-hidden />
-                </span>
-                <span className="font-display text-[11px] font-medium tracking-tight">
-                  Scan
-                </span>
-              </button>
-              <MobileTab active={false} onClick={() => setShowAddItem(true)} icon={Plus} label="Add" />
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => { haptic.medium(); setShowAddItem(true); }}
-                className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
-                aria-label="Add tool"
-              >
-                <span className="flex items-center justify-center h-9 w-9 rounded bg-primary text-primary-foreground shadow-soft">
-                  <Plus className="h-5 w-5" aria-hidden />
-                </span>
-                <span className="font-display text-[11px] font-medium tracking-tight">
-                  Add
-                </span>
-              </button>
-              <MobileTab active={false} onClick={() => setShowQRScanner(true)} icon={ScanLine} label="Scan" />
-            </>
-          )}
+          {/* Center hero: Home dashboard (replaces the old Scan hero) — Scan, Add, and every page
+              are one tap away from inside it. */}
+          <button
+            onClick={() => { haptic.medium(); setTab("home"); }}
+            className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
+            aria-label="Home"
+          >
+            <span className={cn(
+              "flex items-center justify-center h-9 w-9 rounded shadow-soft",
+              tab === "home" ? "bg-primary text-primary-foreground ring-2 ring-primary/30" : "bg-primary text-primary-foreground"
+            )}>
+              <Home className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="font-display text-[11px] font-medium tracking-tight">
+              Home
+            </span>
+          </button>
+          <MobileTab active={false} onClick={() => setShowAddItem(true)} icon={Plus} label="Add" />
           <MobileTab
             active={tab === "overview"}
             onClick={() => setTab("overview")}
@@ -451,6 +447,97 @@ function BoardStat(props: { label: string; value: string }) {
       <div className="font-display text-2xl md:text-3xl font-bold leading-none">{props.value}</div>
       <div className="font-mono text-[10px] md:text-xs text-tile-foreground/60 mt-1 lowercase">
         {props.label}
+      </div>
+    </div>
+  );
+}
+
+/** One tile in the Home quick-access grid: an icon, a label, and an optional count badge. */
+function QuickTile(props: {
+  icon: typeof Package;
+  label: string;
+  onClick: () => void;
+  badge?: number;
+  accent?: boolean;
+}) {
+  const Icon = props.icon;
+  return (
+    <button
+      onClick={() => { haptic.light(); props.onClick(); }}
+      className="relative flex flex-col items-start gap-2.5 rounded-xl border bg-card p-4 text-left shadow-soft transition active:scale-[0.98] hover:border-primary/40"
+    >
+      <span className={cn(
+        "flex h-11 w-11 items-center justify-center rounded-lg",
+        props.accent ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"
+      )}>
+        <Icon className="h-5 w-5" aria-hidden />
+      </span>
+      <span className="font-display text-sm font-semibold leading-tight">{props.label}</span>
+      {props.badge ? (
+        <span className="absolute right-3 top-3 min-w-[20px] rounded-full bg-primary px-1.5 text-center text-[11px] font-bold leading-5 text-primary-foreground">
+          {props.badge > 99 ? "99+" : props.badge}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/** Home / dashboard: the app's landing page — key stats, an organization nudge, and a 2-column grid
+ *  of quick-access tiles to every page and tool. */
+function HomeDashboard(props: {
+  stats: ReturnType<typeof useInventoryStats>;
+  sortCount: number;
+  onNavigate: (t: Tab) => void;
+  onAddTool: () => void;
+  onScan: () => void;
+  onMapSpace: () => void;
+  onSettings: () => void;
+  onHelp: () => void;
+}) {
+  const { itemCount, locationCount, totalValue } = props.stats;
+  return (
+    <div className="p-4 md:p-6 space-y-6">
+      {/* At-a-glance stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <BoardStat label="Tools" value={String(itemCount)} />
+        <BoardStat label="Locations" value={String(locationCount)} />
+        <BoardStat
+          label="Value"
+          value={totalValue > 0 ? `$${totalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "—"}
+        />
+      </div>
+
+      {/* Organization nudge */}
+      {props.sortCount > 0 && (
+        <button
+          onClick={() => { haptic.light(); props.onNavigate("sort"); }}
+          className="flex w-full items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3.5 text-left transition active:scale-[0.99]"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-600 dark:text-amber-400">
+            <Sparkles className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="font-medium leading-tight">{props.sortCount} thing{props.sortCount > 1 ? "s" : ""} to organize</div>
+            <div className="text-sm text-muted-foreground">Open Sort Mode to tidy up</div>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
+      )}
+
+      {/* Quick access to every page + tool */}
+      <div>
+        <h2 className="mb-3 font-display text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quick access</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <QuickTile icon={Plus} label="Add tool" accent onClick={props.onAddTool} />
+          <QuickTile icon={ScanLine} label="Scan a label" onClick={props.onScan} />
+          <QuickTile icon={Package} label="Tools" onClick={() => props.onNavigate("items")} />
+          <QuickTile icon={MapPin} label="Storage" onClick={() => props.onNavigate("locations")} />
+          <QuickTile icon={Sparkles} label="Sort Mode" badge={props.sortCount || undefined} onClick={() => props.onNavigate("sort")} />
+          <QuickTile icon={LayoutGrid} label="Overview" onClick={() => props.onNavigate("overview")} />
+          <QuickTile icon={Wrench} label="Map a space" onClick={props.onMapSpace} />
+          <QuickTile icon={Settings} label="Settings" onClick={props.onSettings} />
+          <QuickTile icon={HelpCircle} label="How it works" onClick={props.onHelp} />
+        </div>
       </div>
     </div>
   );
