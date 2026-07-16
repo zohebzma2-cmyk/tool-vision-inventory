@@ -115,24 +115,29 @@ def create_location(name: str, type: str = "bin", parent_id: str = "", capacity:
 
 
 @mcp.tool()
-def create_bin_wall(name: str, rows: int, cols: int, place: str = "Garage") -> str:
-    """Create a bin-wall unit: a parent rack with rows×cols child bin-slots, under `place` (created if
-    missing). Slots are named A1..(row letter)(col number). Returns the parent + how many bins were made."""
+def create_bin_wall(name: str, rows: int, cols: int, place: str = "Garage", unit_type: str = "shelf") -> str:
+    """Create a shelf/bin-wall in the correct Space → Shelf → Bin hierarchy: the SPACE (e.g. Garage,
+    created if missing) holds a SHELF unit (`unit_type`, default "shelf"), which holds rows×cols child
+    BINS. Bins are named A1..(row letter)(col number). Returns the shelf + how many bins were made."""
     oid = owner_id()
+    # The space (Garage) is where the shelf lives — find or create it as a top-level "space".
     existing = _sb("GET", "locations", params={
         "owner_id": f"eq.{oid}", "name": f"eq.{place}", "select": "id", "limit": 1})
     place_id = existing[0]["id"] if existing else _sb("POST", "locations", body={
-        "name": place, "type": "space", "qr_code": mint_code(), "is_slot": False, "owner_id": oid})[0]["id"]
-    parent = _sb("POST", "locations", body={
-        "name": name, "type": "rack", "qr_code": mint_code(), "is_slot": False,
+        "name": place, "type": "space", "qr_code": mint_code(), "is_slot": False,
+        "layout": {"placeKind": place.lower()}, "owner_id": oid})[0]["id"]
+    # The shelf unit lives IN the space.
+    shelf = _sb("POST", "locations", body={
+        "name": name, "type": unit_type, "qr_code": mint_code(), "is_slot": False,
         "parent_location_id": place_id, "grid_rows": rows, "grid_cols": cols, "owner_id": oid})[0]
-    slots = [{
+    # The bins live ON the shelf.
+    bins = [{
         "name": f"{chr(65 + r)}{c + 1}", "type": "bin", "qr_code": mint_code(), "is_slot": True,
-        "parent_location_id": parent["id"], "slot_row": r, "slot_col": c, "slot_index": r * cols + c,
+        "parent_location_id": shelf["id"], "slot_row": r, "slot_col": c, "slot_index": r * cols + c,
         "owner_id": oid,
     } for r in range(rows) for c in range(cols)]
-    _sb("POST", "locations", body=slots)
-    return json.dumps({"bin_wall": parent, "bins_created": len(slots), "place": place}, indent=2)
+    _sb("POST", "locations", body=bins)
+    return json.dumps({"space": place, "shelf": shelf, "bins_created": len(bins)}, indent=2)
 
 
 @mcp.tool()
