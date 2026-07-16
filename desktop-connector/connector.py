@@ -328,6 +328,83 @@ def print_raw(path):
     _cancel(job2)  # don't leave the retry stuck to print when the printer returns
     return False, "Printer didn't respond — check it's powered on with a label roll loaded."
 
+# --- Server-side print queue: labels sent while the QL-800 is unplugged/asleep persist to disk and
+# auto-print the moment it reconnects. Survives connector restarts. Complements the app's client-side
+# queue (which covers the *connector* being unreachable); when the connector IS reached, it owns
+# durability and reports success, so the app doesn't also queue the same label. ---
+PQ_FILE = os.path.expanduser("~/.tool-vision-connector/print-queue.json")
+_pq_lock = threading.Lock()
+_pq_seq = [0]
+
+def _pq_load():
+    try:
+        with open(PQ_FILE) as f: return json.load(f)
+    except Exception: return []
+
+def _pq_save(jobs):
+    try:
+        tmp = PQ_FILE + ".tmp"
+        with open(tmp, "w") as f: json.dump(jobs, f)
+        os.replace(tmp, PQ_FILE)
+    except Exception: pass
+
+def _printer_present():
+    try:
+        out = subprocess.run(["ioreg", "-p", "IOUSB", "-l"], capture_output=True, text=True, timeout=5).stdout
+        return "QL-800@" in out
+    except Exception:
+        return False
+
+def _pq_add(image_data_url, media, label=""):
+    with _pq_lock:
+        jobs = _pq_load()
+        _pq_seq[0] += 1
+        jobs.append({"id": f"{int(time.time())}-{_pq_seq[0]}", "imageDataUrl": image_data_url,
+                     "media": media, "label": label, "ts": int(time.time())})
+        jobs = jobs[-200:]  # bound disk use
+        _pq_save(jobs)
+        return len(jobs)
+
+def _pq_count():
+    with _pq_lock:
+        return len(_pq_load())
+
+def _print_one(image_data_url, media):
+    raster = render_image(image_data_url, media)
+    with tempfile.NamedTemporaryFile(suffix=".prn", delete=False) as f:
+        f.write(raster); path = f.name
+    try:
+        with _print_lock:
+            return print_raw(path)
+    finally:
+        try: os.unlink(path)
+        except OSError: pass
+
+def _drain_loop():
+    """Background daemon: whenever the printer is present, drain the disk queue oldest-first."""
+    while True:
+        time.sleep(12)
+        try:
+            if not _printer_present() or _pq_count() == 0:
+                continue
+            while _printer_present():
+                with _pq_lock:
+                    jobs = _pq_load()
+                    if not jobs: break
+                    job = jobs[0]
+                if not job.get("imageDataUrl"):
+                    with _pq_lock:
+                        jobs = [j for j in _pq_load() if j.get("id") != job.get("id")]; _pq_save(jobs)
+                    continue
+                ok, _ = _print_one(job["imageDataUrl"], job.get("media", "62"))
+                if not ok:
+                    break  # printer went away mid-drain — try again next tick
+                with _pq_lock:
+                    jobs = [j for j in _pq_load() if j.get("id") != job.get("id")]; _pq_save(jobs)
+                time.sleep(0.4)
+        except Exception:
+            pass
+
 class H(BaseHTTPRequestHandler):
     def _cors(self):
         origin = self.headers.get("Origin", "")
@@ -348,7 +425,10 @@ class H(BaseHTTPRequestHandler):
         if self.path.startswith("/health"):
             return self._json(200, {"ok": True, "connector": "tool-vision", "queue": QUEUE,
                                     "status": printer_status(), "lan": _lan_ip(),
-                                    "host": _mdns_host(), "port": PORT})
+                                    "host": _mdns_host(), "port": PORT,
+                                    "queued": _pq_count(), "printerPresent": _printer_present()})
+        if self.path.startswith("/queue"):
+            return self._json(200, {"count": _pq_count(), "printerPresent": _printer_present()})
         if self.path.startswith("/capture-request"):
             # The phone polls this to see if Claude has asked for a specific shot.
             return self._json(200, {"id": _capture_req["id"], "prompt": _capture_req["prompt"]})
@@ -450,8 +530,15 @@ class H(BaseHTTPRequestHandler):
 
             spec = body
             media = str(spec.get("media") or "62")  # DK tape id — must match the loaded tape
+            image = spec.get("imageDataUrl")
+            # Printer unplugged/asleep? Persist the (rendered) label and auto-print it on reconnect,
+            # rather than failing. Needs the image (the text-fallback spec can't be re-rendered later).
+            if image and not _printer_present():
+                n = _pq_add(image, media, str(spec.get("label") or ""))
+                return self._json(200, {"success": True, "queued": True, "pending": n,
+                                        "message": f"Printer offline — queued (#{n}); prints when reconnected."})
             # Prefer the app's already-rendered label image (keeps its QR/layout); else text fallback.
-            raster = render_image(spec["imageDataUrl"], media) if spec.get("imageDataUrl") else render(spec)
+            raster = render_image(image, media) if image else render(spec)
             with tempfile.NamedTemporaryFile(suffix=".prn", delete=False) as f:
                 f.write(raster); path = f.name
             try:
@@ -462,6 +549,11 @@ class H(BaseHTTPRequestHandler):
             finally:
                 try: os.unlink(path)
                 except OSError: pass
+            # Printer dropped mid-print but we have the image → queue it instead of losing the label.
+            if not ok and image:
+                n = _pq_add(image, media, str(spec.get("label") or ""))
+                return self._json(200, {"success": True, "queued": True, "pending": n,
+                                        "message": f"{msg} Queued (#{n}); will retry when the printer's ready."})
             self._json(200 if ok else 500, {"success": ok, "message": msg})
         except Exception as e:
             self._json(500, {"success": False, "message": str(e)})
@@ -471,4 +563,5 @@ if __name__ == "__main__":
     # Bind all interfaces so a phone on the same Wi-Fi can print via the laptop (origin-gated to the
     # app served from a private-LAN address). Localhost still works exactly as before.
     print(f"Tool Vision print connector on http://0.0.0.0:{PORT}  → {QUEUE}")
+    threading.Thread(target=_drain_loop, daemon=True).start()  # auto-print queued labels on reconnect
     ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()

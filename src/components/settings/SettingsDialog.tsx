@@ -40,6 +40,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   const [connHost, setConnHost] = useState(getConnectorHost());
   const [detectedLan, setDetectedLan] = useState("");
   const [connOk, setConnOk] = useState<boolean | null>(null);
+  const [connQueued, setConnQueued] = useState(0);        // labels waiting on the connector itself
+  const [printerPresent, setPrinterPresent] = useState<boolean | null>(null);
 
   const probeConnector = async () => {
     try {
@@ -47,6 +49,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
       const j = await res.json().catch(() => ({}));
       const ok = !!res.ok && !!j.ok;   // a 200 from OUR connector, not just any server on that address
       setConnOk(ok);
+      setConnQueued(Number(j.queued) || 0);
+      setPrinterPresent(typeof j.printerPresent === "boolean" ? j.printerPresent : null);
       // Prefer the stable mDNS .local name (survives DHCP IP changes); fall back to the raw LAN IP.
       if (j.host) setDetectedLan(`${j.host}:${j.port || 17777}`);
       else if (j.lan) setDetectedLan(`${j.lan}:${j.port || 17777}`);
@@ -172,6 +176,12 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                 <Button size="sm" variant="outline" onClick={() => flushQueue()}>
                   <RotateCw className="h-4 w-4 mr-1.5" /> Retry now
                 </Button>
+              </div>
+            )}
+            {connQueued > 0 && (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                {connQueued} label{connQueued === 1 ? "" : "s"} queued on the computer
+                {printerPresent === false ? " — will print automatically when the Brother printer is reconnected." : " — printing…"}
               </div>
             )}
           </section>
