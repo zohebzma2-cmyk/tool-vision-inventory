@@ -1,5 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search, Loader2 } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search, Loader2, Printer } from "lucide-react";
+import { onQueueChange } from "@/lib/printQueue";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { Onboarding } from "@/components/onboarding/Onboarding";
@@ -30,6 +31,8 @@ const Index = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showFind, setShowFind] = useState(false);
+  const [pendingPrints, setPendingPrints] = useState(0);
+  useEffect(() => onQueueChange(setPendingPrints), []);
   const [scanCode, setScanCode] = useState<string | undefined>(undefined);
   const [showHelp, setShowHelp] = useState(false);
   const [tab, setTab] = useState<Tab>("home");
@@ -151,6 +154,19 @@ const Index = () => {
                 Add tool
               </Button>
               <SortNavButton count={sortCount} onClick={() => setTab("sort")} />
+              {pendingPrints > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSettings(true)}
+                  title={`${pendingPrints} label${pendingPrints === 1 ? "" : "s"} waiting to print`}
+                  className="relative text-amber-400 hover:bg-tile-foreground/10"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">{pendingPrints}</span>
+                  <span className="sr-only">{pendingPrints} labels waiting to print</span>
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -186,6 +202,19 @@ const Index = () => {
                 <span className="sr-only">Find a tool</span>
               </Button>
               <SortNavButton count={sortCount} onClick={() => setTab("sort")} />
+              {pendingPrints > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowSettings(true)}
+                  title={`${pendingPrints} label${pendingPrints === 1 ? "" : "s"} waiting to print`}
+                  className="relative text-amber-400 hover:bg-tile-foreground/10"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">{pendingPrints}</span>
+                  <span className="sr-only">{pendingPrints} labels waiting to print</span>
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
