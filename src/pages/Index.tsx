@@ -1,16 +1,19 @@
-import { useEffect, useState } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search } from "lucide-react";
+import { useEffect, useState, lazy, Suspense } from "react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
-import { AddItemDialog } from "@/components/inventory/AddItemDialog";
-import { ItemsList } from "@/components/inventory/ItemsList";
-import { LocationsList } from "@/components/inventory/LocationsList";
-import { QRScanner } from "@/components/inventory/QRScanner";
 import { Onboarding } from "@/components/onboarding/Onboarding";
 import { HowItWorks } from "@/components/onboarding/HowItWorks";
-import { SettingsDialog } from "@/components/settings/SettingsDialog";
-import { FindMode } from "@/components/inventory/FindMode";
-import { SortMode } from "@/components/inventory/SortMode";
+
+// Lazy-load the heavy, behind-interaction surfaces (camera, vision, barcode, voice) so they're not
+// in the first-paint bundle — each becomes its own chunk fetched only when first opened.
+const AddItemDialog = lazy(() => import("@/components/inventory/AddItemDialog").then((m) => ({ default: m.AddItemDialog })));
+const ItemsList = lazy(() => import("@/components/inventory/ItemsList").then((m) => ({ default: m.ItemsList })));
+const LocationsList = lazy(() => import("@/components/inventory/LocationsList").then((m) => ({ default: m.LocationsList })));
+const QRScanner = lazy(() => import("@/components/inventory/QRScanner").then((m) => ({ default: m.QRScanner })));
+const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
+const FindMode = lazy(() => import("@/components/inventory/FindMode").then((m) => ({ default: m.FindMode })));
+const SortMode = lazy(() => import("@/components/inventory/SortMode").then((m) => ({ default: m.SortMode })));
 import { computeOrgReport } from "@/lib/organize";
 import { maybeRunWeeklyDigest } from "@/lib/digest";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
@@ -241,6 +244,7 @@ const Index = () => {
         {/* No per-tab entrance animation — a native tab bar swaps content instantly, not with
             a fade-up on every tap (that reads web-y). */}
         <div className="bg-card rounded-lg shadow-soft border">
+          <Suspense fallback={<div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
           {tab === "home" && (
             <HomeDashboard
               stats={stats}
@@ -274,6 +278,7 @@ const Index = () => {
               onAddTool={() => setShowAddItem(true)}
             />
           )}
+          </Suspense>
         </div>
         </div>
       </main>
@@ -325,23 +330,27 @@ const Index = () => {
         </div>
       </nav>
 
-      <AddItemDialog
-        open={showAddItem}
-        onOpenChange={(open) => {
-          setShowAddItem(open);
-          if (!open) stats.refresh();
-        }}
-      />
-
-      <QRScanner
-        open={showQRScanner}
-        onOpenChange={(v) => { setShowQRScanner(v); if (!v) setScanCode(undefined); }}
-        initialCode={scanCode}
-      />
-
-      <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />
-
-      <FindMode open={showFind} onOpenChange={setShowFind} />
+      {/* Lazy overlays — fetched on first open; nothing to show while loading, so fallback is null. */}
+      <Suspense fallback={null}>
+        {showAddItem && (
+          <AddItemDialog
+            open={showAddItem}
+            onOpenChange={(open) => {
+              setShowAddItem(open);
+              if (!open) stats.refresh();
+            }}
+          />
+        )}
+        {showQRScanner && (
+          <QRScanner
+            open={showQRScanner}
+            onOpenChange={(v) => { setShowQRScanner(v); if (!v) setScanCode(undefined); }}
+            initialCode={scanCode}
+          />
+        )}
+        {showSettings && <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />}
+        {showFind && <FindMode open={showFind} onOpenChange={setShowFind} />}
+      </Suspense>
 
       <HowItWorks open={showHelp} onOpenChange={setShowHelp} />
 
