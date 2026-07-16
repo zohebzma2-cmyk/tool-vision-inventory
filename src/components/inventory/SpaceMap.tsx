@@ -39,6 +39,16 @@ interface Slot {
   slot_index: number | null;
   box?: { x: number; y: number; w: number; h: number } | null;
   items: string[];
+  category?: string | null;
+}
+
+/** Deterministic pastel tint per category so the wall reads by contents at a glance. */
+function categoryTint(category?: string | null): { bg: string; border: string } | null {
+  const c = (category || "").trim();
+  if (!c) return null;
+  let h = 0;
+  for (let i = 0; i < c.length; i++) h = (h * 31 + c.charCodeAt(i)) % 360;
+  return { bg: `hsl(${h} 70% 50% / 0.16)`, border: `hsl(${h} 70% 45% / 0.5)` };
 }
 
 interface Props {
@@ -85,7 +95,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
       try {
         const { data: slotRows, error } = await supabase
           .from("locations")
-          .select("id, name, qr_code, slot_row, slot_col, slot_index, layout")
+          .select("id, name, qr_code, slot_row, slot_col, slot_index, layout, category")
           .eq("parent_location_id", location.id)
           .eq("is_slot", true)
           .order("slot_index");
@@ -276,22 +286,31 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
                   Array.from({ length: cols }).map((__, ci) => {
                     const r = ri + 1, c = ci + 1;
                     const slot = slotAt(r, c);
-                    const filled = (slot?.items.length ?? 0) > 0;
+                    const count = slot?.items.length ?? 0;
+                    const filled = count > 0;
+                    const tint = slot ? categoryTint(slot.category) : null;
                     return (
                       <button
                         key={`${r}-${c}`}
                         onClick={() => slot && setSelected(slot)}
-                        title={slot ? `${slot.name}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}
+                        title={slot ? `${slot.name}${slot.category ? ` · ${slot.category}` : ""}${filled ? `: ${slot.items.join(", ")}` : " (empty)"}` : "no slot"}
+                        style={tint ? { backgroundColor: tint.bg, borderColor: tint.border } : undefined}
                         className={[
-                          "aspect-square rounded border text-[9px] leading-tight p-1 overflow-hidden transition-colors",
+                          "aspect-square rounded border text-[9px] leading-tight p-1 overflow-hidden transition-colors relative",
                           !slot ? "bg-muted/30 border-dashed cursor-default" :
+                            tint ? "hover:brightness-110" :
                             filled ? "bg-primary/15 border-primary/40 hover:bg-primary/25" :
                               "bg-background hover:bg-muted",
                           selected?.id === slot?.id ? "ring-2 ring-primary" : "",
                         ].join(" ")}
                       >
-                        <div className="font-mono text-muted-foreground">R{r}C{c}</div>
-                        {filled && <Package className="h-3 w-3 mx-auto mt-1 text-primary" />}
+                        <div className="font-semibold text-foreground/80 truncate">{slot ? slot.name.replace(/^Bin\s*/i, "#") : ""}</div>
+                        {slot?.category && <div className="text-[8px] text-foreground/60 truncate leading-none">{slot.category}</div>}
+                        {filled && (
+                          <span className="absolute bottom-0.5 right-0.5 inline-flex items-center gap-0.5 text-foreground/70">
+                            <Package className="h-2.5 w-2.5" />{count}
+                          </span>
+                        )}
                       </button>
                     );
                   }),
