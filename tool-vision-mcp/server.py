@@ -149,6 +149,24 @@ def delete_location(location_id: str) -> str:
     return json.dumps({"deleted": location_id})
 
 
+@mcp.tool()
+def set_bin_category(bin_name_or_code: str, category: str, parent_id: str = "") -> str:
+    """Set what a bin holds (its contents category, e.g. "PPE", "Marking Tools"). This is printed on the
+    bin label so the wall reads by contents. Match the bin by exact name (e.g. "Bin 3") or by its code;
+    pass parent_id to disambiguate when the same bin name exists under multiple shelves."""
+    params = {"select": "id,name,qr_code", "limit": "1", "is_slot": "eq.true"}
+    if parent_id:
+        params["parent_location_id"] = f"eq.{parent_id}"
+    rows = _sb("GET", "locations", params={**params, "name": f"eq.{bin_name_or_code}"})
+    if not rows:
+        rows = _sb("GET", "locations", params={**params, "qr_code": f"eq.{bin_name_or_code}"})
+    if not rows:
+        return json.dumps({"error": f"no bin matching {bin_name_or_code!r}"})
+    b = rows[0]
+    _sb("PATCH", "locations", params={"id": f"eq.{b['id']}"}, body={"category": category})
+    return json.dumps({"bin": b["name"], "code": b["qr_code"], "category": category})
+
+
 # ---------------- item tools ----------------
 @mcp.tool()
 def list_items() -> str:

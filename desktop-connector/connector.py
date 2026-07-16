@@ -121,22 +121,28 @@ def _font(sz):
         except: pass
     return ImageFont.load_default()
 
-def _to_raster(img):
+# Printable width (dots @ 300dpi) for each DK tape id. The label is always as wide as the tape, so
+# this is what sets the physical label width. Continuous tapes (62/29/12) cut to any length; die-cut
+# (…x…) are a fixed size. `media` on /print picks the tape — it MUST match the tape actually loaded.
+_MEDIA_WIDTH = {"62": 696, "29": 306, "12": 106, "50": 554, "54": 590, "38": 413,
+                "17x54": 165, "23x23": 202, "29x90": 306, "62x100": 696, "52x29": 578}
+
+def _to_raster(img, media="62"):
     if img.mode != "RGB":
         bg = _I.new("RGB", img.size, "white")
         bg.paste(img, mask=img.split()[-1] if img.mode in ("RGBA", "LA") else None)
         img = bg
-    # Scale to the 696px (62mm) print width, preserving aspect.
-    if img.width != 696:
-        img = img.resize((696, max(1, round(img.height * 696 / img.width))), _I.ANTIALIAS)
+    w = _MEDIA_WIDTH.get(media, 696)
+    if img.width != w:  # scale to the loaded tape's print width, preserving aspect
+        img = img.resize((w, max(1, round(img.height * w / img.width))), _I.ANTIALIAS)
     qlr = BrotherQLRaster("QL-800"); qlr.exception_on_warning = False
-    return convert(qlr=qlr, images=[img], label="62", rotate="auto", threshold=70,
+    return convert(qlr=qlr, images=[img], label=media, rotate="auto", threshold=70,
                    dither=False, compress=False, red=False, hq=True, cut=True)
 
-def render_image(data_url):
+def render_image(data_url, media="62"):
     """Raster an already-rendered label PNG (data: URL or bare base64) from the app — keeps its QR."""
     b64 = data_url.split(",", 1)[1] if "," in data_url else data_url
-    return _to_raster(_I.open(io.BytesIO(base64.b64decode(b64))))
+    return _to_raster(_I.open(io.BytesIO(base64.b64decode(b64))), media)
 
 def render(spec):
     """Fallback text renderer: {badge?, title, lines[]} -> 62mm raster bytes (no QR)."""
@@ -396,8 +402,9 @@ class H(BaseHTTPRequestHandler):
                 return self._json(200 if ok else 500, {"success": ok, "message": detail})
 
             spec = body
+            media = str(spec.get("media") or "62")  # DK tape id — must match the loaded tape
             # Prefer the app's already-rendered label image (keeps its QR/layout); else text fallback.
-            raster = render_image(spec["imageDataUrl"]) if spec.get("imageDataUrl") else render(spec)
+            raster = render_image(spec["imageDataUrl"], media) if spec.get("imageDataUrl") else render(spec)
             with tempfile.NamedTemporaryFile(suffix=".prn", delete=False) as f:
                 f.write(raster); path = f.name
             try:

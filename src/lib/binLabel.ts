@@ -23,9 +23,11 @@ function fitFont(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxP
   return px;
 }
 
-/** Render a bin label to a canvas sized for `media`. Content is vertically centered on die-cut tapes. */
+/** Render a bin label to a canvas sized for `media`. Content is vertically centered on die-cut tapes.
+ *  `category` (what the bin holds — e.g. "PPE", "Marking Tools") prints under the big bin number so a
+ *  glance at the wall tells you what's in each bin, not just its number. */
 export function renderBinLabel(
-  opts: { number: string | number; code: string; location: string; media?: string },
+  opts: { number: string | number; code: string; location: string; category?: string; media?: string },
 ): HTMLCanvasElement {
   const preset = TAPE_PRESETS[opts.media || "29x90"] || TAPE_PRESETS["29x90"];
   const W = preset.w, H = preset.h;
@@ -56,6 +58,27 @@ export function renderBinLabel(
     ctx.font = `800 ${numPx}px Barlow, Arial, sans-serif`;
     ctx.fillText(String(opts.number), cx, y); return y + numPx * 1.02 + 24;
   }});
+
+  // category — what the bin holds (wraps to at most 2 lines, sits under the number)
+  const category = (opts.category || "").trim();
+  if (category) {
+    const words = category.split(" ");
+    const catLines: string[] = [];
+    let cur = "";
+    ctx.font = `700 ${Math.round(W * 0.11)}px Barlow, Arial, sans-serif`;
+    for (const w of words) {
+      const t = (cur ? cur + " " + w : w);
+      if (ctx.measureText(t).width <= W - pad * 2) cur = t;
+      else { if (cur) catLines.push(cur); cur = w; }
+    }
+    if (cur) catLines.push(cur);
+    const catPx = fitFont(ctx, catLines.reduce((a, b) => a.length > b.length ? a : b, ""), W - pad * 2, Math.round(W * 0.11), 700);
+    parts.push({ draw: (y) => {
+      ctx.font = `700 ${catPx}px Barlow, Arial, sans-serif`;
+      for (const l of catLines.slice(0, 2)) { ctx.fillText(l, cx, y); y += catPx * 1.14; }
+      return y + 14;
+    }});
+  }
 
   // Code128 barcode
   const bcCanvas = document.createElement("canvas");

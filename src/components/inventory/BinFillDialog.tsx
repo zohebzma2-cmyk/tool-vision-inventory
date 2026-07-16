@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Camera, Loader2, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/adaptive-dialog";
@@ -53,6 +53,17 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const [aiBusy, setAiBusy] = useState(false);
   const [drafts, setDrafts] = useState<DraftItem[]>([]);
   const [saving, setSaving] = useState(false);
+  // What the bin holds (e.g. "PPE", "Marking Tools") — stored on the bin and printed on its label,
+  // so the wall reads by contents, not just numbers. Loaded from the bin when the dialog opens.
+  const [contents, setContents] = useState("");
+
+  useEffect(() => {
+    if (!open || !bin) { setContents(""); return; }
+    let alive = true;
+    supabase.from("locations").select("category").eq("id", bin.id).maybeSingle()
+      .then(({ data }) => { if (alive) setContents((data as { category?: string } | null)?.category || ""); });
+    return () => { alive = false; };
+  }, [open, bin]);
 
   const reset = () => { setImageDataUrl(null); setDrafts([]); };
   const close = (v: boolean) => { if (!v) reset(); onOpenChange(v); };
@@ -133,6 +144,11 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
       const { error: linkErr } = await supabase.from("item_locations").insert(links);
       if (linkErr) throw linkErr;
 
+      // Persist the bin's contents category so the label and the wall stay in sync with what's inside.
+      if (contents.trim()) {
+        await supabase.from("locations").update({ category: contents.trim() }).eq("id", bin.id);
+      }
+
       toast({ title: "Bin cataloged", description: `${links.length} items stored in ${bin.name}.`, variant: "success" });
       onSaved?.();
       close(false);
@@ -151,6 +167,17 @@ export function BinFillDialog({ open, onOpenChange, bin, onSaved }: Props) {
             <Camera className="h-5 w-5" /> Fill {bin?.name ?? "bin"}
           </DialogTitle>
         </DialogHeader>
+
+        <div className="space-y-1">
+          <label className="text-xs text-muted-foreground font-display">What this bin holds</label>
+          <Input
+            value={contents}
+            placeholder="e.g. PPE, Marking Tools, DA Backing Plates"
+            onChange={(e) => setContents(e.target.value)}
+            className="h-9"
+          />
+          <p className="text-xs text-muted-foreground">Prints on the bin label so the wall reads by contents, not just numbers.</p>
+        </div>
 
         {aiBusy ? (
           <VisionProgress imageDataUrl={imageDataUrl} stages={[...VISION_STAGES.identifyBin]} />
