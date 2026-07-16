@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Grid3x3, Printer, Loader2, Package, Camera, MapPin, Boxes } from "lucide-react";
+import { Grid3x3, Printer, Loader2, Package, Camera, MapPin, Boxes, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,7 @@ import { printTemplateLabel, outputLabel, isLabelOutputSupported } from "@/lib/b
 import { isPrintingSupported } from "./PrinterService";
 import { BinFillDialog } from "./BinFillDialog";
 import { SortBinDialog } from "./SortBinDialog";
+import { RapidMode } from "./RapidMode";
 import { cellQuad, quadToSvgPoints, type QuadCorners } from "@/lib/quad";
 
 interface SpaceLocation {
@@ -54,6 +55,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
   const [printingAll, setPrintingAll] = useState(false);
   const [fillOpen, setFillOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const [rapidOpen, setRapidOpen] = useState(false);
   const [placeName, setPlaceName] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -306,7 +308,10 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => setFillOpen(true)}>
+                  <Button size="sm" onClick={() => setRapidOpen(true)}>
+                    <Zap className="h-4 w-4 mr-2" /> Rapid Mode
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setFillOpen(true)}>
                     <Camera className="h-4 w-4 mr-2" /> Fill bin with camera
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => setSortOpen(true)}>
@@ -351,6 +356,13 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
           open={sortOpen}
           onOpenChange={setSortOpen}
           bin={selected ? { id: selected.id, name: selected.name, layout: (selected as { layout?: Record<string, unknown> | null }).layout ?? null } : null}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+
+        <RapidMode
+          open={rapidOpen}
+          onOpenChange={setRapidOpen}
+          bin={selected ? { id: selected.id, name: selected.name } : null}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       </DialogContent>
