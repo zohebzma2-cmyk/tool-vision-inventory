@@ -1,4 +1,4 @@
-project_id = "uyewoueovyjbljrsmmnu"
+project_id = "your-project-ref"
 
 [functions.google-vision]
 verify_jwt = false

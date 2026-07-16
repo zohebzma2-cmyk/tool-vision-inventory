@@ -191,11 +191,27 @@ def render(spec):
     d.rectangle([6, 6, W - 7, H - 7], outline="black", width=3)
     return _to_raster(img)
 
-# The owner's phone for weekly organization nudges. Only THIS Mac runs the connector and it only ever
-# texts this one fixed number, so the /notify-text route can't be abused to message anyone else.
-OWNER_PHONE = os.environ.get("TOOLVISION_OWNER_PHONE", "+16035051091")
+# Load config from a .env next to this connector (gitignored) so nothing personal lives in source.
+def _load_env():
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    try:
+        with open(p) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+    except OSError:
+        pass
+_load_env()
+
+# The owner's phone for weekly organization nudges — supplied only via the gitignored .env (never a
+# source default). Only THIS Mac runs the connector and it only ever texts this one fixed number.
+OWNER_PHONE = os.environ.get("TOOLVISION_OWNER_PHONE", "")
 
 def send_imessage(text):
+    if not OWNER_PHONE:
+        return False, "owner phone not configured (set TOOLVISION_OWNER_PHONE in the connector .env)"
     """Send an iMessage to the owner via Messages.app. The body is passed as an argv arg (not string-
     interpolated into the AppleScript) so no quoting/escaping can break or inject."""
     script = (

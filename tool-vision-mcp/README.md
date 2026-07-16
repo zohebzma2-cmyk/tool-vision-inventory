@@ -18,17 +18,17 @@ lands in the owner's own account (owner-scoped, exactly like the app).
 ## Setup (one time)
 1. Fill `tool-vision-mcp/.env` (gitignored) — copy from `.env.example`:
    ```
-   SUPABASE_URL=https://tgcrsgheezmteravjbwe.supabase.co
+   SUPABASE_URL=https://YOUR-PROJECT.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=<the service_role secret from Supabase → Settings → API>
-   TOOLVISION_OWNER_EMAIL=zohebzma@gmail.com
+   TOOLVISION_OWNER_EMAIL=you@example.com
    CONNECTOR_URL=http://127.0.0.1:17777
    ```
 2. Install the SDK (once): `~/.tool-vision-connector/venv/bin/pip install mcp`
 3. `.mcp.json` at the repo root registers the server for Claude Code:
    ```json
    { "mcpServers": { "tool-vision": {
-       "command": "/Users/zohebalvi2/.tool-vision-connector/venv/bin/python",
-       "args": ["/Users/zohebalvi2/tool-vision-inventory/tool-vision-mcp/server.py"] } } }
+       "command": "/path/to/.tool-vision-connector/venv/bin/python",
+       "args": ["/path/to/tool-vision-inventory/tool-vision-mcp/server.py"] } } }
    ```
 4. Restart Claude Code — it will pick up the `tool-vision` connector and its 11 tools appear as
    `mcp__tool-vision__*`.

@@ -26,7 +26,7 @@ if os.path.isfile(_ENV_PATH):
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
-OWNER_EMAIL = os.environ.get("TOOLVISION_OWNER_EMAIL", "zohebzma@gmail.com")
+OWNER_EMAIL = os.environ.get("TOOLVISION_OWNER_EMAIL", "")  # supplied via gitignored .env, never source
 CONNECTOR = os.environ.get("CONNECTOR_URL", "http://127.0.0.1:17777").rstrip("/")
 CAPTURES_DIR = os.path.expanduser("~/.tool-vision-connector/captures")
 
