@@ -4,7 +4,7 @@
 
 import { supabase } from "@/integrations/supabase/client";
 
-export interface BinItemMatch { itemId: string; linkId: string; name: string; itemQty: number; linkQty: number }
+export interface BinItemMatch { itemId: string; linkId: string; name: string; code: string | null; itemQty: number; linkQty: number }
 
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^\w]+/g, " ").trim();
@@ -17,13 +17,14 @@ export async function findItemInBin(binId: string, name: string): Promise<BinIte
   // Active links in this bin, with their item's name + quantity.
   const { data } = await supabase
     .from("item_locations")
-    .select("id, quantity, item_id, items!inner(id, name, quantity)")
+    .select("id, quantity, item_id, items!inner(id, name, quantity, qr_code)")
     .eq("location_id", binId)
     .is("date_removed", null);
-  for (const row of (data ?? []) as Array<{ id: string; quantity: number | null; items: { id: string; name: string; quantity: number | null } | { id: string; name: string; quantity: number | null }[] }>) {
+  type ItemRow = { id: string; name: string; quantity: number | null; qr_code: string | null };
+  for (const row of (data ?? []) as Array<{ id: string; quantity: number | null; items: ItemRow | ItemRow[] }>) {
     const it = Array.isArray(row.items) ? row.items[0] : row.items;
     if (it && norm(it.name) === target) {
-      return { itemId: it.id, linkId: row.id, name: it.name, itemQty: it.quantity || 1, linkQty: row.quantity || 1 };
+      return { itemId: it.id, linkId: row.id, name: it.name, code: it.qr_code, itemQty: it.quantity || 1, linkQty: row.quantity || 1 };
     }
   }
   return null;

@@ -152,14 +152,25 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       return cmd;
     };
 
+    // Print one label per physical unit — if it's ×2, both copies come out.
+    const printCopies = async (dataUrl: string, media: string, name: string, copies: number) => {
+      for (let i = 0; i < Math.max(1, copies); i++) await printResilient(dataUrl, media, copies > 1 ? `${name} (${i + 1}/${copies})` : name);
+    };
+
     const saveAndPrint = async (
       item: { name: string; category?: string; brand?: string; model?: string; text?: string }, frame: string, qty: number,
     ): Promise<{ merged: boolean; total?: number; noLabel?: boolean }> => {
-      // Already in this bin? Bump its quantity instead of creating a duplicate row + a second label.
+      // Already in this bin? Bump its quantity instead of creating a duplicate row — but still print a
+      // label for each newly-added physical unit so every one on the shelf is labeled.
       const dup = await findItemInBin(bin!.id, item.name);
       if (dup) {
         const total = await mergeQuantity(dup, qty);
         lastCreated = null; // a merge isn't a fresh row to undo
+        if (dup.code) {
+          const media = getLabelMedia();
+          const label = renderItemLabel({ name: dup.name, code: dup.code, sub: [], media }).toDataURL("image/png");
+          await printCopies(label, media, dup.name, qty);
+        }
         return { merged: true, total };
       }
       // If the package already carries a real barcode (UPC/EAN in the OCR), store the item with its
@@ -190,7 +201,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       const sub = [item.category, [item.brand, item.model].filter(Boolean).join(" "), qty > 1 ? `×${qty}` : ""]
         .filter(Boolean) as string[];
       const label = renderItemLabel({ name: item.name, code, sub, media }).toDataURL("image/png");
-      await printResilient(label, media, item.name);
+      await printCopies(label, media, item.name, qty); // ×N → one label per unit
       return { merged: false };
     };
 
