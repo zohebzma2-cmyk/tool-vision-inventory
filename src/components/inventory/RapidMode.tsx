@@ -29,7 +29,7 @@ interface Props {
   onSaved?: () => void;
 }
 
-type Phase = "starting" | "scanning" | "captured" | "identifying" | "confirming" | "saving" | "finishing" | "error";
+type Phase = "starting" | "setup" | "scanning" | "captured" | "identifying" | "confirming" | "saving" | "finishing" | "error";
 
 /** Draw the current video frame to a JPEG data URL, scaled so the longer side ≈ maxW. */
 function grabFrame(video: HTMLVideoElement, maxW = 960, quality = 0.72): string {
@@ -277,7 +277,12 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       video.srcObject = stream;
       await video.play().catch(() => { /* autoplay guard */ });
 
-      await say(`Rapid mode for ${bin!.name}. Show me an item.`);
+      // Pre-flight: get a clean, well-lit shot before scanning — it makes ID + auto-capture reliable.
+      setPhase("setup");
+      await say(`Rapid mode for ${bin!.name}. Clear the bench, aim the camera at a clean, well-lit spot, and give it some room. Hold up one tool at a time.`);
+      await sleep(1600);
+      if (!aliveRef.current || finishRef.current) { await finishSession(); return; }
+      await say("Show me your first item.");
       let firstScan = true;
       while (aliveRef.current && !finishRef.current) {
         setPhase("scanning");
@@ -366,6 +371,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
 
   const phaseLabel: Record<Phase, string> = {
     starting: "Starting camera…",
+    setup: "Set up your space",
     scanning: "Show me an item — hold it steady",
     captured: "Got it",
     identifying: "Looking…",
@@ -397,6 +403,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
           )}
           {phase === "captured" && <Check className="h-14 w-14 text-primary" />}
           {phase === "scanning" && <div className="h-40 w-40 rounded-2xl border-4 border-primary/70 animate-pulse" />}
+          {phase === "setup" && (
+            <ul className="text-left text-sm text-white/85 space-y-2 bg-black/45 rounded-xl px-5 py-4 backdrop-blur-sm border border-white/15 max-w-xs">
+              <li className="flex gap-2"><span className="text-primary">•</span> Clear the bench — plain background works best</li>
+              <li className="flex gap-2"><span className="text-primary">•</span> Good, even light (avoid shadows &amp; glare)</li>
+              <li className="flex gap-2"><span className="text-primary">•</span> Aim the webcam at the spot, with some room</li>
+              <li className="flex gap-2"><span className="text-primary">•</span> One tool at a time, held steady</li>
+            </ul>
+          )}
           <div className="text-lg font-display drop-shadow">{phaseLabel[phase]}</div>
         </div>
       </div>
