@@ -410,7 +410,24 @@ export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
               <CardContent className="p-5">
                 <div className="flex justify-between items-start mb-3">
                   <div className="flex flex-1 items-start gap-3 min-w-0">
-                    <BrandLogo brand={item.brand} size={36} className="mt-0.5" />
+                    {item.photo_path ? (
+                      <div className="relative mt-0.5 h-11 w-11 flex-none">
+                        <img
+                          src={item.photo_path}
+                          alt={item.name}
+                          loading="lazy"
+                          onError={(e) => { const t = e.currentTarget as HTMLImageElement; t.onerror = null; t.style.visibility = "hidden"; }}
+                          className="h-11 w-11 rounded-md object-cover border bg-muted"
+                        />
+                        {item.brand && (
+                          <span className="absolute -bottom-1 -right-1 rounded bg-background/90 p-0.5 shadow-sm ring-1 ring-border">
+                            <BrandLogo brand={item.brand} size={16} />
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <BrandLogo brand={item.brand} size={36} className="mt-0.5" />
+                    )}
                     <div className="min-w-0">
                       <h3 className="font-semibold text-foreground text-lg mb-1">{item.name}</h3>
                       {item.brand && (

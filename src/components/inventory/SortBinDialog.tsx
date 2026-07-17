@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
+import { persistInventoryImage } from "@/lib/imageStorage";
 import { mintShortCode } from "@/lib/shortcode";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
@@ -304,16 +305,13 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         brand: d.brand || null, model: d.model || null, quantity: d.quantity || 1, quantity_unit: "piece",
         qr_code: await mintShortCode(), // unique 5-char code per stored item (badge + scan resolve)
         size_specs: d.size?.trim() || null, // size/spec for parts + fittings (irrigation heads, etc.)
-        photo_path: d.photo ?? null, // the crop of this item from the bin photo
+        photo_path: await persistInventoryImage(d.photo, "item"), // the crop of this item, in Storage
       });
     }
     const sel = "id, quantity, name, qr_code";
-    let { data: created, error } = await supabase.from("items").insert(rows).select(sel);
-    if (error && /(kind|photo_path|size_specs|qr_code)/.test(error.message)) {
-      // Older schemas may lack some optional columns; retry without them.
-      const trimmed = rows.map(({ kind: _k, photo_path: _p, size_specs: _z, qr_code: _q, ...r }) => r);
-      ({ data: created, error } = await supabase.from("items").insert(trimmed).select("id, quantity, name"));
-    }
+    // Every stored column (incl. the per-item photo crop) is intentional — surface any insert error
+    // rather than silently retrying without it, which would file items missing their image/spec data.
+    const { data: created, error } = await supabase.from("items").insert(rows).select(sel);
     if (error) throw error;
     const links = (created || []).map((it) => ({
       item_id: it.id, location_id: binId, quantity: (it as { quantity?: number }).quantity || 1,
@@ -331,6 +329,9 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const save = async () => {
     setSaving(true);
     try {
+      // Move the bin photo into Storage once, up front, and reuse the URL for both the image_path
+      // column and the layout.binImage mirror (keeps them consistent — no base64 left in layout).
+      const binImageUrl = await persistInventoryImage(imageDataUrl, "bin");
       if (isNew) {
         const { space, rack } = await resolveCtx(); // creates space/rack now (first bin) or reuses them
         const number = binNumber;
@@ -339,8 +340,8 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         const { data: made, error } = await supabase.from("locations").insert([{
           name, type: "bin", is_slot: false, qr_code: await mintShortCode(),
           parent_location_id: parentId,
-          image_path: imageDataUrl ?? null, // the photo of the bin's contents, kept with the bin
-          layout: { placeKind: "bin", binNumber: number, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: imageDataUrl ?? undefined },
+          image_path: binImageUrl, // the photo of the bin's contents, kept with the bin
+          layout: { placeKind: "bin", binNumber: number, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: binImageUrl ?? undefined },
         }]).select("id, qr_code").single();
         if (error) throw error;
         await storeItems(made!.id as string);
@@ -351,9 +352,9 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
         await storeItems(binId);
         const prior = (bin!.layout as Record<string, unknown>) ?? {};
         const number = Number((prior as { binNumber?: unknown }).binNumber) || binNumber || 0;
-        const layout = { ...prior, binNumber: number || undefined, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: imageDataUrl ?? (prior as { binImage?: string }).binImage };
+        const layout = { ...prior, binNumber: number || undefined, gallons: galNum, quarts: sizeQt, sizeUnit, summary: summary.trim(), binImage: binImageUrl ?? (prior as { binImage?: string }).binImage };
         const upd: Record<string, unknown> = { layout };
-        if (imageDataUrl) upd.image_path = imageDataUrl;
+        if (binImageUrl) upd.image_path = binImageUrl;
         const { error: upErr } = await supabase.from("locations").update(upd).eq("id", binId);
         if (upErr) throw upErr;
         const { data: row } = await supabase.from("locations").select("qr_code").eq("id", binId).single();
