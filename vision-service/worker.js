@@ -342,7 +342,9 @@ export default {
       const tools = Array.isArray(body.tools) && body.tools.length ? body.tools : undefined;
       if (!messages.length) return json(400, { error: "no messages" }, cors);
       const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
-      const model = env.CHAT_MODEL || env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct";
+      const primary = env.CHAT_MODEL || env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct";
+      const fb = env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct";
+      const models = primary === fb ? [primary] : [primary, fb]; // OpenRouter tries these in order
       try {
         const res = await fetch(`${base}/chat/completions`, {
           method: "POST",
@@ -354,7 +356,9 @@ export default {
             "X-Title": "Tool Vision Inventory",
           },
           body: JSON.stringify({
-            model,
+            model: primary,
+            ...(models.length > 1 ? { models } : {}), // auto-fallback if the primary is down
+            provider: { ignore: ["Parasail"] },        // this provider silently drops images
             temperature: 0.3,
             max_tokens: 900,
             messages,

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Printer, TestTube, LogOut, Share, Loader2, Download, Wifi } from "lucide-react";
+import { Printer, TestTube, LogOut, Share, Loader2, Download, Wifi, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
@@ -68,6 +68,19 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     toast(ok
       ? { title: "Connected to printer", description: "The app will print through this computer over Wi-Fi.", variant: "success" }
       : { title: "Not reachable", description: "Check the address, same Wi-Fi, and that the connector is running on the computer.", variant: "destructive" });
+  };
+
+  // One-line installer that sets up + starts the desktop connector on the user's Mac.
+  const INSTALL_CMD = "curl -fsSL https://raw.githubusercontent.com/zohebzma2-cmyk/tool-vision-inventory/main/desktop-connector/install.sh | bash";
+  const [copied, setCopied] = useState(false);
+  const copyInstall = async () => {
+    try {
+      await navigator.clipboard.writeText(INSTALL_CMD);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      toast({ title: "Copy failed", description: "Select the command and copy it manually.", variant: "destructive" });
+    }
   };
 
   const connect = async () => {
@@ -186,36 +199,48 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             )}
           </section>
 
-          {/* Printer connector: lets the phone / iPad print on the computer's Brother printer over
-              Wi-Fi. On the computer this shows the address to type into the app on your phone. */}
+          {/* Connect your Mac: a one-line installer sets up + starts the connector so the app can
+              print (and use the webcam/voice) on this computer. */}
           <section className="space-y-2">
             <h3 className="font-display text-sm font-semibold text-muted-foreground flex items-center gap-2">
-              <Wifi className="h-4 w-4" /> Printer connector (phone / iPad)
+              <Wifi className="h-4 w-4" /> Connect your Mac
             </h3>
-            {detectedLan && (
-              <p className="text-xs text-muted-foreground">
-                This computer's printer address: <span className="font-mono text-foreground">{detectedLan}</span>
-                {detectedLan.endsWith(".local:17777") || detectedLan.includes(".local:")
-                  ? " — enter this in the app on your phone (it stays valid even if the Wi-Fi IP changes)."
-                  : " — enter it in this field in the app on your phone."}
-              </p>
+
+            {connOk === true ? (
+              <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm">
+                <Check className="h-4 w-4 text-green-600" />
+                Connected{detectedLan ? <> — <span className="font-mono text-foreground">{detectedLan}</span></> : ""}. Labels print on this Mac.
+              </div>
+            ) : (
+              <>
+                <p className="text-xs text-muted-foreground">
+                  Run this once in your Mac's <span className="text-foreground font-medium">Terminal</span> — it installs and starts the connector, then the app links automatically:
+                </p>
+                <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-2">
+                  <code className="flex-1 break-all font-mono text-[11px] leading-relaxed">{INSTALL_CMD}</code>
+                  <Button size="sm" variant="ghost" className="h-7 shrink-0 px-2" onClick={copyInstall}>
+                    {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Leave that window open while you use the app. It auto-connects on this computer.
+                </p>
+              </>
             )}
-            <div className="flex gap-2">
-              <Input
-                inputMode="url"
-                placeholder="192.168.1.50"
-                value={connHost}
-                onChange={(e) => setConnHost(e.target.value)}
-              />
-              <Button onClick={saveConnector}>Save</Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {connOk === true
-                ? "Connected — labels print on the computer's Brother printer."
-                : connOk === false
-                ? "Not reachable. Make sure the computer is on the same Wi-Fi with the connector running."
-                : "Point the phone/iPad app at the computer running the printer connector."}
-            </p>
+
+            {/* Phone / iPad: point at the Mac's address (advanced / when not auto-detected). */}
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer select-none">Connect a phone or iPad manually</summary>
+              <div className="mt-2 space-y-2">
+                {detectedLan && (
+                  <p>This Mac's address: <span className="font-mono text-foreground">{detectedLan}</span> — enter it in the app on your phone/iPad (the <span className="font-mono">.local</span> name survives Wi-Fi IP changes).</p>
+                )}
+                <div className="flex gap-2">
+                  <Input inputMode="url" placeholder="192.168.1.50" value={connHost} onChange={(e) => setConnHost(e.target.value)} />
+                  <Button onClick={saveConnector}>Save</Button>
+                </div>
+              </div>
+            </details>
           </section>
 
           <section className="space-y-2">
