@@ -15,6 +15,7 @@ const QRScanner = lazy(() => import("@/components/inventory/QRScanner").then((m)
 const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog").then((m) => ({ default: m.SettingsDialog })));
 const FindMode = lazy(() => import("@/components/inventory/FindMode").then((m) => ({ default: m.FindMode })));
 const SortMode = lazy(() => import("@/components/inventory/SortMode").then((m) => ({ default: m.SortMode })));
+const QuickCapture = lazy(() => import("@/components/inventory/QuickCapture").then((m) => ({ default: m.QuickCapture })));
 import { computeOrgReport } from "@/lib/organize";
 import { maybeRunWeeklyDigest } from "@/lib/digest";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
@@ -32,6 +33,7 @@ type Tab = "home" | "items" | "locations" | "overview" | "sort";
 
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
+  const [showCapture, setShowCapture] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showFind, setShowFind] = useState(false);
@@ -350,21 +352,18 @@ const Index = () => {
             icon={MapPin}
             label="Storage"
           />
-          {/* Center hero: Home dashboard (replaces the old Scan hero) — Scan, Add, and every page
-              are one tap away from inside it. */}
+          {/* Center hero: Capture — the primary hands-on flow, one tap from anywhere. Opens Rapid Mode
+              on the desktop (voice + printing) or the overlay scanner on the iPad, after you pick a bin. */}
           <button
-            onClick={() => { haptic.medium(); setTab("home"); }}
+            onClick={() => { haptic.medium(); setShowCapture(true); }}
             className="flex flex-col items-center justify-center gap-0.5 py-2 active:opacity-60"
-            aria-label="Home"
+            aria-label="Capture"
           >
-            <span className={cn(
-              "flex items-center justify-center h-9 w-9 rounded shadow-soft",
-              tab === "home" ? "bg-primary text-primary-foreground ring-2 ring-primary/30" : "bg-primary text-primary-foreground"
-            )}>
-              <Home className="h-5 w-5" aria-hidden />
+            <span className="flex items-center justify-center h-9 w-9 rounded shadow-soft bg-primary text-primary-foreground ring-2 ring-primary/30">
+              <ScanLine className="h-5 w-5" aria-hidden />
             </span>
             <span className="font-display text-[11px] font-medium tracking-tight">
-              Home
+              Capture
             </span>
           </button>
           <MobileTab active={false} onClick={() => setShowAddItem(true)} icon={Plus} label="Add" />
@@ -395,6 +394,7 @@ const Index = () => {
             initialCode={scanCode}
           />
         )}
+        {showCapture && <QuickCapture open={showCapture} onOpenChange={setShowCapture} />}
         {showSettings && <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />}
         {showFind && <FindMode open={showFind} onOpenChange={setShowFind} />}
       </Suspense>
