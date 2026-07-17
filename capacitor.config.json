@@ -2,6 +2,10 @@
   "appId": "app.toolvision.inventory",
   "appName": "Tool Vision",
   "webDir": "dist",
+  "server": {
+    "url": "https://tool-vision.pages.dev",
+    "cleartext": false
+  },
   "ios": {
     "contentInset": "never",
     "backgroundColor": "#1b1f27"
