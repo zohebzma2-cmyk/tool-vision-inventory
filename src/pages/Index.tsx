@@ -124,9 +124,13 @@ const Index = () => {
         <div className="container mx-auto px-4 py-3 md:py-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="label-tile flex items-center justify-center h-10 w-10 shrink-0 border border-tile-edge">
+              <button
+                onClick={() => setTab("home")}
+                className="label-tile flex items-center justify-center h-10 w-10 shrink-0 border border-tile-edge active:opacity-70 transition-opacity"
+                aria-label="Home"
+              >
                 <Wrench className="h-5 w-5" aria-hidden />
-              </div>
+              </button>
               <div className="min-w-0">
                 <h1 className="font-display text-2xl md:text-3xl font-bold tracking-tight leading-none truncate">
                   Tool Vision
