@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { generateQRCode } from "./slots";
+import { persistInventoryImage } from "./imageStorage";
 
 /** A freeform storage spot: one physical item's place on a board/wall, as a
  * normalized rect on the space photo (not a grid cell). */
@@ -55,7 +56,7 @@ export async function createSpaceWithSpots(input: CreateSpaceWithSpotsInput) {
       // checks (grid_rows != null) keep working for spot spaces too.
       grid_rows: 1,
       grid_cols: Math.max(1, input.spots.length),
-      image_path: input.imagePath || null,
+      image_path: await persistInventoryImage(input.imagePath, "bin"),
       parent_location_id: input.parentLocationId || null,
       layout,
     }])

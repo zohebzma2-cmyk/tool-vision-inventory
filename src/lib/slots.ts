@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { renderTokens, type LabelData } from "./labelTemplates";
 import { mintShortCode } from "./shortcode";
+import { persistInventoryImage } from "./imageStorage";
 
 /** Unique, human-scannable QR/location code. Matches the app's existing LOC- convention. */
 export function generateQRCode(prefix = "LOC"): string {
@@ -129,7 +130,7 @@ export async function createSpaceWithSlots(input: CreateSpaceInput) {
         grid_rows: input.gridRows,
         grid_cols: input.gridCols,
         is_slot: false,
-        image_path: input.imagePath || null,
+        image_path: await persistInventoryImage(input.imagePath, "bin"),
         parent_location_id: input.parentLocationId || null,
         layout,
       },

@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { haptic } from "@/lib/haptics";
 import { identifyItemFromImage, isVisionConfigured } from "@/lib/vision";
 import { mintShortCode } from "@/lib/shortcode";
+import { persistInventoryImage } from "@/lib/imageStorage";
 import { renderItemLabel, loadBrandLogo } from "@/lib/itemLabel";
 import { renderBinLabel } from "@/lib/binLabel";
 import { getLabelMedia } from "@/components/inventory/PrinterService";
@@ -183,18 +184,17 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       const upc = (item.text || "").match(/\b(\d{12,14})\b/)?.[1];
       const code = await mintShortCode();
       const media = getLabelMedia();
+      const photoUrl = await persistInventoryImage(frame, "item"); // → Storage URL (or inline, if bucket absent)
       const insert: Record<string, unknown> = {
         name: item.name, category: item.category || "other", quantity: qty,
-        quantity_unit: "piece", qr_code: code, photo_path: frame,
+        quantity_unit: "piece", qr_code: code, photo_path: photoUrl,
       };
       if (upc) insert.notes = `UPC ${upc}`;
       if (item.brand) insert.brand = item.brand;
       if (item.model) insert.model = item.model;
-      let { data: created, error } = await supabase.from("items").insert(insert).select("id").single();
-      if (error && /photo_path|column/.test(error.message)) {
-        delete insert.photo_path;
-        ({ data: created, error } = await supabase.from("items").insert(insert).select("id").single());
-      }
+      // The item photo is part of the record — a save failure must surface, never be silently retried
+      // without the image (that would ship an imageless item that looks fine). Fail loud instead.
+      const { data: created, error } = await supabase.from("items").insert(insert).select("id").single();
       if (error) throw error;
       // Filing the item into the bin is the whole point — a failure here must surface, not be swallowed.
       const { error: linkErr } = await supabase

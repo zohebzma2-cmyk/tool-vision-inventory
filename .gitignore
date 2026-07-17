@@ -37,5 +37,6 @@ supabase/.temp
 # xcodebuild archive/export output from scripts/testflight.sh
 ios/build/
 desktop-connector/__pycache__/
+tool-vision-mcp/__pycache__/
 tool-vision-mcp/.env
 .mcp.json
