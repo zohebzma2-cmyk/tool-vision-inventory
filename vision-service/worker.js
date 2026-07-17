@@ -344,27 +344,29 @@ export default {
       const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
       const primary = env.CHAT_MODEL || env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct";
       const fb = env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct";
-      const models = primary === fb ? [primary] : [primary, fb]; // OpenRouter tries these in order
+      const tryChat = (model) => fetch(`${base}/chat/completions`, {
+        method: "POST",
+        signal: AbortSignal.timeout(60000),
+        headers: {
+          Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://github.com/zohebzma2-cmyk/tool-vision-inventory",
+          "X-Title": "Tool Vision Inventory",
+        },
+        body: JSON.stringify({
+          model,
+          provider: { ignore: ["Parasail"] }, // this provider silently drops images
+          temperature: 0.3,
+          max_tokens: 900,
+          messages,
+          ...(tools ? { tools, tool_choice: "auto" } : {}),
+        }),
+      });
       try {
-        const res = await fetch(`${base}/chat/completions`, {
-          method: "POST",
-          signal: AbortSignal.timeout(60000),
-          headers: {
-            Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/zohebzma2-cmyk/tool-vision-inventory",
-            "X-Title": "Tool Vision Inventory",
-          },
-          body: JSON.stringify({
-            model: primary,
-            ...(models.length > 1 ? { models } : {}), // auto-fallback if the primary is down
-            provider: { ignore: ["Parasail"] },        // this provider silently drops images
-            temperature: 0.3,
-            max_tokens: 900,
-            messages,
-            ...(tools ? { tools, tool_choice: "auto" } : {}),
-          }),
-        });
+        // Try the preferred chat model; if it's unavailable (e.g. no account access, outage), fall
+        // back to the known-good vision model so the assistant always answers.
+        let res = await tryChat(primary);
+        if (!res.ok && primary !== fb) res = await tryChat(fb);
         if (!res.ok) return json(502, { error: `chat provider ${res.status}: ${(await res.text()).slice(0, 300)}` }, cors);
         const data = await res.json();
         const message = data?.choices?.[0]?.message ?? { role: "assistant", content: "" };
