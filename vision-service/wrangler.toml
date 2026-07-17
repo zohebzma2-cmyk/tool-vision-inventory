@@ -22,6 +22,11 @@ VISION_MODEL = "google/gemma-4-31b-it:free"
 VISION_MODEL_FALLBACK = "nvidia/nemotron-nano-12b-v2-vl:free,openrouter/free"
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 
+# In-app assistant (/chat) model — needs reliable tool-calling AND vision. gpt-4o-mini is cheap and
+# dependable at both; it auto-falls back to VISION_MODEL_PAID if unavailable. Change to any
+# tool+vision OpenRouter model id (e.g. google/gemini-2.5-flash) to suit cost/quality.
+CHAT_MODEL = "openai/gpt-4o-mini"
+
 # Security: lock CORS + require signed-in users of your app. These are set as SECRETS, not vars,
 # so real values never live in this committed file. Set them once per deployment with:
 #   wrangler secret put ALLOWED_ORIGINS    # comma-separated frontend origins
