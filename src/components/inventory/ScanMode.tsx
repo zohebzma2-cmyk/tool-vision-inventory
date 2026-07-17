@@ -15,6 +15,8 @@ import { detectSpotsFromImage, identifyItemFromImage, isVisionConfigured, type S
 import { persistInventoryImage } from "@/lib/imageStorage";
 import { mintShortCode } from "@/lib/shortcode";
 import { cropBox } from "@/lib/imageCrop";
+import { getLearned, recordCorrection } from "@/lib/learnedLabels";
+import { noteSessionItem } from "@/lib/sessionPrints";
 
 interface Props {
   open: boolean;
@@ -73,6 +75,7 @@ export function ScanMode({ open, onOpenChange, bin, onSaved }: Props) {
     const { error: linkErr } = await supabase
       .from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: 1 });
     if (linkErr) throw linkErr;
+    noteSessionItem(created!.id as string); // if scanning on the desktop, don't let the bridge reprint it
     setCount((c) => c + 1);
     setLastUndo({ id: created!.id as string, name });
     haptic.success();
@@ -110,18 +113,24 @@ export function ScanMode({ open, onOpenChange, bin, onSaved }: Props) {
         setThinking(found.length ? `${found.length} in view · ${fresh.length} new` : "Nothing detected — place items in view");
         for (const s of fresh) {
           if (pendingRef.current) break; // one confirm card at a time
-          if (s.confidence >= AUTO_FILE) {
+          const learned = getLearned(s.label); // have you already taught us what this is?
+          if (s.confidence >= AUTO_FILE || learned) {
             filedRef.current.add(keyOf(s)); // claim it before the async work so the next scan won't double-file
             const crop = await cropBox(frame, s.box);
-            const det = crop ? await identifyItemFromImage(crop).catch(() => null) : null;
+            // If we've learned this label, trust your past correction and skip the extra identify call.
+            const det = !learned && crop ? await identifyItemFromImage(crop).catch(() => null) : null;
+            const name = learned?.name || det?.name || s.label;
+            const category = learned?.category || det?.category || "Other";
+            const brand = learned?.brand || det?.brand || "";
             try {
-              await fileItem(det?.name || s.label, det?.category || "Other", crop, det?.brand || "", det?.model || "");
+              await fileItem(name, category, crop, brand, det?.model || "");
+              if (learned) setThinking(`✨ Learned — filed “${name}”`); // show the self-learning paying off
             } catch (e) {
               filedRef.current.delete(keyOf(s)); // filing failed — let a later scan retry it
               toast({ title: "Couldn't file an item", description: String((e as Error)?.message || e), variant: "destructive" });
             }
           } else {
-            // Unsure → surface a confirm card and stop auto-processing until the user answers.
+            // Unsure and never taught → surface a confirm card and stop auto-processing until you answer.
             const crop = await cropBox(frame, s.box);
             setPend({ spot: s, crop, name: s.label, category: "Other" });
             break;
@@ -166,8 +175,10 @@ export function ScanMode({ open, onOpenChange, bin, onSaved }: Props) {
     const p = pendingRef.current;
     if (!p) return;
     filedRef.current.add(keyOf(p.spot));
+    const chosen = name.trim() || p.spot.label;
+    recordCorrection(p.spot.label, { name: chosen, category }); // teach it — next time this auto-files
     try {
-      await fileItem(name.trim() || p.spot.label, category, p.crop);
+      await fileItem(chosen, category, p.crop);
     } catch (e) {
       toast({ title: "Couldn't file", description: String((e as Error)?.message || e), variant: "destructive" });
     }

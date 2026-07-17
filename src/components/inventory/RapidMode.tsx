@@ -14,6 +14,7 @@ import { haptic } from "@/lib/haptics";
 import { identifyItemFromImage, isVisionConfigured } from "@/lib/vision";
 import { mintShortCode } from "@/lib/shortcode";
 import { persistInventoryImage } from "@/lib/imageStorage";
+import { noteSessionItem } from "@/lib/sessionPrints";
 import { renderItemLabel, loadBrandLogo } from "@/lib/itemLabel";
 import { renderBinLabel } from "@/lib/binLabel";
 import { getLabelMedia } from "@/components/inventory/PrinterService";
@@ -200,6 +201,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       const { error: linkErr } = await supabase
         .from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: qty });
       if (linkErr) throw linkErr;
+      noteSessionItem(created!.id); // Rapid Mode prints its own label — don't let the auto-print bridge repeat it
       lastCreated = { id: created!.id, name: item.name };
       if (item.category) labeledCategories.push(item.category);
       if (upc) return { merged: false, noLabel: true }; // SKU'd part — stored with its UPC, no TV label

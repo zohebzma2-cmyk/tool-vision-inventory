@@ -19,6 +19,10 @@ import { computeOrgReport } from "@/lib/organize";
 import { maybeRunWeeklyDigest } from "@/lib/digest";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+import { useAutoPrintBridge } from "@/hooks/useAutoPrintBridge";
+import { useLocalFlag } from "@/lib/useLocalFlag";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
+import { Switch } from "@/components/ui/switch";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { cn } from "@/lib/utils";
 import { haptic } from "@/lib/haptics";
@@ -47,6 +51,10 @@ const Index = () => {
     stats.refresh();
     setSyncTick((t) => t + 1);
   });
+
+  // Auto-print bridge: when on (desktop station), labels for items the iPad scans print here on the go.
+  const [autoPrint, setAutoPrint] = useLocalFlag("tv_autoprint");
+  useAutoPrintBridge(autoPrint);
 
   // A USB barcode/QR scanner (keyboard-wedge) on the laptop: a scan opens the scanner dialog with
   // the code already resolved — same lookup + result UI as the camera, no camera needed.
@@ -267,6 +275,15 @@ const Index = () => {
           </nav>
         </div>
       </header>
+
+      {/* Desktop station: auto-print labels for items scanned on other devices (the iPad), as they arrive. */}
+      {isLabelOutputSupported() && (
+        <div className="flex items-center justify-end gap-2 border-b bg-muted/30 px-3 md:px-4 py-1.5 text-sm">
+          <Printer className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-muted-foreground">Auto-print incoming scans</span>
+          <Switch checked={autoPrint} onCheckedChange={setAutoPrint} aria-label="Auto-print incoming scans" />
+        </div>
+      )}
 
       <main className="relative flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="container mx-auto px-3 md:px-4 py-4 md:py-6 pb-[calc(env(safe-area-inset-bottom)+88px)] md:pb-8">
