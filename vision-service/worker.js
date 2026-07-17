@@ -327,6 +327,49 @@ export default {
       }, cors);
     }
 
+    // In-app agent chat. Thin, stateless proxy: the client sends the full message history + tool
+    // schemas; we forward to the LLM and return the assistant message verbatim (including any
+    // tool_calls). The CLIENT runs the tool-calling loop and executes tools against Supabase with the
+    // signed-in user's own token — writes are confirmed in the UI — so this endpoint never touches
+    // inventory data or holds state. Auth-gated + rate-limited like the vision routes.
+    if (request.method === "POST" && url.pathname === "/chat") {
+      const token = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+      if (!(await verifyUser(env, token))) return json(401, { error: "unauthorized" }, cors);
+      if (await rateLimited(env, request)) return json(429, { error: "rate limited" }, cors);
+      let body;
+      try { body = await request.json(); } catch { return json(400, { error: "bad json" }, cors); }
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const tools = Array.isArray(body.tools) && body.tools.length ? body.tools : undefined;
+      if (!messages.length) return json(400, { error: "no messages" }, cors);
+      const base = (env.OPENROUTER_BASE || "https://openrouter.ai/api/v1").replace(/\/$/, "");
+      const model = env.CHAT_MODEL || env.VISION_MODEL_PAID || "qwen/qwen3-vl-235b-a22b-instruct";
+      try {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          signal: AbortSignal.timeout(60000),
+          headers: {
+            Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/zohebzma2-cmyk/tool-vision-inventory",
+            "X-Title": "Tool Vision Inventory",
+          },
+          body: JSON.stringify({
+            model,
+            temperature: 0.3,
+            max_tokens: 900,
+            messages,
+            ...(tools ? { tools, tool_choice: "auto" } : {}),
+          }),
+        });
+        if (!res.ok) return json(502, { error: `chat provider ${res.status}: ${(await res.text()).slice(0, 300)}` }, cors);
+        const data = await res.json();
+        const message = data?.choices?.[0]?.message ?? { role: "assistant", content: "" };
+        return json(200, { message }, cors);
+      } catch (e) {
+        return json(500, { error: String(e?.message || e) }, cors);
+      }
+    }
+
     // Brand-logo lookup (logos.dev): resolve a brand name → its domain using the SECRET key server-
     // side; the client then builds the public image URL with the publishable key. Auth-gated; the
     // client caches results so this is hit at most once per brand.

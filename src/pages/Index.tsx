@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from "react";
-import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search, Loader2, Printer } from "lucide-react";
+import { Plus, Package, MapPin, LayoutGrid, ScanLine, Settings, Wrench, HelpCircle, Sparkles, Home, ArrowRight, Search, Loader2, Printer, Bot } from "lucide-react";
 import { onQueueChange } from "@/lib/printQueue";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
@@ -16,6 +16,7 @@ const SettingsDialog = lazy(() => import("@/components/settings/SettingsDialog")
 const FindMode = lazy(() => import("@/components/inventory/FindMode").then((m) => ({ default: m.FindMode })));
 const SortMode = lazy(() => import("@/components/inventory/SortMode").then((m) => ({ default: m.SortMode })));
 const QuickCapture = lazy(() => import("@/components/inventory/QuickCapture").then((m) => ({ default: m.QuickCapture })));
+const AgentChat = lazy(() => import("@/components/agent/AgentChat").then((m) => ({ default: m.AgentChat })));
 import { computeOrgReport } from "@/lib/organize";
 import { maybeRunWeeklyDigest } from "@/lib/digest";
 import { useInventoryStats } from "@/hooks/useInventoryStats";
@@ -34,6 +35,7 @@ type Tab = "home" | "items" | "locations" | "overview" | "sort";
 const Index = () => {
   const [showAddItem, setShowAddItem] = useState(false);
   const [showCapture, setShowCapture] = useState(false);
+  const [showAgent, setShowAgent] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showFind, setShowFind] = useState(false);
@@ -334,6 +336,15 @@ const Index = () => {
 
       {/* Mobile bottom bar — iOS-style translucent blur; content scrolls beneath it.
           Absolutely positioned inside the fixed-height shell, so it still can't move. */}
+      {/* Floating assistant launcher — always one tap away. */}
+      <button
+        onClick={() => setShowAgent(true)}
+        className="fixed z-40 right-4 bottom-[calc(env(safe-area-inset-bottom)+76px)] md:bottom-6 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg ring-1 ring-black/5 active:scale-95 transition-transform"
+        aria-label="Open assistant"
+      >
+        <Bot className="h-6 w-6" />
+      </button>
+
       <nav
         className="md:hidden absolute bottom-0 inset-x-0 z-40 bg-tile/85 backdrop-blur-xl backdrop-saturate-150 text-tile-foreground border-t border-tile-edge/60"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -395,6 +406,7 @@ const Index = () => {
           />
         )}
         {showCapture && <QuickCapture open={showCapture} onOpenChange={setShowCapture} />}
+        {showAgent && <AgentChat open={showAgent} onOpenChange={setShowAgent} />}
         {showSettings && <SettingsDialog open={showSettings} onOpenChange={setShowSettings} />}
         {showFind && <FindMode open={showFind} onOpenChange={setShowFind} />}
       </Suspense>
