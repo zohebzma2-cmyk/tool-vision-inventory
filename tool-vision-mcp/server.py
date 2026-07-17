@@ -29,6 +29,7 @@ SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 OWNER_EMAIL = os.environ.get("TOOLVISION_OWNER_EMAIL", "")  # supplied via gitignored .env, never source
 CONNECTOR = os.environ.get("CONNECTOR_URL", "http://127.0.0.1:17777").rstrip("/")
 CAPTURES_DIR = os.path.expanduser("~/.tool-vision-connector/captures")
+IMAGE_BUCKET = "inventory-images"  # Supabase Storage bucket for item/bin photos (same as the app)
 
 mcp = FastMCP("tool-vision")
 ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # Crockford-ish, no 0/O/1/I/L
@@ -78,6 +79,41 @@ def owner_id():
             _owner_id = u["id"]
             return _owner_id
     raise RuntimeError(f"owner {OWNER_EMAIL} not found in this project")
+
+
+_PHOTO_MIME = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp", "gif": "image/gif"}
+
+
+def _upload_photo(local_path: str, kind: str = "item") -> str:
+    """Upload a local capture file to the inventory-images Storage bucket (service-role, owner-scoped
+    path <owner>/<kind>/<rand>.<ext>) and return its public URL — the same bucket the app writes to.
+
+    SECURITY: the bucket is world-readable, so uploading an arbitrary path would exfiltrate it. The
+    path MUST resolve to an image file INSIDE CAPTURES_DIR — realpath containment defeats traversal
+    (../) and symlink escapes, and the extension allowlist ensures only images can leave."""
+    _need_config()
+    base = os.path.realpath(CAPTURES_DIR)
+    real = os.path.realpath(os.path.expanduser(local_path))
+    if real != base and not real.startswith(base + os.sep):
+        raise RuntimeError("path must be inside the captures directory")
+    if not os.path.isfile(real):
+        raise RuntimeError(f"no such file: {local_path}")
+    ext = os.path.splitext(real)[1].lstrip(".").lower()
+    if ext == "jpeg":
+        ext = "jpg"
+    if ext not in ("jpg", "png", "webp", "gif"):
+        raise RuntimeError(f"unsupported image type: .{ext}")
+    obj = f"{owner_id()}/{kind if kind in ('item', 'bin') else 'item'}/{secrets.token_hex(16)}.{ext}"
+    with open(real, "rb") as f:
+        payload = f.read()
+    up = f"{SUPABASE_URL}/storage/v1/object/{IMAGE_BUCKET}/{urllib.parse.quote(obj)}"
+    req = urllib.request.Request(up, data=payload, method="POST", headers={
+        "apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}",
+        "Content-Type": _PHOTO_MIME.get(ext, "application/octet-stream"), "x-upsert": "true",
+    })
+    with urllib.request.urlopen(req, timeout=30) as r:
+        r.read()
+    return f"{SUPABASE_URL}/storage/v1/object/public/{IMAGE_BUCKET}/{urllib.parse.quote(obj)}"
 
 
 def mint_code():
@@ -230,11 +266,12 @@ def list_items() -> str:
 
 @mcp.tool()
 def create_item(name: str, category: str = "Other", brand: str = "", model: str = "",
-                size_specs: str = "", quantity: int = 1, location_id: str = "") -> str:
-    """Create a tool/item (and place it into a location if location_id is given). Returns it with its code."""
+                size_specs: str = "", quantity: int = 1, location_id: str = "", photo_path: str = "") -> str:
+    """Create a tool/item (and place it into a location if location_id is given). Returns it with its code.
+    Pass photo_path (a URL from upload_capture) to store the item's photo like the app's Rapid/Sort modes."""
     oid = owner_id()
     row = {"name": name, "category": category, "qr_code": mint_code(), "quantity": quantity, "owner_id": oid}
-    for k, v in (("brand", brand), ("model", model), ("size_specs", size_specs)):
+    for k, v in (("brand", brand), ("model", model), ("size_specs", size_specs), ("photo_path", photo_path)):
         if v:
             row[k] = v
     item = _sb("POST", "items", body=row)[0]
@@ -291,6 +328,18 @@ def list_captured_photos() -> str:
     files = [os.path.join(CAPTURES_DIR, f) for f in os.listdir(CAPTURES_DIR) if not f.startswith(".")]
     files.sort(key=os.path.getmtime, reverse=True)
     return json.dumps(files[:20], indent=2)
+
+
+@mcp.tool()
+def upload_capture(path: str, kind: str = "item") -> str:
+    """Upload a captured photo (a path from capture_webcam / list_captured_photos) to the
+    inventory-images Storage bucket and return its public URL. Pass that URL to
+    create_item(photo_path=...) so an agent-driven sort stores the item's image exactly like the
+    app's Rapid/Sort modes. kind is "item" (default) or "bin"."""
+    try:
+        return json.dumps({"url": _upload_photo(path, kind)})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 @mcp.tool()
