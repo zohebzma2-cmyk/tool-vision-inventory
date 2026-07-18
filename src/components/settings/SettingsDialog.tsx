@@ -144,7 +144,20 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             <h3 className="font-display text-sm font-semibold text-muted-foreground">
               Label printer
             </h3>
-            {isPrintingSupported() ? (
+            {connOk === true && printerPresent === true ? (
+              <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm">
+                <Check className="h-4 w-4 text-green-600" /> Printer ready — labels print on this Mac.
+                <Button variant="outline" size="sm" className="ml-auto h-7" onClick={runTest} disabled={busy}>
+                  <TestTube className="mr-1 h-3.5 w-3.5" /> Test
+                </Button>
+              </div>
+            ) : connOk === false ? (
+              <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                Can’t reach a printer from here. On the Mac with the printer, open{" "}
+                <a href="http://localhost:17777" className="font-mono underline">http://localhost:17777</a>{" "}
+                — that version prints. Labels you scan on other devices print there automatically.
+              </div>
+            ) : isPrintingSupported() ? (
               <>
                 <div className="flex gap-2">
                   <Button variant={connected ? "secondary" : "default"} onClick={connect} disabled={busy}>
