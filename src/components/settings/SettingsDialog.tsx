@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Printer, TestTube, LogOut, Share, Loader2, Download, Wifi, Copy, Check } from "lucide-react";
+import QRCode from "qrcode";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
@@ -42,6 +43,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   const [connOk, setConnOk] = useState<boolean | null>(null);
   const [connQueued, setConnQueued] = useState(0);        // labels waiting on the connector itself
   const [printerPresent, setPrinterPresent] = useState<boolean | null>(null);
+  const [connectQr, setConnectQr] = useState("");         // QR another device scans to link to this Mac
 
   const probeConnector = async () => {
     try {
@@ -61,6 +63,12 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     }
   };
   useEffect(() => { if (open) { setConnHost(getConnectorHost()); probeConnector(); } }, [open]);
+  // Build the "scan to connect" QR from this computer's connector address, so another device links
+  // by scanning instead of typing. Only meaningful where we can see the connector (detectedLan set).
+  useEffect(() => {
+    if (!detectedLan) { setConnectQr(""); return; }
+    QRCode.toDataURL(`tvconn:${detectedLan}`, { margin: 1, scale: 5 }).then(setConnectQr).catch(() => setConnectQr(""));
+  }, [detectedLan]);
 
   const saveConnector = async () => {
     setConnectorHost(connHost);
@@ -207,10 +215,21 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             </h3>
 
             {connOk === true ? (
-              <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm">
-                <Check className="h-4 w-4 text-green-600" />
-                Connected{detectedLan ? <> — <span className="font-mono text-foreground">{detectedLan}</span></> : ""}. Labels print on this Mac.
-              </div>
+              <>
+                <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-3 text-sm">
+                  <Check className="h-4 w-4 text-green-600" />
+                  Connected{detectedLan ? <> — <span className="font-mono text-foreground">{detectedLan}</span></> : ""}. Labels print on this Mac.
+                </div>
+                {connectQr && (
+                  <div className="flex items-center gap-3 rounded-md border p-3">
+                    <img src={connectQr} alt="Scan to connect" className="h-24 w-24 shrink-0 rounded bg-white p-1" />
+                    <div className="text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">Scan to connect a device</p>
+                      <p className="mt-1">In the app on your phone, open the QR scanner and scan this to link it to this printer.</p>
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <>
                 <p className="text-xs text-muted-foreground">
