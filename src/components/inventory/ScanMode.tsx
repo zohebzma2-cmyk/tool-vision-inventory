@@ -151,6 +151,12 @@ export function ScanMode({ open, onOpenChange, bin, onSaved }: Props) {
         });
         if (!aliveRef.current) { stream.getTracks().forEach((t) => t.stop()); return; }
         streamRef.current = stream;
+        try {
+          // Widest field of view — zoom all the way out for the top-down desk framing.
+          const track = stream.getVideoTracks()[0];
+          const caps = track?.getCapabilities?.() as { zoom?: { min?: number } } | undefined;
+          if (caps?.zoom?.min != null) await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] } as unknown as MediaTrackConstraints);
+        } catch { /* zoom unsupported */ }
         const v = videoRef.current!;
         v.srcObject = stream;
         await v.play().catch(() => {});
