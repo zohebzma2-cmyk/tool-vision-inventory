@@ -9,119 +9,119 @@
 
 @layer base {
   :root {
-    /* Clean, cool-neutral canvas — a professional facility-software feel. */
-    --background: 216 24% 98%;
-    --foreground: 222 20% 13%;
+    /* Machinist — graphite/steel base, one high-visibility accent. */
+    --background: 214 16% 9%;
+    --foreground: 214 24% 92%;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222 20% 13%;
+    --card: 214 16% 13%;
+    --card-foreground: 214 24% 92%;
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 20% 13%;
+    --popover: 214 16% 12%;
+    --popover-foreground: 214 24% 92%;
 
-    /* Signal orange — the single accent, used sparingly for primary actions. */
-    --primary: 20 90% 50%;
-    --primary-foreground: 0 0% 100%;
+    /* Hi-vis safety yellow — the single accent, used sparingly on primary actions. */
+    --primary: 47 92% 53%;
+    --primary-foreground: 214 30% 8%;
 
-    --secondary: 216 18% 93%;
-    --secondary-foreground: 222 18% 22%;
+    --secondary: 214 14% 17%;
+    --secondary-foreground: 214 18% 85%;
 
-    --muted: 216 18% 95%;
-    --muted-foreground: 218 12% 46%;
+    --muted: 214 14% 14%;
+    --muted-foreground: 214 9% 60%;
 
-    /* Ink — the deep slate used for the header rail and dark chips. */
-    --accent: 222 22% 13%;
-    --accent-foreground: 210 20% 98%;
+    /* Steel — neutral raised surface for hovers/dark chips. */
+    --accent: 214 14% 18%;
+    --accent-foreground: 214 22% 92%;
 
-    --destructive: 0 70% 46%;
+    --destructive: 358 66% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 216 18% 91%;
-    --input: 216 18% 88%;
-    --ring: 20 90% 50%;
+    --border: 214 14% 19%;
+    --input: 214 14% 22%;
+    --ring: 47 92% 53%;
 
-    --warning: 38 92% 48%;
-    --warning-foreground: 222 22% 13%;
+    --warning: 40 92% 54%;
+    --warning-foreground: 214 30% 8%;
 
-    --success: 152 52% 38%;
-    --success-foreground: 0 0% 100%;
+    --success: 142 42% 46%;
+    --success-foreground: 214 30% 8%;
 
-    --info: 214 70% 48%;
-    --info-foreground: 0 0% 100%;
+    --info: 205 58% 62%;
+    --info-foreground: 214 30% 8%;
 
-    /* Ink surfaces (header rail, dark chips) */
-    --tile: 222 22% 13%;
-    --tile-foreground: 210 20% 98%;
-    --tile-edge: 222 16% 24%;
+    /* Engraved plate — near-black tag surface with warm light lettering. */
+    --tile: 214 20% 7%;
+    --tile-foreground: 44 26% 92%;
+    --tile-edge: 214 14% 22%;
 
-    --radius: 0.75rem;
+    --radius: 0.25rem;
 
-    --shadow-tile: 0 1px 2px hsl(222 22% 8% / 0.28);
-    --shadow-soft: 0 1px 2px hsl(222 22% 13% / 0.05), 0 8px 24px -8px hsl(222 22% 13% / 0.10);
+    --shadow-tile: inset 0 1px 0 hsl(214 14% 22% / 0.8), 0 1px 2px hsl(214 30% 3% / 0.7);
+    --shadow-soft: 0 1px 2px hsl(214 30% 3% / 0.5), 0 10px 28px -10px hsl(214 30% 2% / 0.7);
 
-    --sidebar-background: 214 12% 94%;
-    --sidebar-foreground: 220 14% 22%;
-    --sidebar-primary: 22 92% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 214 14% 88%;
-    --sidebar-accent-foreground: 220 14% 22%;
-    --sidebar-border: 214 14% 86%;
-    --sidebar-ring: 22 92% 50%;
+    --sidebar-background: 214 16% 12%;
+    --sidebar-foreground: 214 18% 84%;
+    --sidebar-primary: 47 92% 53%;
+    --sidebar-primary-foreground: 214 30% 8%;
+    --sidebar-accent: 214 14% 18%;
+    --sidebar-accent-foreground: 214 18% 84%;
+    --sidebar-border: 214 14% 19%;
+    --sidebar-ring: 47 92% 53%;
   }
 
   .dark {
-    --background: 220 14% 9%;
-    --foreground: 214 14% 90%;
+    --background: 214 16% 9%;
+    --foreground: 214 24% 92%;
 
-    --card: 220 14% 12%;
-    --card-foreground: 214 14% 90%;
+    --card: 214 16% 13%;
+    --card-foreground: 214 24% 92%;
 
-    --popover: 220 14% 12%;
-    --popover-foreground: 214 14% 90%;
+    --popover: 214 16% 12%;
+    --popover-foreground: 214 24% 92%;
 
-    --primary: 22 92% 54%;
-    --primary-foreground: 220 14% 9%;
+    --primary: 47 92% 53%;
+    --primary-foreground: 214 30% 8%;
 
-    --secondary: 220 12% 18%;
-    --secondary-foreground: 214 14% 84%;
+    --secondary: 214 14% 17%;
+    --secondary-foreground: 214 18% 85%;
 
-    --muted: 220 12% 16%;
-    --muted-foreground: 215 10% 58%;
+    --muted: 214 14% 14%;
+    --muted-foreground: 214 9% 60%;
 
-    --accent: 214 14% 90%;
-    --accent-foreground: 220 14% 12%;
+    --accent: 214 14% 18%;
+    --accent-foreground: 214 22% 92%;
 
-    --destructive: 0 65% 52%;
+    --destructive: 358 66% 55%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 220 12% 20%;
-    --input: 220 12% 22%;
-    --ring: 22 92% 54%;
+    --border: 214 14% 19%;
+    --input: 214 14% 22%;
+    --ring: 47 92% 53%;
 
-    --warning: 42 96% 55%;
-    --warning-foreground: 220 14% 9%;
+    --warning: 40 92% 54%;
+    --warning-foreground: 214 30% 8%;
 
-    --success: 145 50% 44%;
-    --success-foreground: 220 14% 9%;
+    --success: 142 42% 46%;
+    --success-foreground: 214 30% 8%;
 
-    --info: 215 60% 60%;
-    --info-foreground: 220 14% 9%;
+    --info: 205 58% 62%;
+    --info-foreground: 214 30% 8%;
 
-    --tile: 220 14% 15%;
-    --tile-foreground: 40 20% 96%;
-    --tile-edge: 220 12% 30%;
+    --tile: 214 20% 7%;
+    --tile-foreground: 44 26% 92%;
+    --tile-edge: 214 14% 22%;
 
-    --shadow-tile: inset 0 1px 0 hsl(220 12% 34%), 0 1px 2px hsl(220 14% 4% / 0.6);
-    --shadow-soft: 0 1px 2px hsl(220 14% 4% / 0.4), 0 4px 12px -4px hsl(220 14% 4% / 0.5);
+    --shadow-tile: inset 0 1px 0 hsl(214 14% 22% / 0.8), 0 1px 2px hsl(214 30% 3% / 0.7);
+    --shadow-soft: 0 1px 2px hsl(214 30% 3% / 0.5), 0 10px 28px -10px hsl(214 30% 2% / 0.7);
 
-    --sidebar-background: 220 14% 12%;
-    --sidebar-foreground: 214 14% 84%;
-    --sidebar-primary: 22 92% 54%;
-    --sidebar-primary-foreground: 220 14% 9%;
-    --sidebar-accent: 220 12% 18%;
-    --sidebar-accent-foreground: 214 14% 84%;
-    --sidebar-border: 220 12% 20%;
-    --sidebar-ring: 22 92% 54%;
+    --sidebar-background: 214 16% 12%;
+    --sidebar-foreground: 214 18% 84%;
+    --sidebar-primary: 47 92% 53%;
+    --sidebar-primary-foreground: 214 30% 8%;
+    --sidebar-accent: 214 14% 18%;
+    --sidebar-accent-foreground: 214 18% 84%;
+    --sidebar-border: 214 14% 19%;
+    --sidebar-ring: 47 92% 53%;
   }
 }
 
@@ -144,6 +144,9 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    /* Faint machinist pegboard — a sparse dot grid punched into the graphite base. */
+    background-image: radial-gradient(hsl(214 14% 92% / 0.022) 1px, transparent 1.4px);
+    background-size: 22px 22px;
     /* Stop iOS rubber-band scrolling from dragging the whole app shell around.
        Scrolling happens inside the <main> pane, never on the body. */
     overscroll-behavior: none;
@@ -166,6 +169,15 @@
     -webkit-user-select: none;
     user-select: none;
     touch-action: manipulation;
+  }
+
+  /* The condensed display face carries the machinist personality — a hair of tracking
+     keeps the engraved caps legible. Item/bin codes stay in the mono face. */
+  .font-display {
+    letter-spacing: 0.012em;
+  }
+  .font-mono {
+    font-feature-settings: "tnum" 1; /* tabular figures — codes/specs line up like a caliper scale */
   }
 
   /* Visible keyboard focus everywhere */
