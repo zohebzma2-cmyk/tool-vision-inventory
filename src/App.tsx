@@ -7,7 +7,7 @@ import { Loader2 } from "lucide-react";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import { AuthScreen } from "@/components/auth/AuthScreen";
+import { Landing } from "@/components/landing/Landing";
 
 const queryClient = new QueryClient();
 
@@ -20,7 +20,7 @@ function Gated({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  return user ? <>{children}</> : <AuthScreen />;
+  return user ? <>{children}</> : <Landing />;
 }
 
 const App = () => (
