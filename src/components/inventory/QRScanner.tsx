@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Camera, Upload, Package, MapPin, ScanLine, Loader2 } from "lucide-react";
+import { X, Camera, Upload, Package, MapPin, ScanLine, Loader2, Barcode } from "lucide-react";
 import jsQR from "jsqr";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
@@ -105,6 +106,8 @@ export function QRScanner({ open, onOpenChange, initialCode }: QRScannerProps) {
   const [resolving, setResolving] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [fillOpen, setFillOpen] = useState(false);
+  const [manual, setManual] = useState(false);       // "from barcode" — type or USB-scan the code
+  const [manualCode, setManualCode] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -225,16 +228,36 @@ export function QRScanner({ open, onOpenChange, initialCode }: QRScannerProps) {
         {!scanning && !result && !resolving && (
           <div className="text-center space-y-4 py-2">
             <p className="text-muted-foreground text-sm">
-              Point at a bin or tool label to jump straight to what's stored there.
+              Point at a bin or tool label — or type/scan its code — to jump to what's stored there.
             </p>
-            <div className="flex gap-2 justify-center">
+            <div className="flex flex-wrap gap-2 justify-center">
               <Button onClick={() => setScanning(true)}>
                 <Camera className="h-4 w-4 mr-2" /> Start camera
               </Button>
               <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="h-4 w-4 mr-2" /> From photo
               </Button>
+              <Button variant="outline" onClick={() => setManual((m) => !m)}>
+                <Barcode className="h-4 w-4 mr-2" /> From barcode
+              </Button>
             </div>
+            {manual && (
+              <form
+                onSubmit={(e) => { e.preventDefault(); const c = manualCode.trim(); if (c) void onDecoded(c); }}
+                className="flex justify-center gap-2"
+              >
+                {/* Type the code under any label's barcode — or focus this and scan with the USB
+                    barcode scanner (it types the code + Enter → resolves it). */}
+                <Input
+                  autoFocus
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value)}
+                  placeholder="Type or scan a code (e.g. Z989W)"
+                  className="max-w-[220px] font-mono uppercase"
+                />
+                <Button type="submit" disabled={!manualCode.trim()}>Go</Button>
+              </form>
+            )}
             <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
               onChange={(e) => scanFile(e.target.files?.[0])} />
           </div>
