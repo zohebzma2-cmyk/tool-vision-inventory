@@ -429,7 +429,7 @@ export function ItemsList({ syncSignal }: { syncSignal?: number } = {}) {
                       <BrandLogo brand={item.brand} size={36} className="mt-0.5" />
                     )}
                     <div className="min-w-0">
-                      <h3 className="font-semibold text-foreground text-lg mb-1">{item.name}</h3>
+                      <h3 className="font-display uppercase tracking-wide text-foreground text-lg leading-tight mb-1">{item.name}</h3>
                       {item.brand && (
                         <p className="text-sm text-muted-foreground font-medium">{item.brand}</p>
                       )}
