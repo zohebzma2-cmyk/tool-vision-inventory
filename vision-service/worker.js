@@ -122,8 +122,14 @@ const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a 
 Respond with STRICT JSON ONLY:
 {"name": string, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string, "model": string, "text": string, "confidence": 0..1}`;
 
-const CABLE_PROMPT = `You are looking at a coiled / wrapped-up cable or cord for a garage inventory. Estimate its length from the coil — count the visible loops and judge the loop diameter (length ≈ loops × loop circumference). Coil-based length is approximate, so also give a min/max range. Read any printed length/gauge text on the jacket if visible. Respond with STRICT JSON ONLY:
-{"type": short type (e.g. "extension cord","power cable","USB-C cable","HDMI cable","ethernet cable","air hose","garden hose","rope"), "lengthFeet": number best estimate of TOTAL length in feet, "lengthMin": number, "lengthMax": number, "gauge": string or "" (e.g. "14 AWG"), "connectors": string or "" (e.g. "NEMA 5-15 both ends"), "color": string or "", "confidence": 0..1}`;
+const CABLE_PROMPT = `You are looking at a coiled / wrapped-up cable or cord for a garage inventory. FIRST identify what it is from its CONNECTOR ENDS (zoom in on the plugs) — name the specific type. Common types to distinguish:
+- Data/AV: USB-C, USB-A, USB-B (printer), micro-USB, mini-USB, Lightning, Thunderbolt, HDMI, mini-HDMI, micro-HDMI, DisplayPort, mini-DisplayPort, VGA, DVI, RCA/composite, component, coaxial/coax, 3.5mm audio (aux), optical/TOSLINK, ethernet (Cat5e/Cat6/RJ45), phone/RJ11, FireWire, serial/RS-232/DB9, parallel/DB25, PS/2, SATA, eSATA, IDE/ribbon, Molex, SAS.
+- Power: IEC power cable (C13/C5/"cloverleaf"), NEMA extension cord, appliance cord, laptop barrel/DC, USB charger cable.
+- Other: speaker wire, air hose, garden hose, rope, welding lead, jumper cables.
+If it has two different ends, name both (e.g. "USB-C to USB-A", "HDMI to mini-HDMI").
+THEN estimate length from the coil: count visible loops × loop circumference. Thin data cables coil tight — loops are hard to count, so give a WIDE min/max range and lower confidence. Read any printed length/gauge text on the jacket if visible and prefer it.
+Respond with STRICT JSON ONLY:
+{"type": specific cable name, "lengthFeet": number best estimate of TOTAL length in feet, "lengthMin": number, "lengthMax": number, "gauge": string or "" (e.g. "14 AWG" or "28 AWG"), "connectors": string or "" (e.g. "USB-C / USB-A"), "color": string or "", "confidence": 0..1}`;
 
 // Blueprint zones are a subset of location types — the furniture strips that live inside a room.
 const ZONE_TYPES = ["pegboard", "shelf", "cabinet", "rack", "drawer", "bin"];
