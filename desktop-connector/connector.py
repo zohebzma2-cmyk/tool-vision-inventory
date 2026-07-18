@@ -621,4 +621,12 @@ if __name__ == "__main__":
     # app served from a private-LAN address). Localhost still works exactly as before.
     print(f"Tool Vision print connector on http://0.0.0.0:{PORT}  → {QUEUE}")
     threading.Thread(target=_drain_loop, daemon=True).start()  # auto-print queued labels on reconnect
+    # Frictionless: open the printing app automatically so you never type the URL. Skip with
+    # TOOLVISION_NO_OPEN=1 (e.g. headless / login-item that shouldn't steal focus).
+    if os.environ.get("TOOLVISION_NO_OPEN") != "1":
+        try:
+            import webbrowser
+            threading.Timer(1.2, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
+        except Exception:
+            pass
     ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()

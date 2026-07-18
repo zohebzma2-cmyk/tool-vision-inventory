@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { compressImage } from "@/lib/image";
+import { identifyItemFromImage } from "@/lib/vision";
 import { supabase } from "@/integrations/supabase/client";
 import { printTextLabel, isPrintingSupported, setupPrinter } from "@/components/inventory/PrinterService";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
@@ -127,10 +128,17 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
     console.log('Starting image classification via Google Vision');
     try {
       setIsProcessing(true);
-      const { data, error } = await supabase.functions.invoke('openai-vision', {
-        body: { imageDataUrl: imageUrl, mode: 'identify', dimsInches }
-      });
-      if (error) throw error;
+      // Use the unified vision Worker (same brain as Rapid/Sort/Scan) instead of the old
+      // openai-vision edge function, which isn't set up on this project.
+      const s = await identifyItemFromImage(imageUrl);
+      const data = {
+        specificName: s.name,
+        confidence: s.confidence ?? 0.6,
+        category: s.category,
+        labels: s.name ? [{ description: s.name, score: s.confidence ?? 0.6 }] : [],
+        text: s.text || '',
+        webEntities: s.brand ? [{ description: s.brand }] : [],
+      } as Record<string, unknown>;
       const specific = data?.specificName as string | undefined;
       const confidence = (data?.confidence as number | undefined) ?? 0;
       const labels = (data?.labels ?? []).slice(0, 3);
@@ -230,11 +238,9 @@ export function ImageRecognition({ onToolIdentified, onTextExtracted, onAutoFill
   const processImageOCR = async (imageUrl: string) => {
     try {
       setIsProcessing(true);
-      const { data, error } = await supabase.functions.invoke('openai-vision', {
-        body: { imageDataUrl: imageUrl, mode: 'ocr' }
-      });
-      if (error) throw error;
-      const extractedText = data?.text || 'No text found';
+      // Unified vision Worker — its `text` field is the OCR of any labels in the photo.
+      const s = await identifyItemFromImage(imageUrl);
+      const extractedText = s.text || 'No text found';
       setResults({ type: 'ocr', results: [{ label: 'Extracted Text', text: extractedText }] });
       onTextExtracted?.(extractedText);
       setOcrReady(true);
