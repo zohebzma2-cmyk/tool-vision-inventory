@@ -1,0 +1,47 @@
+name: Deploy web to Cloudflare Pages
+
+# The Pages project is NOT git-connected, so merges don't deploy on their own. This builds the web
+# app with the app's public VITE_* config (stored as repo Variables) and pushes it to the production
+# Pages deployment on every push to main — so the live site (and the live-loaded iPad) always matches
+# main. Skips commits that only touch native/connector/worker/docs (they don't change the web build).
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "ios/**"
+      - "desktop-connector/**"
+      - "tool-vision-mcp/**"
+      - "vision-service/**"
+      - "supabase/**"
+      - "**/*.md"
+  workflow_dispatch: {}
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_VISION_API_URL: ${{ vars.VITE_VISION_API_URL }}
+          VITE_PUBLIC_BASE_URL: ${{ vars.VITE_PUBLIC_BASE_URL }}
+          VITE_LOGODEV_PK: ${{ vars.VITE_LOGODEV_PK }}
+      - name: Deploy to Cloudflare Pages (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=tool-vision --branch=main
