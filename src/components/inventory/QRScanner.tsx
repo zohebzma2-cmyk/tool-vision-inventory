@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { setConnectorHost } from "@/components/inventory/PrinterService";
 import { BinFillDialog } from "./BinFillDialog";
 
 interface QRScannerProps {
@@ -120,6 +121,21 @@ export function QRScanner({ open, onOpenChange, initialCode }: QRScannerProps) {
   const onDecoded = useCallback(async (code: string) => {
     setScanning(false);
     stopCamera();
+    // A printer-connect QR (shown on the Mac in Settings → Connect your Mac) — link to that
+    // connector instead of doing an inventory lookup. Format: "tvconn:<host>[:<port>]".
+    const conn = code.trim().match(/^tvconn:\/?\/?(.+)$/i);
+    if (conn) {
+      const host = conn[1].trim();
+      setConnectorHost(host);
+      const url = /:\d+$/.test(host) ? host : `${host}:17777`;
+      const ok = await fetch(`http://${url}/health`, { signal: AbortSignal.timeout(3000) })
+        .then((r) => r.ok).catch(() => false);
+      toast(ok
+        ? { title: "Printer connected", description: `Linked to ${host}. Labels print on that computer.`, variant: "success" }
+        : { title: "Saved — not reachable yet", description: "Same Wi-Fi + connector running? (On the iPad, printing routes through the Mac.)", variant: "destructive" });
+      onOpenChange(false);
+      return;
+    }
     setResolving(true);
     try {
       setResult(await resolveCode(code));
@@ -128,7 +144,7 @@ export function QRScanner({ open, onOpenChange, initialCode }: QRScannerProps) {
     } finally {
       setResolving(false);
     }
-  }, [stopCamera, toast]);
+  }, [stopCamera, toast, onOpenChange]);
 
   // A code handed in from a USB barcode scanner: resolve it straight away, no camera.
   useEffect(() => {
