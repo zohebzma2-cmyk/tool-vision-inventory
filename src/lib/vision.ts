@@ -78,6 +78,21 @@ export async function identifyItemFromImage(imageDataUrl: string): Promise<ItemS
   return postJson<ItemSuggestion>("/identify-item", { imageDataUrl });
 }
 
+/** AI estimate of a coiled cable/cord's type + length (rough — coil-based; the user confirms). */
+export interface CableEstimate {
+  type: string;
+  lengthFeet: number;
+  lengthMin: number | null;
+  lengthMax: number | null;
+  gauge: string;
+  connectors: string;
+  color: string;
+  confidence: number;
+}
+export async function identifyCableFromImage(imageDataUrl: string): Promise<CableEstimate> {
+  return postJson<CableEstimate>("/identify-cable", { imageDataUrl });
+}
+
 /** One recognized item from a bin-contents photo. */
 export interface BinItemSuggestion {
   name: string;

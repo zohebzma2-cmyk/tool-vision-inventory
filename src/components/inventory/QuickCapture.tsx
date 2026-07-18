@@ -3,11 +3,13 @@
 // the desktop station (voice + label printing). Keeps capture one tap from anywhere.
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Loader2, ScanLine, Zap } from "lucide-react";
+import { X, Loader2, ScanLine, Zap, Cable } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
+import { Button } from "@/components/ui/button";
 import { RapidMode } from "./RapidMode";
 import { ScanMode } from "./ScanMode";
+import { CableLabel } from "./CableLabel";
 
 interface Bin { id: string; name: string; category?: string | null }
 
@@ -22,6 +24,7 @@ function binOrder(a: Bin, b: Bin): number {
 export function QuickCapture({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [bins, setBins] = useState<Bin[] | null>(null);
   const [picked, setPicked] = useState<Bin | null>(null);
+  const [cordOpen, setCordOpen] = useState(false);
   const [q, setQ] = useState("");
   const desktop = isLabelOutputSupported();
 
@@ -38,6 +41,8 @@ export function QuickCapture({ open, onOpenChange }: { open: boolean; onOpenChan
   }, [bins, q]);
 
   if (!open) return null;
+
+  if (cordOpen) return <CableLabel open onOpenChange={(o) => { if (!o) { setCordOpen(false); onOpenChange(false); } }} />;
 
   // Once a bin is picked, hand off to the device-appropriate capture mode.
   if (picked) {
@@ -61,9 +66,12 @@ export function QuickCapture({ open, onOpenChange }: { open: boolean; onOpenChan
         </button>
       </div>
 
-      <div className="border-b p-3">
+      <div className="border-b p-3 space-y-2">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search bins…"
           className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary" />
+        <Button variant="secondary" className="w-full" onClick={() => setCordOpen(true)}>
+          <Cable className="mr-2 h-4 w-4" /> Label a cord instead
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">

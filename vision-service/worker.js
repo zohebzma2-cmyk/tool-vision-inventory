@@ -122,6 +122,9 @@ const IDENTIFY_PROMPT = `Identify the single main tool/item in this photo for a 
 Respond with STRICT JSON ONLY:
 {"name": string, "category": one of ${JSON.stringify(CATEGORIES)}, "brand": string, "model": string, "text": string, "confidence": 0..1}`;
 
+const CABLE_PROMPT = `You are looking at a coiled / wrapped-up cable or cord for a garage inventory. Estimate its length from the coil — count the visible loops and judge the loop diameter (length ≈ loops × loop circumference). Coil-based length is approximate, so also give a min/max range. Read any printed length/gauge text on the jacket if visible. Respond with STRICT JSON ONLY:
+{"type": short type (e.g. "extension cord","power cable","USB-C cable","HDMI cable","ethernet cable","air hose","garden hose","rope"), "lengthFeet": number best estimate of TOTAL length in feet, "lengthMin": number, "lengthMax": number, "gauge": string or "" (e.g. "14 AWG"), "connectors": string or "" (e.g. "NEMA 5-15 both ends"), "color": string or "", "confidence": 0..1}`;
+
 // Blueprint zones are a subset of location types — the furniture strips that live inside a room.
 const ZONE_TYPES = ["pegboard", "shelf", "cabinet", "rack", "drawer", "bin"];
 
@@ -462,7 +465,7 @@ export default {
       }
     }
 
-    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-bin", "/detect-spots", "/generate-blueprint"].includes(url.pathname)) {
+    if (request.method !== "POST" || !["/map-space", "/identify-item", "/identify-cable", "/identify-bin", "/detect-spots", "/generate-blueprint"].includes(url.pathname)) {
       return json(404, { error: "not found" }, cors);
     }
 
@@ -576,6 +579,20 @@ export default {
           : null;
         const summary = typeof out?.summary === "string" ? out.summary.trim().slice(0, 80) : "";
         return json(200, { items, tote: (sizeGuess || gallonsGuess) ? { sizeGuess, gallonsGuess } : null, summary }, cors);
+      }
+
+      if (url.pathname === "/identify-cable") {
+        const out = await callModelResilient(env, apiKey, CABLE_PROMPT, body.imageDataUrl);
+        return json(200, {
+          type: typeof out.type === "string" ? out.type.slice(0, 40) : "cable",
+          lengthFeet: clampNum(out.lengthFeet, 0.5, 500, 10),
+          lengthMin: out.lengthMin != null ? clampNum(out.lengthMin, 0.5, 500, 5) : null,
+          lengthMax: out.lengthMax != null ? clampNum(out.lengthMax, 0.5, 500, 25) : null,
+          gauge: typeof out.gauge === "string" ? out.gauge.slice(0, 20) : "",
+          connectors: typeof out.connectors === "string" ? out.connectors.slice(0, 60) : "",
+          color: typeof out.color === "string" ? out.color.slice(0, 20) : "",
+          confidence: clamp01(out.confidence ?? 0.5),
+        }, cors);
       }
 
       const out = await callModelResilient(env, apiKey, IDENTIFY_PROMPT, body.imageDataUrl);
