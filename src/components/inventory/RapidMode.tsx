@@ -15,6 +15,7 @@ import { identifyItemFromImage, isVisionConfigured } from "@/lib/vision";
 import { mintShortCode } from "@/lib/shortcode";
 import { persistInventoryImage } from "@/lib/imageStorage";
 import { noteSessionItem } from "@/lib/sessionPrints";
+import { isLabelOutputSupported } from "@/lib/brotherPrint";
 import { renderItemLabel, loadBrandLogo } from "@/lib/itemLabel";
 import { renderBinLabel } from "@/lib/binLabel";
 import { getLabelMedia } from "@/components/inventory/PrinterService";
@@ -74,33 +75,45 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     const labeledCategories: string[] = [];
     let lastCreated: { id: string; name: string } | null = null;
 
+    // Zoom all the way out for the widest field of view (best for the top-down iPad framing).
+    const applyWidest = async (s: MediaStream) => {
+      try {
+        const track = s.getVideoTracks()[0];
+        const caps = track?.getCapabilities?.() as { zoom?: { min?: number } } | undefined;
+        if (caps?.zoom?.min != null) {
+          await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] } as unknown as MediaTrackConstraints);
+        }
+      } catch { /* zoom not supported on this camera */ }
+    };
+
     // --- camera + mic ---
     const startMedia = async (): Promise<MediaStream> => {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 } },
         audio: { echoCancellation: true, noiseSuppression: true },
       });
-      // On a desktop, prefer an external USB webcam (Logitech/Brio/C920…) over the built-in FaceTime.
-      // Acquire the new stream FIRST, and only stop the old one once it succeeds — a failed switch
-      // must never leave us holding a dead (already-stopped) stream.
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const cams = devices.filter((d) => d.kind === "videoinput");
-        // Prefer a known external webcam by name; else ANY camera that isn't the built-in FaceTime /
-        // Continuity (iPhone) / Desk View — that's the plugged-in USB cam (e.g. a Logitech that macOS
-        // exposes only as "UVC Camera VendorID_1133").
-        const ext = cams.find((d) => /logitech|brio|c9\d\d|webcam|uvc|razer|elgato|streamcam|hd pro|vendorid_1133/i.test(d.label))
-          || cams.find((d) => d.label && !/facetime|built-?in|iphone|continuity|desk\s*view/i.test(d.label));
-        const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId;
-        if (ext && ext.deviceId && ext.deviceId !== currentId) {
-          const better = await navigator.mediaDevices.getUserMedia({
-            video: { deviceId: { exact: ext.deviceId }, width: { ideal: 1280 } },
-            audio: { echoCancellation: true, noiseSuppression: true },
-          });
-          stream.getTracks().forEach((t) => t.stop()); // safe now: `better` is live
-          return better;
-        }
-      } catch { /* switch failed — the original stream is still live, keep it */ }
+      // DESKTOP STATION ONLY: prefer an external USB webcam (Logitech/Brio/C920…). On a phone/iPad this
+      // logic wrongly grabs the FRONT camera (it isn't "FaceTime/built-in"), so it's gated to the
+      // desktop — where a USB cam actually exists. On mobile, facingMode:"environment" is the rear cam.
+      if (isLabelOutputSupported()) {
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const cams = devices.filter((d) => d.kind === "videoinput");
+          const ext = cams.find((d) => /logitech|brio|c9\d\d|webcam|uvc|razer|elgato|streamcam|hd pro|vendorid_1133/i.test(d.label))
+            || cams.find((d) => d.label && !/facetime|built-?in|iphone|continuity|desk\s*view|front/i.test(d.label));
+          const currentId = stream.getVideoTracks()[0]?.getSettings().deviceId;
+          if (ext && ext.deviceId && ext.deviceId !== currentId) {
+            const better = await navigator.mediaDevices.getUserMedia({
+              video: { deviceId: { exact: ext.deviceId }, width: { ideal: 1280 } },
+              audio: { echoCancellation: true, noiseSuppression: true },
+            });
+            stream.getTracks().forEach((t) => t.stop()); // safe now: `better` is live
+            await applyWidest(better);
+            return better;
+          }
+        } catch { /* switch failed — the original stream is still live, keep it */ }
+      }
+      await applyWidest(stream);
       return stream;
     };
 
@@ -226,7 +239,7 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     const printBinLabel = async () => {
       const media = getLabelMedia();
       const { data: b } = await supabase
-        .from("locations").select("qr_code,slot_index,category,parent_location_id").eq("id", bin!.id).maybeSingle();
+        .from("locations").select("qr_code,slot_index,category,parent_location_id,layout").eq("id", bin!.id).maybeSingle();
       if (!b) return;
       let category = (b as { category?: string }).category || "";
       if (!category && labeledCategories.length) {
@@ -241,9 +254,16 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         const { data: p } = await supabase.from("locations").select("name").eq("id", parentId).maybeSingle();
         if (p?.name) location = p.name;
       }
-      const num = parseInt(bin!.name.replace(/\D/g, ""), 10) || ((b as { slot_index?: number }).slot_index ?? 0) + 1;
+      // Match the rest of the account's bin labels: use the stored bin number (layout.binNumber) or
+      // slot_index+1 — NOT digits stripped from the whole name (a "Bin 4 — 6.5qt tote" name would
+      // otherwise render as "465"). Fall back to the FIRST number in the name only.
+      const layout = (b as { layout?: { binNumber?: number } }).layout || {};
+      const slotIdx = (b as { slot_index?: number }).slot_index;
+      const num = Number(layout.binNumber)
+        || (slotIdx != null ? slotIdx + 1 : parseInt(bin!.name.match(/\d+/)?.[0] || "", 10))
+        || 1;
       const canvas = renderBinLabel({
-        number: num, code: (b as { qr_code?: string }).qr_code || bin!.name, location, category, media,
+        number: num, code: (b as { qr_code?: string }).qr_code || `BIN${num}`, location, category, media,
       });
       await printResilient(canvas.toDataURL("image/png"), media, `${bin!.name} label`);
     };
