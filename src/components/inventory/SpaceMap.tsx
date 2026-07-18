@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Grid3x3, Printer, Loader2, Package, Camera, MapPin, Boxes, Zap, ScanLine } from "lucide-react";
+import { Grid3x3, Printer, Loader2, Package, Camera, MapPin, Boxes, Zap, ScanLine, Cable } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/adaptive-dialog";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +13,7 @@ import { BinFillDialog } from "./BinFillDialog";
 import { SortBinDialog } from "./SortBinDialog";
 import { RapidMode } from "./RapidMode";
 import { ScanMode } from "./ScanMode";
+import { CableLabel } from "./CableLabel";
 import { cellQuad, quadToSvgPoints, type QuadCorners } from "@/lib/quad";
 
 interface SpaceLocation {
@@ -68,6 +69,7 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
   const [sortOpen, setSortOpen] = useState(false);
   const [rapidOpen, setRapidOpen] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [cordOpen, setCordOpen] = useState(false);
   const [placeName, setPlaceName] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -338,6 +340,9 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
                   <Button size="sm" onClick={() => setScanOpen(true)}>
                     <ScanLine className="h-4 w-4 mr-2" /> Scan (overlay)
                   </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setCordOpen(true)}>
+                    <Cable className="h-4 w-4 mr-2" /> Label a cord
+                  </Button>
                   <Button size="sm" variant="secondary" onClick={() => setFillOpen(true)}>
                     <Camera className="h-4 w-4 mr-2" /> Fill bin with camera
                   </Button>
@@ -397,6 +402,12 @@ export function SpaceMap({ open, onOpenChange, location }: Props) {
           open={scanOpen}
           onOpenChange={setScanOpen}
           bin={selected ? { id: selected.id, name: selected.name } : null}
+          onSaved={() => setRefreshKey((k) => k + 1)}
+        />
+
+        <CableLabel
+          open={cordOpen}
+          onOpenChange={setCordOpen}
           onSaved={() => setRefreshKey((k) => k + 1)}
         />
       </DialogContent>
