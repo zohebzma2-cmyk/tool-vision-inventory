@@ -57,12 +57,17 @@ npm run build
 npx cap sync ios
 
 echo "==> 3/4 Archiving (cloud signing via ASC API key — no keychain certs needed)"
+# Auto-increment the build number so each upload is unique (App Store Connect rejects duplicates).
+# The git commit count is monotonic and always higher than any past manual number.
+BUILD_NO=$(git rev-list --count HEAD)
+echo "    build number: $BUILD_NO"
 xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
   -sdk iphoneos -archivePath "$ARCHIVE" archive \
   -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
   -authenticationKeyPath "$ASC_KEY_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
   -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+  CURRENT_PROJECT_VERSION="$BUILD_NO" \
   DEVELOPMENT_TEAM="$TEAM_ID" | tail -3
 
 echo "==> 4/4 Exporting and uploading to App Store Connect"
