@@ -24,6 +24,7 @@ import { useRealtimeSync } from "@/hooks/useRealtimeSync";
 import { useAutoPrintBridge } from "@/hooks/useAutoPrintBridge";
 import { useLocalFlag } from "@/lib/useLocalFlag";
 import { isLabelOutputSupported } from "@/lib/brotherPrint";
+import { canReachConnector } from "@/components/inventory/PrinterService";
 import { Switch } from "@/components/ui/switch";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { cn } from "@/lib/utils";
@@ -58,7 +59,9 @@ const Index = () => {
 
   // Auto-print bridge: when on (desktop station), labels for items the iPad scans print here on the go.
   const [autoPrint, setAutoPrint] = useLocalFlag("tv_autoprint");
-  useAutoPrintBridge(autoPrint);
+  // Only run the bridge where it can actually reach the connector — never on the live-loaded iPad
+  // (https), where prints would silently queue forever.
+  useAutoPrintBridge(autoPrint && canReachConnector());
 
   // A USB barcode/QR scanner (keyboard-wedge) on the laptop: a scan opens the scanner dialog with
   // the code already resolved — same lookup + result UI as the camera, no camera needed.
@@ -284,8 +287,9 @@ const Index = () => {
         </div>
       </header>
 
-      {/* Desktop station: auto-print labels for items scanned on other devices (the iPad), as they arrive. */}
-      {isLabelOutputSupported() && (
+      {/* Desktop station: auto-print labels for items scanned on other devices (the iPad), as they
+          arrive. Only shown where the connector is reachable (never on the live-loaded iPad). */}
+      {canReachConnector() && (
         <div className="flex items-center justify-end gap-2 border-b bg-muted/30 px-3 md:px-4 py-1.5 text-sm">
           <Printer className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-muted-foreground">Auto-print incoming scans</span>

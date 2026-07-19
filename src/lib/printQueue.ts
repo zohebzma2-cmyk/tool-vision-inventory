@@ -7,7 +7,10 @@
 import { printImageViaConnector } from "@/components/inventory/PrinterService";
 
 const KEY = "tv-print-queue";
-const MAX = 40; // keep the newest N; a garage bin wall is ~36 labels
+// Headroom for a long printer-offline stretch (whole cataloging session, printer asleep). The real
+// storage bound is the localStorage quota, which write() catches and reports as queued:false — so we
+// never silently exceed it. This cap only guards against unbounded growth; hitting it is logged loudly.
+const MAX = 300;
 
 interface Job { id: string; imageDataUrl: string; media?: string; label: string; ts: number; tries: number }
 
@@ -48,7 +51,12 @@ export async function printResilient(
   if (res?.success) return { success: true, queued: false };
   const jobs = read();
   jobs.push({ id: newId(), imageDataUrl, media, label, ts: Date.now(), tries: 1 });
-  while (jobs.length > MAX) jobs.shift(); // drop oldest to stay under storage
+  if (jobs.length > MAX) {
+    // Never silent: dropping oldest here means the printer has been unreachable for a very long time.
+    // Warn so it's visible; those items can be reprinted from the item list.
+    const dropped = jobs.splice(0, jobs.length - MAX);
+    console.warn(`[printQueue] queue exceeded ${MAX}; dropped ${dropped.length} oldest label(s): ${dropped.map((j) => j.label).join(", ")}. Reprint them from the item list if still needed.`);
+  }
   // If persistence fails (quota), report queued:false so the caller can flag a manual reprint —
   // never claim a label is safely queued when it wasn't actually stored.
   const persisted = write(jobs);

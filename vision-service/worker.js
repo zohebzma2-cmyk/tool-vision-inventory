@@ -571,6 +571,9 @@ export default {
             name: typeof it?.name === "string" && it.name.trim() ? it.name.trim() : "Unknown item",
             category: CATEGORIES.includes(cat) ? cat : "other",
             kind: ITEM_KINDS.includes(kind) ? kind : "part",
+            // The prompt captures a size/spec for parts & fittings ("3/4 in", "4 in pop-up"); pass it
+            // through so it lands in size_specs. Dropping it here nulled every fitting's size.
+            size: typeof it?.size === "string" ? it.size.slice(0, 40) : "",
             brand: typeof it?.brand === "string" ? it.brand : "",
             model: typeof it?.model === "string" ? it.model : "",
             quantity: clampInt(it?.quantity, 1, 999, 1),

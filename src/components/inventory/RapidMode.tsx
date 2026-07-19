@@ -210,11 +210,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       // without the image (that would ship an imageless item that looks fine). Fail loud instead.
       const { data: created, error } = await supabase.from("items").insert(insert).select("id").single();
       if (error) throw error;
+      // Claim it as ours BEFORE any further await — the realtime INSERT echo can reach the auto-print
+      // bridge during the item_locations round-trip below; marking it synchronously here prevents a
+      // second (duplicate) label. Rapid Mode prints its own label just after.
+      noteSessionItem(created!.id);
       // Filing the item into the bin is the whole point — a failure here must surface, not be swallowed.
       const { error: linkErr } = await supabase
         .from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: qty });
       if (linkErr) throw linkErr;
-      noteSessionItem(created!.id); // Rapid Mode prints its own label — don't let the auto-print bridge repeat it
       lastCreated = { id: created!.id, name: item.name };
       if (item.category) labeledCategories.push(item.category);
       if (upc) return { merged: false, noLabel: true }; // SKU'd part — stored with its UPC, no TV label

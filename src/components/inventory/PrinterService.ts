@@ -959,6 +959,17 @@ export function connectorBase(): string {
   return 'http://127.0.0.1:17777';
 }
 
+/** Whether THIS page can actually reach the local print connector. A public https origin (the
+ *  live-loaded iPad on pages.dev) is blocked from calling the http connector by the browser
+ *  (mixed-content / Private Network Access), so auto-print there would silently queue forever — the
+ *  toggle and bridge must be hidden. True when served BY the connector (:17777) or from any non-https
+ *  origin (local dev / LAN) where an http fetch to the connector is allowed. */
+export function canReachConnector(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.location.port === '17777') return true;      // same-origin connector-served app
+  return window.location.protocol !== 'https:';           // http origin can reach the http connector
+}
+
 /** Persist the connector host the app should print through (the laptop's LAN address for the phone/
  *  iOS app). Empty clears it. Resets the reachability cache so the next print re-checks immediately. */
 export function setConnectorHost(host: string): void {
@@ -1075,7 +1086,12 @@ export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; m
         : { success: false, message: 'Failed to send data to printer.' };
     }
 
-    // No WebUSB (iOS / Safari): share or download a label image.
+    // No WebUSB (iOS / Safari) and the connector wasn't reachable above. On iPad the QL-800 only prints
+    // through the desktop connector (CUPS) — it's not an AirPrint device. If this page is HTTPS (the
+    // pages.dev build), the iPad literally can't reach the HTTP connector: Safari blocks the cross-origin
+    // HTTP request (mixed content) and the connector's CORS rejects the https origin anyway. A share sheet
+    // has no way to reach the QL-800, so tell the user how to actually print instead of faking success.
+    const onHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
     const canvas = await rasterizeLabel(spec);
     const blob: Blob = await new Promise((res, rej) =>
       canvas.toBlob((b) => (b ? res(b) : rej(new Error("Couldn't render label"))), 'image/png'),
@@ -1084,7 +1100,12 @@ export async function printLabel(spec: LabelSpec): Promise<{ success: boolean; m
     const file = new File([blob], `${fileBase}.png`, { type: 'image/png' });
     if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: heading });
-      return { success: true, message: 'Label sent to the share sheet — pick Print or your Brother app.' };
+      return {
+        success: true,
+        message: onHttps
+          ? "Shared the label image — print it from the Brother iPrint&Label app (AirPrint won't list the QL-800). For one-tap printing straight to the QL-800, open this app at http://<your Mac's IP>:17777 on the same Wi-Fi with the desktop connector running."
+          : 'Label sent to the share sheet — pick Print or your Brother app.',
+      };
     }
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

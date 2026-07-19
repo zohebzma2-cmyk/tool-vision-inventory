@@ -27,6 +27,10 @@ interface Props {
 
 // Confidence at/above which we auto-file without asking; below it we surface a confirm card.
 const AUTO_FILE = 0.75;
+// Detection score (AUTO_FILE) only says "there's clearly an object here" — it says nothing about
+// whether we know WHAT it is. Auto-filing also requires the identification to clear this bar; a
+// weak/failed identify goes to a confirm card instead of being filed as a guess.
+const IDENT_MIN = 0.6;
 const SCAN_MS = 2200; // gap between scans — long enough for a vision round-trip + for you to place items
 const CATEGORY_CHIPS = ["Power Tool Accessories", "Hand Tools", "Fasteners", "Plumbing", "Electrical", "PPE", "Marking Tools", "Other"];
 
@@ -72,10 +76,12 @@ export function ScanMode({ open, onOpenChange, bin, onSaved }: Props) {
       ...(brand ? { brand } : {}), ...(model ? { model } : {}),
     }).select("id").single();
     if (error) throw error;
+    // Claim it as ours synchronously, before the link round-trip below — the realtime INSERT echo can
+    // reach the auto-print bridge during that await; marking it now prevents a duplicate label.
+    noteSessionItem(created!.id as string); // if scanning on the desktop, don't let the bridge reprint it
     const { error: linkErr } = await supabase
       .from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: 1 });
     if (linkErr) throw linkErr;
-    noteSessionItem(created!.id as string); // if scanning on the desktop, don't let the bridge reprint it
     setCount((c) => c + 1);
     setLastUndo({ id: created!.id as string, name });
     haptic.success();
@@ -119,6 +125,14 @@ export function ScanMode({ open, onOpenChange, bin, onSaved }: Props) {
             const crop = await cropBox(frame, s.box);
             // If we've learned this label, trust your past correction and skip the extra identify call.
             const det = !learned && crop ? await identifyItemFromImage(crop).catch(() => null) : null;
+            // Only auto-file when we actually know what it is. A learned correction is trusted; otherwise
+            // the identify must be confident. A well-detected box with a weak/failed identify must NOT be
+            // filed as a guess ("Other"/raw label) — hand it to the confirm card, pre-seeded with our best guess.
+            if (!learned && (!det || (det.confidence ?? 0) < IDENT_MIN)) {
+              filedRef.current.delete(keyOf(s));
+              setPend({ spot: s, crop, name: det?.name || s.label, category: det?.category || "Other" });
+              break;
+            }
             const name = learned?.name || det?.name || s.label;
             const category = learned?.category || det?.category || "Other";
             const brand = learned?.brand || det?.brand || "";
