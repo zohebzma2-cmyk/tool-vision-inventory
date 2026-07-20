@@ -83,41 +83,60 @@ const esc = (s) => String(s).replace(/[(),"]/g, " ").trim();
 
 /* ------------------------------------------------------------------ shared lookups */
 
-/** Resolve a bin by its short code, its exact name, or a partial name — in that order. */
-async function findBin(env, owner, ref) {
-  const needle = esc(ref);
-  const tries = [
-    { qr_code: `eq.${needle.toUpperCase()}` },
-    { name: `ilike.${needle}` },
-    { name: `ilike.*${needle}*` },
-  ];
-  for (const filter of tries) {
-    const rows = await sb(env, "GET", "locations", {
-      params: {
-        owner_id: `eq.${owner}`,
-        select: "id,name,type,qr_code,category,parent_location_id",
-        limit: "5",
-        ...filter,
-      },
-    });
-    if (rows?.length) return rows;
-  }
-  return [];
+/**
+ * Load the whole location table ONCE per request and resolve everything in memory.
+ *
+ * This is the difference between a snappy tool and a sluggish one. Resolving a bin used to cost up
+ * to three sequential queries (code, then exact name, then partial), and building a path cost one
+ * query PER ANCESTOR LEVEL, per result — so a five-result search was ~15 sequential round trips at
+ * ~150ms each. A whole garage is a few hundred rows and a single query, so the tree belongs in
+ * memory and the round trips collapse to one.
+ *
+ * Cached PER CALL, never across calls. `env` itself is reused for the isolate's whole lifetime
+ * (minutes), so caching there would happily answer with a tree from before the user moved something.
+ * callTool hands each invocation its own `Object.create(env)` so this cache dies with the call.
+ */
+async function loadTree(env, owner) {
+  if (Object.prototype.hasOwnProperty.call(env, "__tree")) return env.__tree;
+  const rows = await sb(env, "GET", "locations", {
+    params: {
+      owner_id: `eq.${owner}`,
+      select: "id,name,type,qr_code,category,parent_location_id,is_slot",
+      limit: "2000",
+    },
+  }) || [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const pathOf = (loc) => {
+    const parts = [loc.name];
+    let cur = loc, guard = 0;
+    while (cur?.parent_location_id && guard++ < 8) {
+      cur = byId.get(cur.parent_location_id);
+      if (!cur) break;
+      parts.unshift(cur.name);
+    }
+    return parts.join(" · ");
+  };
+  const tree = { rows, byId, pathOf };
+  env.__tree = tree;
+  return tree;
 }
 
-/** Walk parents to a readable path, e.g. "Garage · 6.5qt Bin Wall · Bin 3". */
+/** Resolve a bin by short code, exact name, then partial name — all against the in-memory tree. */
+async function findBin(env, owner, ref) {
+  const needle = esc(ref).toLowerCase();
+  if (!needle) return [];
+  const { rows } = await loadTree(env, owner);
+  const byCode = rows.filter((r) => (r.qr_code || "").toLowerCase() === needle);
+  if (byCode.length) return byCode;
+  const exact = rows.filter((r) => r.name.toLowerCase() === needle);
+  if (exact.length) return exact;
+  return rows.filter((r) => r.name.toLowerCase().includes(needle)).slice(0, 5);
+}
+
+/** Readable path, e.g. "Garage · 6.5qt Bin Wall · Bin 3". */
 async function pathOf(env, owner, loc) {
-  const parts = [loc.name];
-  let cur = loc, guard = 0;
-  while (cur?.parent_location_id && guard++ < 6) {
-    const [p] = await sb(env, "GET", "locations", {
-      params: { owner_id: `eq.${owner}`, id: `eq.${cur.parent_location_id}`, select: "id,name,parent_location_id", limit: "1" },
-    });
-    if (!p) break;
-    parts.unshift(p.name);
-    cur = p;
-  }
-  return parts.join(" · ");
+  const { pathOf: p } = await loadTree(env, owner);
+  return p(loc);
 }
 
 /** Crockford-ish short code, matching the app's shortcode alphabet (no 0/O/1/I/L). */
@@ -230,7 +249,10 @@ const TOOLS = [
   },
 ];
 
-async function callTool(env, name, args) {
+async function callTool(baseEnv, name, args) {
+  // A per-invocation view of env. loadTree() memoises onto this, so the cache lives exactly as
+  // long as one tool call — env itself outlives the request and would go stale.
+  const env = Object.create(baseEnv);
   const owner = await ownerId(env);
 
   switch (name) {
@@ -247,42 +269,34 @@ async function callTool(env, name, args) {
       });
       if (!items?.length) return `Nothing in the inventory matches “${args.query}”.`;
 
-      const lines = [];
-      for (const it of items) {
-        const links = await sb(env, "GET", "item_locations", {
-          params: { item_id: `eq.${it.id}`, date_removed: "is.null", select: "location_id,quantity", limit: "3" },
-        });
-        let where = "not filed anywhere yet";
-        if (links?.length) {
-          const [loc] = await sb(env, "GET", "locations", {
-            params: { id: `eq.${links[0].location_id}`, select: "id,name,parent_location_id", limit: "1" },
-          });
-          if (loc) where = await pathOf(env, owner, loc);
-        }
+      // Two round trips total, regardless of how many results: all placements in ONE `in.(...)`
+      // query, and the location tree in one (fetched concurrently). This used to be three sequential
+      // queries PER RESULT plus one per ancestor level, which is why searching took ~2 seconds.
+      const ids = items.map((i) => i.id).join(",");
+      const [links, tree] = await Promise.all([
+        sb(env, "GET", "item_locations", {
+          params: { item_id: `in.(${ids})`, date_removed: "is.null", select: "item_id,location_id", limit: "200" },
+        }),
+        loadTree(env, owner),
+      ]);
+      const placedIn = new Map();
+      for (const l of links || []) if (!placedIn.has(l.item_id)) placedIn.set(l.item_id, l.location_id);
+
+      return items.map((it) => {
+        const loc = tree.byId.get(placedIn.get(it.id));
+        const where = loc ? tree.pathOf(loc) : "not filed anywhere yet";
         const bits = [it.brand, it.model].filter(Boolean).join(" ");
-        lines.push(`• ${it.name}${bits ? ` (${bits})` : ""} — ${where}${it.qr_code ? ` [${it.qr_code}]` : ""}`);
-      }
-      return lines.join("\n");
+        return `• ${it.name}${bits ? ` (${bits})` : ""} — ${where}${it.qr_code ? ` [${it.qr_code}]` : ""}`;
+      }).join("\n");
     }
 
     case "list_locations": {
-      const rows = await sb(env, "GET", "locations", {
-        params: { owner_id: `eq.${owner}`, select: "id,name,type,qr_code,category,parent_location_id", order: "name", limit: "400" },
-      });
-      const byId = new Map((rows || []).map((r) => [r.id, r]));
-      const parents = new Set((rows || []).map((r) => r.parent_location_id).filter(Boolean));
-      const label = (r) => {
-        const trail = [];
-        let cur = r, guard = 0;
-        while (cur?.parent_location_id && guard++ < 6) {
-          cur = byId.get(cur.parent_location_id);
-          if (cur) trail.unshift(cur.name);
-        }
-        return `${trail.length ? `${trail.join(" · ")} · ` : ""}${r.name}`;
-      };
+      const { rows, pathOf: label } = await loadTree(env, owner);
+      const parents = new Set(rows.map((r) => r.parent_location_id).filter(Boolean));
       // Leaves are where things can actually be filed — call that out so the model picks one.
-      const leaves = (rows || []).filter((r) => r.type !== "space" && !parents.has(r.id));
-      const containers = (rows || []).filter((r) => parents.has(r.id));
+      const byName = (a, b) => a.name.localeCompare(b.name);
+      const leaves = rows.filter((r) => r.type !== "space" && !parents.has(r.id)).sort(byName);
+      const containers = rows.filter((r) => parents.has(r.id)).sort(byName);
       return [
         "Places that hold tools (file things HERE):",
         ...leaves.slice(0, 120).map((r) => `• ${label(r)}${r.category ? ` — holds ${r.category}` : ""}${r.qr_code ? ` [${r.qr_code}]` : ""}`),
@@ -300,6 +314,7 @@ async function callTool(env, name, args) {
       });
       if (!links?.length) return `${await pathOf(env, owner, bin)} is empty.`;
       const ids = links.map((l) => l.item_id).join(",");
+      // The tree is already cached from findBin above, so pathOf below costs nothing.
       const items = await sb(env, "GET", "items", {
         params: { id: `in.(${ids})`, select: "id,name,brand,model,quantity", limit: "200" },
       });
