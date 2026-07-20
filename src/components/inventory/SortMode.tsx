@@ -34,8 +34,16 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
   useEffect(() => {
     if (!assignFor) return;
     setAssignLoc("");
-    supabase.from("locations").select("id,name,type").eq("is_slot", false).order("name")
-      .then(({ data }) => setAssignLocations(data ?? []));
+    // Offer the places a tool can actually sit: leaves, minus whole spaces. This deliberately does
+    // NOT filter on is_slot — the bins of a mapped bin wall are stored as slot children, so an
+    // is_slot === false filter offered every container EXCEPT the ones real items live in, leaving
+    // nothing useful to assign a homeless tool to.
+    supabase.from("locations").select("id,name,type,parent_location_id").order("name")
+      .then(({ data }) => {
+        const rows = (data ?? []) as { id: string; name: string; type: string; parent_location_id: string | null }[];
+        const parents = new Set(rows.map((r) => r.parent_location_id).filter(Boolean) as string[]);
+        setAssignLocations(rows.filter((r) => r.type !== "space" && !parents.has(r.id)));
+      });
   }, [assignFor]);
 
   const load = useCallback(async () => {

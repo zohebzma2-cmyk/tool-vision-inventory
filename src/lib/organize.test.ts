@@ -73,3 +73,43 @@ describe("buildOrgReport — misplaced item homes", () => {
     expect(r.counts.homeless).toBe(1);
   });
 });
+
+describe("buildOrgReport — bins stored as slot children (the real bin wall)", () => {
+  // The mapped 36-bin wall stores each bin as an is_slot child of the shelf. Every real item lives
+  // in one. Judging "sortable storage" by is_slot === false made Sort Mode blind to all of it.
+  function binWall() {
+    const locations = [
+      loc({ id: "garage", name: "Garage", type: "space" }),
+      loc({ id: "wall", name: "6.5qt Bin Wall", type: "shelf", parent_location_id: "garage",
+            grid_rows: 4, grid_cols: 9 }),
+      loc({ id: "b1", name: "Bin 1", type: "bin", category: "fasteners",
+            is_slot: true, parent_location_id: "wall" }),
+      loc({ id: "b2", name: "Bin 2", type: "bin", category: "power tools",
+            is_slot: true, parent_location_id: "wall" }),
+    ];
+    const items = [item({ id: "drill", name: "Drill", category: "power tools" })];
+    return { locations, items, placements: [{ item_id: "drill", location_id: "b1", quantity: 1 }] };
+  }
+
+  it("notices a tool sitting in the wrong bin", () => {
+    const { locations, items, placements } = binWall();
+    const r = buildOrgReport(locations, items, placements);
+    const m = r.suggestions.find((s) => s.kind === "misplaced");
+    expect(m).toBeDefined();
+    expect(m!.locationId).toBe("b1");
+  });
+
+  it("offers the matching bin as its home, not the wall or the garage", () => {
+    const { locations, items, placements } = binWall();
+    const m = buildOrgReport(locations, items, placements).suggestions.find((s) => s.kind === "misplaced");
+    expect(m!.suggestedLocationId).toBe("b2");
+  });
+
+  it("still measures fullness on the wall as a unit, not on each bin", () => {
+    const { locations, items, placements } = binWall();
+    const r = buildOrgReport(locations, items, placements);
+    expect(r.fullness.map((f) => f.locationId)).toEqual(["wall"]);
+    expect(r.fullness[0].cap).toBe(36); // 4 x 9 grid
+    expect(r.fullness[0].used).toBe(1); // one occupied bin
+  });
+});
