@@ -183,9 +183,17 @@ function scoreItem(item, qTokens) {
   return score;
 }
 
-/** A tappable link to the photo-capture page, using the first configured token. */
+/**
+ * A tappable link to the photo-capture page.
+ *
+ * Uses PHOTO_TOKEN, never MCP_TOKEN. This string is returned to the model and therefore lands in
+ * conversation history — embedding the MCP token would mean a link for uploading a photo silently
+ * carried full read/write access to the inventory. Returns null when unset so callers say "not
+ * configured" rather than emitting a broken or over-privileged link.
+ */
 function photoLink(env) {
-  const t = String(env.MCP_TOKEN || "").split(",")[0].trim();
+  const t = String(env.PHOTO_TOKEN || "").split(",")[0].trim();
+  if (!t) return null;
   return `${env.PUBLIC_BASE_URL || "https://tool-vision.zoalvi.workers.dev"}/photo/${t}`;
 }
 
@@ -486,7 +494,8 @@ async function callTool(baseEnv, name, args) {
         (queued ? "Label queued — it prints on the Mac." : "Could not queue a label; print it from the app.") +
         // A photo can't ride along on a tool call, so say so once rather than leaving the user to
         // discover later that everything catalogued this way is imageless.
-        ` No photo saved (I can't attach one from here) — add photos: ${photoLink(env)}`;
+        ` No photo saved (I can't attach one from here)` +
+        (photoLink(env) ? ` — add photos: ${photoLink(env)}` : "") + ".";
     }
 
     case "move_tool": {
@@ -550,7 +559,7 @@ async function callTool(baseEnv, name, args) {
       const names = missing.slice(0, 8).map((i) => i.name).join(", ");
       return `${missing.length} item${missing.length === 1 ? "" : "s"} have no photo yet` +
         `${missing.length > 8 ? ` (including ${names})` : `: ${names}`}.\n` +
-        `Add them here: ${photoLink(env)}`;
+        (photoLink(env) ? `Add them here: ${photoLink(env)}` : "Photo capture isn't configured (PHOTO_TOKEN unset).");
     }
 
     case "print_label": {
@@ -630,12 +639,6 @@ function tokenMatches(a, b) {
  * client over, then drop the old one. Issue a distinct token per client so a single leak can be
  * revoked on its own rather than cutting off everything.
  */
-/** Does this candidate match any configured token? Shared with the photo-capture page. */
-export function tokenMatchesAny(candidate, env) {
-  return String(env.MCP_TOKEN || "").split(",").map((s) => s.trim()).filter(Boolean)
-    .some((t) => tokenMatches(candidate, t));
-}
-
 export async function handleMcp(request, env, url, cors) {
   const tokens = String(env.MCP_TOKEN || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!tokens.length) return new Response(JSON.stringify({ error: "MCP not configured" }), { status: 503, headers: { ...cors, "Content-Type": "application/json" } });
