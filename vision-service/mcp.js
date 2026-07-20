@@ -198,7 +198,7 @@ function photoLink(env) {
 }
 
 /** Crockford-ish short code, matching the app's shortcode alphabet (no 0/O/1/I/L). */
-function mintCode() {
+export function mintCode() {
   const A = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
   let out = "";
   const bytes = crypto.getRandomValues(new Uint8Array(5));
@@ -213,7 +213,7 @@ function mintCode() {
  * reason alongside, because a filing decision the user can't see is a filing decision they can't
  * correct — the response always says which bin and why, and move_tool fixes it in one call.
  */
-async function suggestBin(env, owner, item) {
+export async function suggestBin(env, owner, item) {
   const { rows } = await loadTree(env, owner);
   const parents = new Set(rows.map((r) => r.parent_location_id).filter(Boolean));
   const leaves = rows.filter((r) => r.type !== "space" && !parents.has(r.id));
@@ -244,7 +244,7 @@ async function suggestBin(env, owner, item) {
 }
 
 /** Queue a label for the Mac connector to print. Never throws into the caller's happy path. */
-async function queueLabel(env, owner, spec, source) {
+export async function queueLabel(env, owner, spec, source) {
   try {
     await sb(env, "POST", "print_jobs", {
       body: [{ owner_id: owner, spec, source: source || "claude-app" }],

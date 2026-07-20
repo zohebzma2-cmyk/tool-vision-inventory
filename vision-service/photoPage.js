@@ -40,6 +40,65 @@ async function sb(env, method, path, { params, body, prefer, raw, contentType } 
   return text ? JSON.parse(text) : null;
 }
 
+/**
+ * Catalog a brand-new tool from ONE photo: identify it, file it, label it, and keep the image.
+ *
+ * This exists because a photo taken inside the Claude app cannot reach the server — tool arguments
+ * are JSON the model writes, with no way to carry image bytes. Cataloguing there therefore always
+ * loses the picture, and "shoot it again on another page" is a poor answer. Shooting it HERE means
+ * one photo does everything: the bytes go to storage, the same bytes go to the vision model, and the
+ * item lands in a bin with a label. Claude stays the better tool for asking questions; this is the
+ * better tool for adding things.
+ */
+async function catalogFromPhoto(env, owner, dataUrl, deps) {
+  const { identify, suggestBin, queueLabel, mintCode } = deps;
+
+  const ident = await identify(env, dataUrl);
+  const name = String(ident?.name || "").trim();
+  if (!name) throw new Error("couldn't identify that — try a closer, better-lit shot");
+
+  const suggestion = await suggestBin(env, owner, { category: ident.category });
+  if (!suggestion) throw new Error(`identified "${name}" but found no bin to put it in`);
+
+  const code = mintCode();
+  const [item] = await sb(env, "POST", "rest/v1/items", {
+    body: [{
+      owner_id: owner, name: name.slice(0, 200),
+      category: ident.category || null, brand: ident.brand || null, model: ident.model || null,
+      quantity: 1, qr_code: code,
+    }],
+    prefer: "return=representation",
+    contentType: "application/json",
+  });
+
+  // File it before anything else can fail — an unfiled item is invisible in every bin view.
+  await sb(env, "POST", "rest/v1/item_locations", {
+    body: [{ item_id: item.id, location_id: suggestion.bin.id, quantity: 1, owner_id: owner }],
+    prefer: "return=minimal",
+    contentType: "application/json",
+  });
+
+  // The photo is the whole point of doing it here, but a storage hiccup shouldn't undo a good
+  // catalog — the item is already filed and labelled either way.
+  let photoUrl = null;
+  try {
+    photoUrl = await attachPhoto(env, owner, item.id, dataUrl);
+  } catch { /* keep the item; the photo can be added later from the list below */ }
+
+  const labelled = await queueLabel(env, owner, {
+    title: name,
+    lines: [ident.category, [ident.brand, ident.model].filter(Boolean).join(" ")].filter(Boolean),
+    qr: code,
+  }, "photo-page:catalog");
+
+  return {
+    name, code, photoUrl,
+    bin: suggestion.bin.name, why: suggestion.why,
+    labelled,
+    brand: ident.brand || null, category: ident.category || null,
+  };
+}
+
 /** Items with no photo yet, newest first — the ones worth shooting while they're fresh in mind. */
 export async function pendingPhotos(env, owner, limit = 60) {
   return (await sb(env, "GET", "rest/v1/items", {
@@ -53,7 +112,6 @@ export async function pendingPhotos(env, owner, limit = 60) {
   })) || [];
 }
 
-/** Store the JPEG in the public bucket and point the item at it. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -136,11 +194,33 @@ function page(token) {
   .err { background:#4a1f22; border-color:#7d3238; }
   input[type=file] { display:none; }
   .thumb { width:44px; height:44px; border-radius:9px; object-fit:cover; background:#0e1116; }
+  .newcard { margin:6px 12px 2px; padding:16px; display:flex; gap:12px; align-items:center;
+             background:linear-gradient(180deg,#23242b,#1b1f27); border:1px solid #3a3324;
+             border-left:3px solid var(--hi); border-radius:14px; }
+  .newcard .nm { font-size:16px; }
+  .newcard > div:first-child { flex:1; min-width:0; }
+  .hd { margin:22px 20px 2px; font-size:13px; letter-spacing:.06em; text-transform:uppercase; color:var(--dim); }
+  #result:empty { display:none; }
+  #result { margin:10px 12px 0; padding:14px 16px; border-radius:14px;
+            background:#1b2a1e; border:1px solid #2f6b3a; }
+  #result.bad { background:#2a1b1d; border-color:#7d3238; }
+  #result .big { font-weight:700; font-size:16px; }
+  #result .meta { color:#b9c6bd; }
+  .spin { opacity:.6; }
 </style></head><body>
 <header>
-  <h1>Add photos</h1>
+  <h1>Tool Vision</h1>
   <div class="sub" id="sub">Loading…</div>
 </header>
+<div class="newcard">
+  <div>
+    <div class="nm">Catalog something new</div>
+    <div class="meta">One photo: identified, filed, labelled — picture kept.</div>
+  </div>
+  <button id="newbtn">Snap</button>
+</div>
+<div id="result"></div>
+<h2 class="hd">Missing a photo</h2>
 <ul id="list"></ul>
 <input type="file" id="picker" accept="image/*" capture="environment">
 <script>
@@ -197,10 +277,45 @@ function shrink(file) {
   });
 }
 
+// "Catalog something new": one photo does identification, filing, labelling AND the picture.
+document.getElementById('newbtn').onclick = () => { current = 'NEW'; document.getElementById('picker').click(); };
+
+async function catalogNew(file) {
+  const box = document.getElementById('result');
+  const btn = document.getElementById('newbtn');
+  box.className = ''; box.innerHTML = '<div class="big spin">Identifying…</div>';
+  btn.disabled = true; btn.textContent = 'Working…';
+  try {
+    const dataUrl = await shrink(file);
+    const r = await fetch('/photo/' + TOKEN + '/catalog', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageDataUrl: dataUrl }),
+    });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok || !out.ok) throw new Error(out.error || ('HTTP ' + r.status));
+    box.className = '';
+    box.innerHTML =
+      '<div class="big">' + esc(out.name) + '</div>' +
+      '<div class="meta">Filed in ' + esc(out.bin) + ' — ' + esc(out.why) + '</div>' +
+      '<div class="meta">Code ' + esc(out.code) +
+        (out.labelled ? ' · label queued' : ' · label NOT queued') +
+        (out.photoUrl ? ' · photo saved' : ' · photo not saved') + '</div>';
+    await load();
+  } catch (err) {
+    box.className = 'bad';
+    box.innerHTML = '<div class="big">Couldn\'t catalog that</div><div class="meta">' + esc(err.message) + '</div>';
+  }
+  btn.disabled = false; btn.textContent = 'Snap';
+}
+
+const esc = (t) => String(t == null ? '' : t).replace(/[&<>"']/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
 document.getElementById('picker').onchange = async (e) => {
   const file = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!file || !current) return;
+  if (current === 'NEW') { current = null; return catalogNew(file); }
   const item = current, li = document.querySelector('li[data-id="' + item.id + '"]');
   const btn = li && li.querySelector('button');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -253,7 +368,7 @@ function sameToken(a, b) {
  *
  * The token sits in the URL because there is nowhere to put a header when you tap a link on a phone.
  */
-export async function handlePhoto(request, env, url) {
+export async function handlePhoto(request, env, url, deps) {
   const parts = url.pathname.split("/").filter(Boolean); // ["photo", token, action?]
   const token = parts[1] || "";
   const action = parts[2] || "";
@@ -275,6 +390,13 @@ export async function handlePhoto(request, env, url) {
       if (!body.itemId || !body.imageDataUrl) return json(400, { error: "itemId and imageDataUrl required" });
       const publicUrl = await attachPhoto(env, owner, body.itemId, body.imageDataUrl);
       return json(200, { ok: true, url: publicUrl });
+    }
+
+    if (action === "catalog" && request.method === "POST") {
+      const body = await request.json().catch(() => ({}));
+      if (!body.imageDataUrl) return json(400, { error: "imageDataUrl required" });
+      if (!deps) return json(503, { error: "vision not wired" });
+      return json(200, { ok: true, ...(await catalogFromPhoto(env, owner, body.imageDataUrl, deps)) });
     }
   } catch (e) {
     return json(500, { error: String(e.message || e).slice(0, 160) });

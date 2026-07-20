@@ -24,7 +24,7 @@
 //   GROUNDING_MODEL (text model for web-grounded enrichment, default "google/gemma-4-31b-it:free")
 //   ENABLE_WEB_GROUNDING (default on; set to "false" to disable the enrichment call)
 
-import { handleMcp } from "./mcp.js";
+import { handleMcp, suggestBin, queueLabel, mintCode } from "./mcp.js";
 import { handlePhoto } from "./photoPage.js";
 
 const CATEGORIES = ["hand tools", "power tools", "electrical", "plumbing", "cutting tools", "measuring tools", "fasteners", "other"];
@@ -387,7 +387,22 @@ export default {
     // through a tool call. Served over HTTPS so the camera actually opens (the connector's LAN
     // capture page is plain http, which is not a secure context).
     if (url.pathname.startsWith("/photo/")) {
-      return handlePhoto(request, env, url);
+      // Hand the page the vision + filing primitives it needs so one photo can identify, file,
+      // label AND be stored — the whole point of shooting here rather than in a chat that cannot
+      // carry the bytes back.
+      return handlePhoto(request, env, url, {
+        identify: async (e, imageDataUrl) => {
+          const out = await callModelResilient(e, e.OPENROUTER_API_KEY, IDENTIFY_PROMPT, imageDataUrl);
+          const cat = String(out.category || "").toLowerCase();
+          return {
+            name: typeof out.name === "string" ? out.name : "",
+            category: CATEGORIES.includes(cat) ? cat : "other",
+            brand: typeof out.brand === "string" ? out.brand : "",
+            model: typeof out.model === "string" ? out.model : "",
+          };
+        },
+        suggestBin, queueLabel, mintCode,
+      });
     }
 
     if (request.method === "GET" && url.pathname === "/health") {
