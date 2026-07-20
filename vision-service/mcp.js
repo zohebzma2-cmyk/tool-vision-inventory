@@ -139,6 +139,48 @@ async function pathOf(env, owner, loc) {
   return p(loc);
 }
 
+/**
+ * Normalise text for matching. Garage vocabulary is inconsistent in specific, predictable ways —
+ * "6in" vs "6 inch" vs '6"', "3/8" vs "3 8" — so fold those together rather than pretending a
+ * substring match will cope.
+ */
+function norm(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/["”]/g, " inch ")
+    .replace(/\b(\d+)\s*(in|inch|inches)\b/g, "$1in")
+    .replace(/\b(\d+)\s*(mm|millimet(er|re)s?)\b/g, "$1mm")
+    .replace(/[^a-z0-9/.]+/g, " ")
+    .trim();
+}
+
+const tokens = (s) => norm(s).split(" ").filter(Boolean);
+
+/**
+ * Score one item against the query tokens. Higher is better; 0 means "no signal at all".
+ *
+ * Deliberately token-based rather than a single substring: "6 inch backing pad" should find
+ * "Backing Pad 6in", which no `ilike '%...%'` can do. A prefix match counts for less than a whole
+ * word so "pad" ranks an actual pad above "Padlock", and the name is weighted above brand/model
+ * because that is what people actually search by.
+ */
+function scoreItem(item, qTokens) {
+  const name = norm(item.name);
+  const rest = norm([item.brand, item.model, item.category, item.notes].filter(Boolean).join(" "));
+  const nameWords = new Set(name.split(" "));
+  let score = 0;
+  for (const t of qTokens) {
+    if (nameWords.has(t)) score += 10;
+    else if (name.includes(t)) score += 6;
+    else if (rest.split(" ").includes(t)) score += 4;
+    else if (rest.includes(t)) score += 2;
+  }
+  // Reward matching most of what was asked for, so a 3-of-3 match beats a 1-of-3 on a longer name.
+  const matched = qTokens.filter((t) => name.includes(t) || rest.includes(t)).length;
+  if (matched === qTokens.length) score += 8;
+  return score;
+}
+
 /** Crockford-ish short code, matching the app's shortcode alphabet (no 0/O/1/I/L). */
 function mintCode() {
   const A = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -146,6 +188,43 @@ function mintCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(5));
   for (const b of bytes) out += A[b % A.length];
   return out;
+}
+
+/**
+ * Pick a home for an item nobody named a bin for.
+ *
+ * Preference order: a bin whose own category matches the item's, then the emptiest leaf. Returns the
+ * reason alongside, because a filing decision the user can't see is a filing decision they can't
+ * correct — the response always says which bin and why, and move_tool fixes it in one call.
+ */
+async function suggestBin(env, owner, item) {
+  const { rows } = await loadTree(env, owner);
+  const parents = new Set(rows.map((r) => r.parent_location_id).filter(Boolean));
+  const leaves = rows.filter((r) => r.type !== "space" && !parents.has(r.id));
+  if (!leaves.length) return null;
+
+  const want = norm(item.category || "");
+  if (want) {
+    const byTheme = leaves.filter((r) => {
+      const c = norm(r.category || "");
+      return c && (c === want || c.includes(want) || want.includes(c));
+    });
+    if (byTheme.length) {
+      return { bin: byTheme[0], why: `it already holds ${byTheme[0].category}` };
+    }
+  }
+
+  const links = await sb(env, "GET", "item_locations", {
+    params: { owner_id: `eq.${owner}`, date_removed: "is.null", select: "location_id", limit: "2000" },
+  });
+  const used = new Set((links || []).map((l) => l.location_id));
+  const empty = leaves.filter((r) => !used.has(r.id) && !r.category);
+  if (empty.length) {
+    // Lowest-numbered empty bin, so filing is predictable rather than scattered.
+    empty.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    return { bin: empty[0], why: "it was the next empty bin" };
+  }
+  return null;
 }
 
 /** Queue a label for the Mac connector to print. Never throws into the caller's happy path. */
@@ -167,9 +246,11 @@ const TOOLS = [
   {
     name: "find_tool",
     description:
-      "Find where a tool or part is stored. Use whenever the user asks where something is, " +
-      "whether they own one, or what is in a particular place. Returns each match with the bin it " +
-      "lives in and the full location path.",
+      "Find where a tool or part is stored. Call this whenever the user asks where something is, " +
+      "whether they own one, if they need another, or what a place contains — including vague asks " +
+      "like \"do I have anything for sanding?\". Matching is token-based, so natural phrasing such as " +
+      "\"6 inch backing pad\" finds \"Backing Pad 6in\"; pass the user's own words rather than " +
+      "guessing at a stored name. Returns each match with its bin and full location path.",
     inputSchema: {
       type: "object",
       properties: { query: { type: "string", description: "Tool name, brand, or partial name, e.g. 'chalk line'" } },
@@ -193,14 +274,17 @@ const TOOLS = [
   {
     name: "catalog_tool",
     description:
-      "File a tool into a bin and print its label. Use this after identifying a tool from a photo " +
-      "the user sent. Identify the item yourself from the image — do not ask the user to describe " +
-      "it. Always confirm the bin with the user before calling if they did not name one.",
+      "File a tool into a bin and print its label. Call this whenever the user sends a photo of a " +
+      "tool, or says they want something put away, added, catalogued or logged. Identify the item " +
+      "from the image yourself — name, brand, model and category — and pass what you can see; do " +
+      "NOT ask the user to describe it back to you. If they named a bin, pass it. If they did not, " +
+      "leave `bin` empty and it will be filed by category and tell you where it went — that is " +
+      "preferred over asking, since the user can just say 'move it'.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string", description: "What the tool is, e.g. 'DeWalt Chalk Line'" },
-        bin: { type: "string", description: "Bin name or code to store it in" },
+        bin: { type: "string", description: "Bin name or code. Omit to file it by category automatically." },
         category: { type: "string", description: "e.g. 'marking tools', 'fasteners', 'power tools'" },
         brand: { type: "string" },
         model: { type: "string" },
@@ -257,32 +341,40 @@ async function callTool(baseEnv, name, args) {
 
   switch (name) {
     case "find_tool": {
-      const q = esc(args.query || "");
-      if (!q) return "Give me something to search for.";
-      const items = await sb(env, "GET", "items", {
-        params: {
-          owner_id: `eq.${owner}`,
-          or: `(name.ilike.*${q}*,brand.ilike.*${q}*,model.ilike.*${q}*,category.ilike.*${q}*)`,
-          select: "id,name,brand,model,category,quantity,qr_code",
-          limit: "12",
-        },
-      });
-      if (!items?.length) return `Nothing in the inventory matches “${args.query}”.`;
+      const qTokens = tokens(args.query || "");
+      if (!qTokens.length) return "Give me something to search for.";
 
-      // Two round trips total, regardless of how many results: all placements in ONE `in.(...)`
-      // query, and the location tree in one (fetched concurrently). This used to be three sequential
-      // queries PER RESULT plus one per ancestor level, which is why searching took ~2 seconds.
-      const ids = items.map((i) => i.id).join(",");
-      const [links, tree] = await Promise.all([
+      // Rank in memory instead of with one `ilike '%q%'`. A garage's whole item list is small, and
+      // substring matching cannot find "Backing Pad 6in" from "6 inch backing pad" — which is
+      // exactly how people ask. Three round trips, all concurrent.
+      const [all, links, tree] = await Promise.all([
+        sb(env, "GET", "items", {
+          params: { owner_id: `eq.${owner}`, select: "id,name,brand,model,category,notes,quantity,qr_code", limit: "1000" },
+        }),
         sb(env, "GET", "item_locations", {
-          params: { item_id: `in.(${ids})`, date_removed: "is.null", select: "item_id,location_id", limit: "200" },
+          params: { owner_id: `eq.${owner}`, date_removed: "is.null", select: "item_id,location_id", limit: "2000" },
         }),
         loadTree(env, owner),
       ]);
+
+      const ranked = (all || [])
+        .map((it) => ({ it, score: scoreItem(it, qTokens) }))
+        .filter((r) => r.score > 0)
+        .sort((a, b) => b.score - a.score);
+
+      if (!ranked.length) {
+        return `Nothing in the inventory matches “${args.query}”.`;
+      }
+      // A weak top score means we matched an incidental word, not the thing asked for. Say so rather
+      // than presenting a bad guess as an answer — the model can then ask instead of asserting.
+      const strong = ranked.filter((r) => r.score >= 10);
+      const shown = (strong.length ? strong : ranked).slice(0, 12);
+      const hedge = strong.length ? "" : `No exact match for “${args.query}”. Closest:\n`;
+
       const placedIn = new Map();
       for (const l of links || []) if (!placedIn.has(l.item_id)) placedIn.set(l.item_id, l.location_id);
 
-      return items.map((it) => {
+      return hedge + shown.map(({ it }) => {
         const loc = tree.byId.get(placedIn.get(it.id));
         const where = loc ? tree.pathOf(loc) : "not filed anywhere yet";
         const bits = [it.brand, it.model].filter(Boolean).join(" ");
@@ -328,8 +420,21 @@ async function callTool(baseEnv, name, args) {
     }
 
     case "catalog_tool": {
-      const [bin] = await findBin(env, owner, args.bin || "");
-      if (!bin) return `I can't find a bin called “${args.bin}”. Use list_locations to see what exists.`;
+      let bin = (await findBin(env, owner, args.bin || ""))[0];
+      let chose = "";
+      if (!bin) {
+        if (args.bin) return `I can't find a bin called “${args.bin}”. Use list_locations to see what exists.`;
+        // No bin named: pick one by theme rather than making the user (or the model) go look. A bin
+        // whose category matches the item is the obvious home; the alternative is asking a question
+        // that the data already answers. It says which and why, and move_tool undoes it in one call.
+        const suggestion = await suggestBin(env, owner, args);
+        if (!suggestion) {
+          return "Which bin should this go in? Call list_locations to see the options — I couldn't " +
+            "find one matching its category, and there are no empty bins to fall back on.";
+        }
+        bin = suggestion.bin;
+        chose = suggestion.why;
+      }
       const qty = Math.max(1, Number(args.quantity) || 1);
       const code = mintCode();
       const [item] = await sb(env, "POST", "items", {
@@ -360,7 +465,8 @@ async function callTool(baseEnv, name, args) {
         lines: [args.category, [args.brand, args.model].filter(Boolean).join(" "), qty > 1 ? `Qty ${qty}` : ""].filter(Boolean),
         qr: code,
       }, "claude-app:catalog");
-      return `Filed “${item.name}”${qty > 1 ? ` ×${qty}` : ""} into ${where}. Code ${code}. ` +
+      return `Filed “${item.name}”${qty > 1 ? ` ×${qty}` : ""} into ${where}` +
+        (chose ? ` — I picked it because ${chose}; say "move it" if that's wrong` : "") + `. Code ${code}. ` +
         (queued ? "Label queued — it prints on the Mac." : "Could not queue a label; print it from the app.");
     }
 
