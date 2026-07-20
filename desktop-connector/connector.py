@@ -426,6 +426,108 @@ def _print_one(image_data_url, media):
         try: os.unlink(path)
         except OSError: pass
 
+# ---------------------------------------------------------------- cloud print queue -------------
+# Labels can now originate somewhere with no browser at all — the Claude-app MCP connector running on
+# Cloudflare. Those jobs land in Supabase `print_jobs`; this Mac is the only thing that can reach the
+# QL-800, so it polls for them and feeds them into the SAME on-disk queue the app uses. Everything
+# downstream (drain, retry, printer-wedge recovery) is then shared, and a label queued while this Mac
+# is asleep prints when it wakes instead of being lost.
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+PRINT_OWNER_ID = os.environ.get("TOOLVISION_OWNER_ID", "")
+
+def _sb_request(method, path, params=None, body=None):
+    """Minimal Supabase REST call over stdlib urllib (the venv has no `requests`)."""
+    import urllib.request, urllib.parse, urllib.error
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        url, method=method,
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"apikey": SUPABASE_SERVICE_ROLE_KEY,
+                 "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+                 "Content-Type": "application/json",
+                 "Prefer": "return=minimal"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        raw = r.read().decode()
+        return json.loads(raw) if raw else None
+
+def render_spec_png(spec):
+    """{title, lines[], badge?, qr?} -> a PNG data URL, with a real QR when a code is present.
+
+    Rendering here (rather than sending raw text to the printer) means a cloud job produces the same
+    scannable label as one made in the app — without a QR the code on the label is just decoration.
+    """
+    import qrcode
+    W = _MEDIA_WIDTH.get(str(spec.get("media") or "62"), 696)
+    badge = (spec.get("badge") or "").strip()
+    title = (spec.get("title") or "Label").strip()
+    lines = [str(l).strip() for l in (spec.get("lines") or []) if str(l).strip()]
+    code = (spec.get("qr") or "").strip()
+
+    qr_img = None
+    if code:
+        q = qrcode.QRCode(border=1, box_size=6)
+        q.add_data(code); q.make(fit=True)
+        qr_img = q.make_image(fill_color="black", back_color="white").convert("RGB")
+        qr_side = min(200, W // 3)
+        qr_img = qr_img.resize((qr_side, qr_side), _I.NEAREST)
+
+    left = (qr_img.width + 40) if qr_img else 30
+    text_w = W - left - 30
+    rows = ([("badge", badge)] if badge else []) + [("title", title)] + [("line", l) for l in lines]
+    H = max(60 + sum(90 if k == "badge" else 72 if k == "title" else 54 for k, _ in rows),
+            (qr_img.height + 50) if qr_img else 0)
+
+    img = _I.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(img)
+    if qr_img:
+        img.paste(qr_img, (26, (H - qr_img.height) // 2))
+    y = 26
+    for kind, text in rows:
+        sz = 84 if kind == "badge" else 60 if kind == "title" else 36
+        font = _font(sz)
+        # Shrink an over-wide title rather than letting it run under/over the QR.
+        while sz > 22 and d.textlength(text, font=font) > text_w:
+            sz -= 4; font = _font(sz)
+        d.text((left, y), text, fill="black", font=font)
+        y += (90 if kind == "badge" else 72 if kind == "title" else 54)
+    if code:
+        d.text((left, H - 34), code, fill="black", font=_font(26))
+    d.rectangle([6, 6, W - 7, H - 7], outline="black", width=3)
+
+    buf = io.BytesIO(); img.save(buf, format="PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+def _cloud_poll_loop():
+    """Pull queued cloud print jobs into the local queue. No-ops unless Supabase creds are present."""
+    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and PRINT_OWNER_ID):
+        return
+    while True:
+        time.sleep(6)
+        try:
+            jobs = _sb_request("GET", "print_jobs", params={
+                "owner_id": f"eq.{PRINT_OWNER_ID}", "status": "eq.queued",
+                "select": "id,spec", "order": "created_at.asc", "limit": "5",
+            }) or []
+            for job in jobs:
+                spec = job.get("spec") or {}
+                try:
+                    data_url = render_spec_png(spec)
+                except Exception as e:
+                    # A spec we can't render will never render — fail it rather than retry forever.
+                    _sb_request("PATCH", "print_jobs", params={"id": f"eq.{job['id']}"},
+                                body={"status": "failed", "error": str(e)[:300]})
+                    continue
+                _pq_add(data_url, str(spec.get("media") or "62"), str(spec.get("title") or ""))
+                # Handed to the local queue, which owns delivery + retry from here.
+                _sb_request("PATCH", "print_jobs", params={"id": f"eq.{job['id']}"},
+                            body={"status": "done", "printed_at": datetime.datetime.now(
+                                datetime.timezone.utc).isoformat()})
+        except Exception:
+            pass  # transient network/API trouble — try again next tick
+
 def _drain_loop():
     """Background daemon: whenever the printer is present, drain the disk queue oldest-first."""
     while True:
@@ -621,6 +723,7 @@ if __name__ == "__main__":
     # app served from a private-LAN address). Localhost still works exactly as before.
     print(f"Tool Vision print connector on http://0.0.0.0:{PORT}  → {QUEUE}")
     threading.Thread(target=_drain_loop, daemon=True).start()  # auto-print queued labels on reconnect
+    threading.Thread(target=_cloud_poll_loop, daemon=True).start()  # pull labels queued from the Claude app
     # Frictionless: open the printing app automatically so you never type the URL. Skip with
     # TOOLVISION_NO_OPEN=1 (e.g. headless / login-item that shouldn't steal focus).
     if os.environ.get("TOOLVISION_NO_OPEN") != "1":

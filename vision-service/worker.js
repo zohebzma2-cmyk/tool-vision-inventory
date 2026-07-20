@@ -24,6 +24,8 @@
 //   GROUNDING_MODEL (text model for web-grounded enrichment, default "google/gemma-4-31b-it:free")
 //   ENABLE_WEB_GROUNDING (default on; set to "false" to disable the enrichment call)
 
+import { handleMcp } from "./mcp.js";
+
 const CATEGORIES = ["hand tools", "power tools", "electrical", "plumbing", "cutting tools", "measuring tools", "fasteners", "other"];
 const LOCATION_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "toolbox", "tool bag", "space"];
 const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
@@ -373,6 +375,12 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
+
+    // Remote MCP endpoint for the Claude app's custom connector. Authenticates on its own token
+    // (never a Supabase session), so it is checked before the user-auth routes below.
+    if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+      return handleMcp(request, env, url, cors);
+    }
 
     if (request.method === "GET" && url.pathname === "/health") {
       return json(200, {
