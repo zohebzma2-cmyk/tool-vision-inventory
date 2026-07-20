@@ -24,7 +24,8 @@
 //   GROUNDING_MODEL (text model for web-grounded enrichment, default "google/gemma-4-31b-it:free")
 //   ENABLE_WEB_GROUNDING (default on; set to "false" to disable the enrichment call)
 
-import { handleMcp } from "./mcp.js";
+import { handleMcp, tokenMatchesAny } from "./mcp.js";
+import { handlePhoto } from "./photoPage.js";
 
 const CATEGORIES = ["hand tools", "power tools", "electrical", "plumbing", "cutting tools", "measuring tools", "fasteners", "other"];
 const LOCATION_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "toolbox", "tool bag", "space"];
@@ -380,6 +381,13 @@ export default {
     // (never a Supabase session), so it is checked before the user-auth routes below.
     if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
       return handleMcp(request, env, url, cors);
+    }
+
+    // Phone photo capture for items catalogued from the Claude app, which cannot carry an image
+    // through a tool call. Served over HTTPS so the camera actually opens (the connector's LAN
+    // capture page is plain http, which is not a secure context).
+    if (url.pathname.startsWith("/photo/")) {
+      return handlePhoto(request, env, url, (t) => tokenMatchesAny(t, env));
     }
 
     if (request.method === "GET" && url.pathname === "/health") {

@@ -12,6 +12,8 @@
 //
 // Transport is Streamable HTTP: a single POST endpoint speaking JSON-RPC 2.0.
 
+import { pendingPhotos } from "./photoPage.js";
+
 const PROTOCOL_VERSION = "2025-06-18";
 
 /* ------------------------------------------------------------------ Supabase helpers */
@@ -181,6 +183,12 @@ function scoreItem(item, qTokens) {
   return score;
 }
 
+/** A tappable link to the photo-capture page, using the first configured token. */
+function photoLink(env) {
+  const t = String(env.MCP_TOKEN || "").split(",")[0].trim();
+  return `${env.PUBLIC_BASE_URL || "https://tool-vision.zoalvi.workers.dev"}/photo/${t}`;
+}
+
 /** Crockford-ish short code, matching the app's shortcode alphabet (no 0/O/1/I/L). */
 function mintCode() {
   const A = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -317,6 +325,14 @@ const TOOLS = [
       },
       required: ["bin", "category"],
     },
+  },
+  {
+    name: "photo_status",
+    description:
+      "How many catalogued items still have no photo, and the link to add them. Mention this when " +
+      "the user asks about photos, or after cataloguing a batch — a photo cannot be attached from " +
+      "this conversation (tool calls carry only text), so the link is the way to add one.",
+    inputSchema: { type: "object", properties: {} },
   },
   {
     name: "print_label",
@@ -467,7 +483,10 @@ async function callTool(baseEnv, name, args) {
       }, "claude-app:catalog");
       return `Filed “${item.name}”${qty > 1 ? ` ×${qty}` : ""} into ${where}` +
         (chose ? ` — I picked it because ${chose}; say "move it" if that's wrong` : "") + `. Code ${code}. ` +
-        (queued ? "Label queued — it prints on the Mac." : "Could not queue a label; print it from the app.");
+        (queued ? "Label queued — it prints on the Mac." : "Could not queue a label; print it from the app.") +
+        // A photo can't ride along on a tool call, so say so once rather than leaving the user to
+        // discover later that everything catalogued this way is imageless.
+        ` No photo saved (I can't attach one from here) — add photos: ${photoLink(env)}`;
     }
 
     case "move_tool": {
@@ -523,6 +542,15 @@ async function callTool(baseEnv, name, args) {
         prefer: "return=minimal",
       });
       return `${bin.name} now holds “${args.category}”.`;
+    }
+
+    case "photo_status": {
+      const missing = await pendingPhotos(env, owner, 200);
+      if (!missing.length) return "Every catalogued item has a photo.";
+      const names = missing.slice(0, 8).map((i) => i.name).join(", ");
+      return `${missing.length} item${missing.length === 1 ? "" : "s"} have no photo yet` +
+        `${missing.length > 8 ? ` (including ${names})` : `: ${names}`}.\n` +
+        `Add them here: ${photoLink(env)}`;
     }
 
     case "print_label": {
@@ -602,6 +630,12 @@ function tokenMatches(a, b) {
  * client over, then drop the old one. Issue a distinct token per client so a single leak can be
  * revoked on its own rather than cutting off everything.
  */
+/** Does this candidate match any configured token? Shared with the photo-capture page. */
+export function tokenMatchesAny(candidate, env) {
+  return String(env.MCP_TOKEN || "").split(",").map((s) => s.trim()).filter(Boolean)
+    .some((t) => tokenMatches(candidate, t));
+}
+
 export async function handleMcp(request, env, url, cors) {
   const tokens = String(env.MCP_TOKEN || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (!tokens.length) return new Response(JSON.stringify({ error: "MCP not configured" }), { status: 503, headers: { ...cors, "Content-Type": "application/json" } });
