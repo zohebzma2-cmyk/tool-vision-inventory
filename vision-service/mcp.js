@@ -431,18 +431,40 @@ function tokenMatches(a, b) {
 }
 
 /**
- * Handle one MCP request. Auth accepts the token either as an `Authorization: Bearer` header or as
- * a trailing path segment (`/mcp/<token>`) — the Claude app's connector UI takes a URL, and does not
- * always let you set a custom header, so the path form is the one that reliably works.
+ * Handle one MCP request.
+ *
+ * AUTH — read this before changing it.
+ *
+ * The header form (`Authorization: Bearer <token>`) is the one to use. A secret in a URL path is
+ * genuinely weaker: URLs get written to proxy and server access logs, kept in client-side history,
+ * and pasted into bug reports far more readily than headers do, and this token grants full read AND
+ * write over the inventory.
+ *
+ * The path form (`/mcp/<token>`) exists only because a connector UI that accepts a URL and nothing
+ * else has no other way to authenticate. It is therefore OPT-OUT, not permanent: set
+ * MCP_ALLOW_PATH_TOKEN="false" the moment the header form is confirmed working, and the weaker
+ * door closes with no code change.
+ *
+ * MCP_TOKEN is comma-separated so tokens can be rotated without downtime: add the new one, move the
+ * client over, then drop the old one. Issue a distinct token per client so a single leak can be
+ * revoked on its own rather than cutting off everything.
  */
 export async function handleMcp(request, env, url, cors) {
-  const expected = env.MCP_TOKEN;
-  if (!expected) return new Response(JSON.stringify({ error: "MCP not configured" }), { status: 503, headers: { ...cors, "Content-Type": "application/json" } });
+  const tokens = String(env.MCP_TOKEN || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!tokens.length) return new Response(JSON.stringify({ error: "MCP not configured" }), { status: 503, headers: { ...cors, "Content-Type": "application/json" } });
 
+  const anyMatches = (candidate) => tokens.some((t) => tokenMatches(candidate, t));
   const bearer = (request.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  const fromPath = url.pathname.replace(/^\/mcp\/?/, "");
-  if (!tokenMatches(bearer, expected) && !tokenMatches(fromPath, expected)) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { ...cors, "Content-Type": "application/json" } });
+  // Default-on so first-time setup works from a URL-only client; flip to "false" once headers work.
+  const pathAllowed = String(env.MCP_ALLOW_PATH_TOKEN ?? "true").toLowerCase() !== "false";
+  const fromPath = pathAllowed ? url.pathname.replace(/^\/mcp\/?/, "") : "";
+
+  if (!anyMatches(bearer) && !(pathAllowed && anyMatches(fromPath))) {
+    return new Response(JSON.stringify({ error: "unauthorized" }), {
+      status: 401,
+      // Tell a well-behaved client how to authenticate properly rather than only saying "no".
+      headers: { ...cors, "Content-Type": "application/json", "WWW-Authenticate": 'Bearer realm="tool-vision"' },
+    });
   }
 
   if (request.method === "GET") {
