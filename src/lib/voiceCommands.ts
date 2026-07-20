@@ -19,10 +19,12 @@ export function parseQty(cmd: string): number {
   return 1;
 }
 
+const CORRECTION = /\b(?:it'?s|it is|that'?s|actually|its)\b\s+(?:an?\s+)?(.+)/;
+
 /** A spoken correction like "no, it's a chalk line" / "actually a torque wrench" → the corrected name
  *  (Title Cased), or null if the command isn't a correction. */
 export function parseCorrection(cmd: string): string | null {
-  const m = cmd.match(/\b(?:it'?s|it is|that'?s|actually|its)\b\s+(?:an?\s+)?(.+)/);
+  const m = cmd.match(CORRECTION);
   if (!m) return null;
   const name = m[1].replace(/[^\w\s-]/g, "").trim();
   return name.length >= 2 ? name.replace(/\b\w/g, (c) => c.toUpperCase()) : null;
@@ -39,7 +41,14 @@ export function classifyCommand(cmd: string): ParsedCommand {
   if (DONE.test(cmd)) return { kind: "done", qty, correctedName: null };
   if (UNDO.test(cmd)) return { kind: "undo", qty, correctedName: null };
   const correctedName = parseCorrection(cmd);
-  if (correctedName) return { kind: "yes", qty, correctedName };
+  if (correctedName) {
+    // Numbers inside a correction belong to the tool's NAME, not to a count — "it's a 10 mm wrench"
+    // means one wrench, not ten. Garage corrections are full of sizes, voltages, drives and gauges,
+    // and a misread here both sets the wrong stock count and prints that many labels. So only the
+    // text BEFORE the correction ("add two, it's a 10 mm wrench") can carry a quantity.
+    const at = cmd.search(CORRECTION);
+    return { kind: "yes", qty: parseQty(at > 0 ? cmd.slice(0, at) : ""), correctedName };
+  }
   if (SKIP.test(cmd)) return { kind: "skip", qty, correctedName: null };
   if (YES.test(cmd)) return { kind: "yes", qty, correctedName: null };
   return { kind: "unclear", qty, correctedName: null };

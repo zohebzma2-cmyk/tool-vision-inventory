@@ -103,10 +103,29 @@ export async function computeOrgReport(): Promise<OrgReport> {
     supabase.from("items").select("id,name,category,brand"),
     supabase.from("item_locations").select("item_id,location_id,quantity").is("date_removed", null),
   ]);
-  const locations = (locRes.data ?? []) as Loc[];
-  const items = (itemRes.data ?? []) as Item[];
-  const placements = (placeRes.data ?? []) as Placement[];
+  return buildOrgReport(
+    (locRes.data ?? []) as Loc[],
+    (itemRes.data ?? []) as Item[],
+    (placeRes.data ?? []) as Placement[]
+  );
+}
 
+/**
+ * Can a tool actually be filed *into* this location by one tap?
+ *
+ * Only leaves qualify. A "space" (Garage, Shed) never does, and neither does a unit that contains
+ * other containers — filing a wrench into "Garage" or into the bin wall as a whole is worse than
+ * wherever it already was, and it's precisely what the Add-tool flow refuses to do. Structural
+ * rather than type-based, so an unusual `type` string can't sneak a container through.
+ */
+function isFilingTarget(loc: Loc, hasChildContainers: Set<string>): boolean {
+  if (loc.is_slot) return false;
+  if (norm(loc.type) === "space") return false;
+  return !hasChildContainers.has(loc.id);
+}
+
+/** The pure core, split out from the fetch so it can be tested against fixed data. */
+export function buildOrgReport(locations: Loc[], items: Item[], placements: Placement[]): OrgReport {
   const locById = new Map(locations.map((l) => [l.id, l]));
   const itemById = new Map(items.map((i) => [i.id, i]));
   const slotChildCount = new Map<string, number>();
@@ -156,8 +175,15 @@ export async function computeOrgReport(): Promise<OrgReport> {
 
   // --- 2) Misplaced items --------------------------------------------------
   // Precompute, per category, a location whose own category matches — the natural "home" to suggest.
+  // Only leaf containers are eligible (see isFilingTarget): "Garage" and the bin wall itself both
+  // carry categories but must never be the target of a one-tap Move. Sorted by name so the same
+  // home is chosen every run — the rows come back from Postgres unordered.
+  const hasChildContainers = new Set(
+    locations.filter((l) => l.parent_location_id && !l.is_slot).map((l) => l.parent_location_id as string)
+  );
   const homeForCategory = new Map<string, Loc>();
-  for (const loc of storage) if (loc.category) {
+  for (const loc of [...storage].sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!loc.category || !isFilingTarget(loc, hasChildContainers)) continue;
     const key = norm(loc.category);
     if (!homeForCategory.has(key)) homeForCategory.set(key, loc);
   }

@@ -50,6 +50,8 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
   const streamRef = useRef<MediaStream | null>(null);
   const aliveRef = useRef(false);
   const finishRef = useRef(false);
+  /** Is the session loop actually running? Decides whether Close can be graceful or must be direct. */
+  const loopAliveRef = useRef(false);
   const prevGrayRef = useRef<Uint8ClampedArray | null>(null);
   const countRef = useRef(0);            // live count (the effect closure can't see React state updates)
 
@@ -154,8 +156,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
         }
         watched += 320;
         await sleep(320);
-        if (watched >= 6000 && !moved) {       // periodic voice window to say "done"
+        if (watched >= 6000) {                 // periodic voice window to say "done"
           watched = 0;
+          // Deliberately NOT gated on a quiet scene. `moved` latches on the first motion spike and
+          // only clears on a capture, so any continuous low-level motion — a shop fan, someone
+          // walking behind the camera, flickering fluorescents — used to hold it true forever and
+          // silently kill the ONLY voice way out of the session. Six seconds without settling means
+          // no item is being presented, so re-arm and let the user speak.
+          moved = false; steady = 0;
           const s = audioStream();
           if (s) { const cmd = await listen(s, 2600); if (cmd) setHeard(cmd); if (DONE.test(cmd)) return null; }
         }
@@ -172,8 +180,17 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     };
 
     // Print one label per physical unit — if it's ×2, both copies come out.
+    // Returns false if any copy was neither printed nor safely queued. printResilient reports that
+    // via `queued: false` (localStorage full — a long session of queued PNGs exhausts the ~5MB quota
+    // well before the 300-job cap). Ignoring it told the user "Labeled X" while the label was gone
+    // with no trace, so the tool goes on the shelf bare and nothing ever says so.
     const printCopies = async (dataUrl: string, media: string, name: string, copies: number) => {
-      for (let i = 0; i < Math.max(1, copies); i++) await printResilient(dataUrl, media, copies > 1 ? `${name} (${i + 1}/${copies})` : name);
+      let allSafe = true;
+      for (let i = 0; i < Math.max(1, copies); i++) {
+        const res = await printResilient(dataUrl, media, copies > 1 ? `${name} (${i + 1}/${copies})` : name);
+        if (!res.success && !res.queued) allSafe = false;
+      }
+      return allSafe;
     };
 
     const saveAndPrint = async (
@@ -214,18 +231,26 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       // bridge during the item_locations round-trip below; marking it synchronously here prevents a
       // second (duplicate) label. Rapid Mode prints its own label just after.
       noteSessionItem(created!.id);
+      // Claim it for undo BEFORE the link attempt. If filing fails we tell the user we couldn't save
+      // it, so "undo" must reach THIS row — otherwise undo silently deletes the previous tool instead.
+      lastCreated = { id: created!.id, name: item.name };
       // Filing the item into the bin is the whole point — a failure here must surface, not be swallowed.
       const { error: linkErr } = await supabase
         .from("item_locations").insert({ item_id: created!.id, location_id: bin!.id, quantity: qty });
-      if (linkErr) throw linkErr;
-      lastCreated = { id: created!.id, name: item.name };
+      if (linkErr) {
+        // Roll the item back rather than stranding it: an unfiled row is invisible in every bin view
+        // and would only ever resurface as a mysterious "homeless" item days later.
+        await supabase.from("items").delete().eq("id", created!.id);
+        lastCreated = null;
+        throw linkErr;
+      }
       if (item.category) labeledCategories.push(item.category);
       if (upc) return { merged: false, noLabel: true }; // SKU'd part — stored with its UPC, no TV label
       const sub = [item.category, [item.brand, item.model].filter(Boolean).join(" "), qty > 1 ? `×${qty}` : ""]
         .filter(Boolean) as string[];
       const label = renderItemLabel({ name: item.name, code, sub, media, logo: await logoP }).toDataURL("image/png");
-      await printCopies(label, media, item.name, qty); // ×N → one label per unit
-      return { merged: false };
+      const labelSafe = await printCopies(label, media, item.name, qty); // ×N → one label per unit
+      return { merged: false, labelDropped: !labelSafe };
     };
 
     const undoLast = async (): Promise<string> => {
@@ -366,6 +391,16 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
           } else if (r.noLabel) {
             countRef.current += 1; setCount(countRef.current);
             await say(`${item.name} has a barcode — stored without a new label.`);
+          } else if (r.labelDropped) {
+            // Saved, but the label could not even be queued. Say so out loud — the whole point of a
+            // hands-free flow is that the user isn't watching the screen.
+            countRef.current += 1; setCount(countRef.current);
+            await say(`Saved ${item.name}, but its label didn't print. Reprint it from the bin later.`);
+            toast({
+              title: "Label not printed",
+              description: `${item.name} was saved, but the label couldn't be printed or queued. Print it from the bin.`,
+              variant: "destructive",
+            });
           } else {
             countRef.current += 1; setCount(countRef.current);
             await say(`Labeled ${item.name}${qty > 1 ? `, quantity ${qty}` : ""}.`);
@@ -378,10 +413,24 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
       await finishSession();
     };
 
-    run();
+    // The loop owns the graceful exit (finish the current tool, print the bin label, close). Track
+    // whether it is actually running, because every path that leaves it early — vision not
+    // configured, camera denied, or an unexpected throw — used to leave the fullscreen overlay with
+    // nothing able to close it, and a station flow meant to run without a keyboard became a reload.
+    loopAliveRef.current = true;
+    run()
+      .catch((e) => {
+        // e.g. the USB webcam is unplugged mid-session and drawImage throws on a dead track.
+        setErrorMsg(
+          `Rapid Mode stopped: ${String((e as Error)?.message || e)}. Your saved tools are safe — close and reopen to carry on.`
+        );
+        setPhase("error");
+      })
+      .finally(() => { loopAliveRef.current = false; });
 
     return () => {
       aliveRef.current = false;
+      loopAliveRef.current = false;
       stopSpeaking();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
@@ -390,7 +439,18 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, bin?.id]);
 
-  const finishNow = () => { finishRef.current = true; };
+  /**
+   * Close button / X. When the session loop is running we ask it to wind down gracefully so the
+   * current tool is finished and the bin label still prints. When it ISN'T running there is nobody
+   * left to honour that flag, so close outright — otherwise the overlay is a dead end.
+   */
+  const finishNow = () => {
+    if (loopAliveRef.current) { finishRef.current = true; return; }
+    stopSpeaking();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    onOpenChange(false);
+  };
 
   if (!open) return null;
 

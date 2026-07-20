@@ -88,18 +88,27 @@ export interface CreateSpaceInput {
   region?: { corners: { x: number; y: number }[] } | null;
 }
 
-/** Find a top-level place by name, creating it if needed (e.g. "Garage", "Shed"). */
+/**
+ * Find a top-level place by name, creating it if needed (e.g. "Garage", "Shed").
+ *
+ * Deliberately NOT `.maybeSingle()`: when two rows already share a name, PostgREST answers 406
+ * /PGRST116 with `data: null`, which reads as "not found" and creates yet another duplicate — the
+ * more duplicates exist, the more reliably it makes more. We take the oldest match instead, so a
+ * name always resolves to the same row and duplicates converge rather than multiply.
+ */
 export async function findOrCreatePlace(name: string, type = "space") {
   const trimmed = name.trim();
-  const { data: existing } = await supabase
+  const { data: matches, error: findErr } = await supabase
     .from("locations")
     .select("id, name")
     .eq("is_slot", false)
     .is("parent_location_id", null)
     .is("grid_rows", null)
     .ilike("name", trimmed)
-    .maybeSingle();
-  if (existing) return existing;
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (findErr) throw findErr;
+  if (matches?.length) return matches[0];
 
   const { data, error } = await supabase
     .from("locations")

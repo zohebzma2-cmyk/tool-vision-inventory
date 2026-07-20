@@ -50,4 +50,9 @@ export default defineConfig(() => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  test: {
+    // Plain node env + a tiny localStorage shim, so importing the Supabase client in a unit test
+    // doesn't require pulling jsdom into devDependencies.
+    setupFiles: ["./vitest.setup.ts"],
+  },
 }));

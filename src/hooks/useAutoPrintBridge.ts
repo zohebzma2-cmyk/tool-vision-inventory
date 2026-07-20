@@ -47,8 +47,16 @@ export function useAutoPrintBridge(enabled: boolean): void {
 
     const printItem = async (item: IncomingItem) => {
       if (!alive || !item?.id || !item.qr_code) return;
-      if (printed.has(item.id) || isSessionItem(item.id)) return;
-      if ((item.notes || "").includes("UPC ")) return; // SKU'd parts are deliberately not TV-labeled
+      if (printed.has(item.id)) return;
+      // Deliberate skips are terminal DECISIONS, not failures, so they must still advance the
+      // watermark. Rapid Mode labels its own items as it goes and marks them session items; if that
+      // skip left the watermark behind, a whole session would sit above it, and the next catch-up
+      // after a reload (sessionItemIds is in-memory and dies with the page) would reprint every one.
+      // Same for SKU'd parts, which are deliberately never TV-labeled.
+      if (isSessionItem(item.id) || (item.notes || "").includes("UPC ")) {
+        bumpWatermark(item.created_at);
+        return;
+      }
       printed.add(item.id);
       try {
         const media = getLabelMedia();
