@@ -83,6 +83,11 @@ function corsHeaders(request, env) {
     "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-vision-key",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     Vary: "Origin",
+    // A CORS decision is per-origin and must never be served from a shared cache. Without this the
+    // edge caches preflights: after this fix deployed, several origins kept getting the OLD `null`
+    // answer until the entry aged out. `Vary: Origin` alone did not prevent it, and the symptom —
+    // the AI silently failing from one machine but not another — is near-impossible to diagnose.
+    "Cache-Control": "no-store",
   };
 }
 

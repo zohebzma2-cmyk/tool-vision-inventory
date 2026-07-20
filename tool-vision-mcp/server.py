@@ -138,9 +138,24 @@ def list_locations() -> str:
     return json.dumps(rows, indent=2)
 
 
+# Containers that hold tools directly. One of these with no parent is almost always a mistake: it
+# lands at the top level, where the app's "which space?" pickers look for places, so a stray bin
+# starts being offered as if it were a Garage.
+_LEAF_TYPES = {"bin", "drawer", "slot", "hook"}
+
+
 @mcp.tool()
 def create_location(name: str, type: str = "bin", parent_id: str = "", capacity: int = 0) -> str:
-    """Create one storage location (type: bin/rack/shelf/space/drawer/pegboard...). Returns it with its code."""
+    """Create one storage location (type: bin/rack/shelf/space/drawer/pegboard...). Returns it with its code.
+
+    A leaf container (bin/drawer/slot/hook) MUST have a parent_id — pass the id of the shelf, rack or
+    space it sits in (use list_locations to find it), or use type="space" for a top-level place."""
+    if type in _LEAF_TYPES and not parent_id:
+        return json.dumps({
+            "error": f"a '{type}' needs a parent_id — it has to live in a shelf, rack or space.",
+            "hint": "call list_locations to find the container's id, or use type='space' for a "
+                    "top-level place like Garage or Shed.",
+        }, indent=2)
     row = {"name": name, "type": type, "qr_code": mint_code(), "is_slot": False, "owner_id": owner_id()}
     if parent_id:
         row["parent_location_id"] = parent_id
@@ -157,11 +172,28 @@ def create_bin_wall(name: str, rows: int, cols: int, place: str = "Garage", unit
     BINS. Bins are named A1..(row letter)(col number). Returns the shelf + how many bins were made."""
     oid = owner_id()
     # The space (Garage) is where the shelf lives — find or create it as a top-level "space".
+    # Match on type as well as name: without it, a BIN that happens to be called "Garage" would be
+    # picked up and the whole wall built underneath it.
     existing = _sb("GET", "locations", params={
-        "owner_id": f"eq.{oid}", "name": f"eq.{place}", "select": "id", "limit": 1})
+        "owner_id": f"eq.{oid}", "name": f"eq.{place}", "type": "eq.space",
+        "is_slot": "eq.false", "select": "id", "order": "created_at", "limit": 1})
     place_id = existing[0]["id"] if existing else _sb("POST", "locations", body={
         "name": place, "type": "space", "qr_code": mint_code(), "is_slot": False,
         "layout": {"placeKind": place.lower()}, "owner_id": oid})[0]["id"]
+    # Reuse a wall of this name already in this space. Without this check, running the tool twice
+    # built a SECOND shelf and another rows*cols bins — an 8x8 wall re-run is 128 stray rows, and
+    # nothing about the result told you it had happened.
+    prior = _sb("GET", "locations", params={
+        "owner_id": f"eq.{oid}", "name": f"eq.{name}", "parent_location_id": f"eq.{place_id}",
+        "select": "id,name,type,qr_code,grid_rows,grid_cols", "order": "created_at", "limit": 1})
+    if prior:
+        have = _sb("GET", "locations", params={
+            "parent_location_id": f"eq.{prior[0]['id']}", "select": "id", "limit": "1000"})
+        return json.dumps({
+            "space": place, "shelf": prior[0], "bins_created": 0, "existing_bins": len(have),
+            "note": f"'{name}' already exists in {place} with {len(have)} bins — reused, nothing created. "
+                    "Delete it first if you really want to rebuild it.",
+        }, indent=2)
     # The shelf unit lives IN the space.
     shelf = _sb("POST", "locations", body={
         "name": name, "type": unit_type, "qr_code": mint_code(), "is_slot": False,
@@ -285,11 +317,24 @@ def create_item(name: str, category: str = "Other", brand: str = "", model: str 
 def place_item(item_id: str, location_id: str, quantity: int = 1) -> str:
     """Place (or move) an item into a location."""
     oid = owner_id()
+    # Clear it out of every OTHER location. Excluding the target matters: item_locations has
+    # UNIQUE(item_id, location_id) and removal is a soft delete, so removing the target's own row and
+    # then re-inserting it raises 409 — after the removal has already committed, which would leave
+    # the item with no placement at all. Re-filing something into the bin it came from is the single
+    # most common move, so this fired constantly.
     _sb("PATCH", "item_locations",
-        params={"item_id": f"eq.{item_id}", "date_removed": "is.null"},
+        params={"item_id": f"eq.{item_id}", "location_id": f"neq.{location_id}",
+                "date_removed": "is.null"},
         body={"date_removed": "now()"})
-    out = _sb("POST", "item_locations", body={
-        "item_id": item_id, "location_id": location_id, "quantity": quantity, "owner_id": oid})
+    # A prior (possibly soft-removed) row for this exact pair must be REACTIVATED, not re-inserted.
+    prior = _sb("GET", "item_locations", params={
+        "item_id": f"eq.{item_id}", "location_id": f"eq.{location_id}", "select": "id", "limit": 1})
+    if prior:
+        out = _sb("PATCH", "item_locations", params={"id": f"eq.{prior[0]['id']}"},
+                  body={"date_removed": None, "quantity": quantity})
+    else:
+        out = _sb("POST", "item_locations", body={
+            "item_id": item_id, "location_id": location_id, "quantity": quantity, "owner_id": oid})
     return json.dumps(out[0] if out else {}, indent=2)
 
 
