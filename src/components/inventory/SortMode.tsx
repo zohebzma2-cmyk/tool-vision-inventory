@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { computeOrgReport, dismissSuggestion, type OrgReport, type OrgSuggestion } from "@/lib/organize";
+import { moveItemTo, assignItemTo } from "@/lib/placement";
 import { haptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 
@@ -33,8 +34,16 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
   useEffect(() => {
     if (!assignFor) return;
     setAssignLoc("");
-    supabase.from("locations").select("id,name,type").eq("is_slot", false).order("name")
-      .then(({ data }) => setAssignLocations(data ?? []));
+    // Offer the places a tool can actually sit: leaves, minus whole spaces. This deliberately does
+    // NOT filter on is_slot — the bins of a mapped bin wall are stored as slot children, so an
+    // is_slot === false filter offered every container EXCEPT the ones real items live in, leaving
+    // nothing useful to assign a homeless tool to.
+    supabase.from("locations").select("id,name,type,parent_location_id").order("name")
+      .then(({ data }) => {
+        const rows = (data ?? []) as { id: string; name: string; type: string; parent_location_id: string | null }[];
+        const parents = new Set(rows.map((r) => r.parent_location_id).filter(Boolean) as string[]);
+        setAssignLocations(rows.filter((r) => r.type !== "space" && !parents.has(r.id)));
+      });
   }, [assignFor]);
 
   const load = useCallback(async () => {
@@ -56,20 +65,10 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
     try {
       // Carry the item's existing quantity to the new bin — summed across every active row in the
       // source location (not just one), so a split placement isn't silently collapsed to a single qty.
-      const { data: curRows } = await supabase
-        .from("item_locations")
-        .select("quantity")
-        .eq("item_id", s.itemId).eq("location_id", s.locationId).is("date_removed", null);
-      const qty = (curRows ?? []).reduce((sum, r) => sum + (r.quantity ?? 1), 0) || 1;
-      const { error: rmErr } = await supabase
-        .from("item_locations")
-        .update({ date_removed: new Date().toISOString() })
-        .eq("item_id", s.itemId).eq("location_id", s.locationId).is("date_removed", null);
-      if (rmErr) throw rmErr;
-      const { error: addErr } = await supabase
-        .from("item_locations")
-        .insert({ item_id: s.itemId, location_id: s.suggestedLocationId, quantity: qty });
-      if (addErr) throw addErr;
+      // Reactivates a prior soft-removed row rather than inserting over the UNIQUE constraint —
+      // re-filing a tool into a bin it once lived in used to remove it and then fail, leaving it
+      // with no placement at all.
+      await moveItemTo(s.itemId, s.suggestedLocationId);
       haptic.success();
       toast({ title: "Moved", description: `Now in ${s.suggestedLocationName}.` });
       await load();
@@ -108,9 +107,9 @@ export function SortMode({ syncSignal }: { syncSignal?: number }) {
     try {
       // Place the whole item (its full quantity) into the chosen location — gives a homeless item a home.
       const { data: item } = await supabase.from("items").select("quantity").eq("id", assignFor.itemId).maybeSingle();
-      const { error } = await supabase.from("item_locations")
-        .insert({ item_id: assignFor.itemId, location_id: assignLoc, quantity: item?.quantity ?? 1 });
-      if (error) throw error;
+      // A homeless item is homeless *because* its rows were soft-deleted, so the home you'd pick for
+      // it is very often one it already has a dead row for. Reactivate rather than insert.
+      await assignItemTo(assignFor.itemId, assignLoc, item?.quantity ?? 1);
       haptic.success();
       const locName = assignLocations.find((l) => l.id === assignLoc)?.name;
       toast({ title: "Assigned", description: locName ? `Now in ${locName}.` : "Item now has a home." });

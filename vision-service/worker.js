@@ -24,21 +24,72 @@
 //   GROUNDING_MODEL (text model for web-grounded enrichment, default "google/gemma-4-31b-it:free")
 //   ENABLE_WEB_GROUNDING (default on; set to "false" to disable the enrichment call)
 
+import { handleMcp } from "./mcp.js";
+
 const CATEGORIES = ["hand tools", "power tools", "electrical", "plumbing", "cutting tools", "measuring tools", "fasteners", "other"];
 const LOCATION_TYPES = ["pegboard", "drawer", "shelf", "bin", "cabinet", "rack", "board", "wall", "toolbox", "tool bag", "space"];
 const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** The desktop connector's port. Only things IT serves are trusted on a LAN address. */
+const CONNECTOR_PORT = 17777;
+
+const isPrivateIp = (host) => {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return false;
+  const [a, b] = m.slice(1).map(Number);
+  if (m.slice(1).some((n) => Number(n) > 255)) return false;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+};
+
+/**
+ * Which value to send back in Access-Control-Allow-Origin.
+ *
+ * Beyond the explicitly configured ALLOWED_ORIGINS, we trust the *local station*: the app as served
+ * by the desktop connector. This is not a convenience — it is required. Label printing only works
+ * from the connector-served app (Chrome's Private Network Access forbids the public https site from
+ * calling localhost), so if the AI were not reachable from that same origin, identifying and
+ * labelling could never happen in one place. Mirrors the connector's own `_origin_ok`.
+ *
+ * Trust is bounded: loopback on any port (the connector itself + the vite dev server), and
+ * private-LAN / mDNS hosts ONLY on the connector's port. Every request is still authenticated with
+ * a Supabase token, so this widens who may *ask*, never what an anonymous caller may do.
+ */
+export function resolveAllowOrigin(origin, env) {
+  const allowed = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (allowed.length === 0) return "*"; // unset = dev only
+  if (allowed.includes(origin)) return origin;
+
+  let u;
+  try {
+    u = new URL(origin);
+  } catch {
+    return "null";
+  }
+  // Exact host match only — never a suffix test, which "localhost.evil.com" would satisfy.
+  const host = u.hostname.replace(/\.$/, "").toLowerCase();
+  if (u.protocol === "http:") {
+    if (host === "localhost" || host === "127.0.0.1") return origin;
+    const port = Number(u.port);
+    if (port === CONNECTOR_PORT && (isPrivateIp(host) || /^[a-z0-9-]+\.local$/.test(host))) return origin;
+  }
+  return "null";
+}
+
 function corsHeaders(request, env) {
   const origin = request.headers.get("Origin") || "";
-  const allowed = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const allowOrigin = allowed.length === 0 ? "*" : allowed.includes(origin) ? origin : "null";
+  const allowOrigin = resolveAllowOrigin(origin, env);
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-vision-key",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     Vary: "Origin",
+    // A CORS decision is per-origin and must never be served from a shared cache. Without this the
+    // edge caches preflights: after this fix deployed, several origins kept getting the OLD `null`
+    // answer until the entry aged out. `Vary: Origin` alone did not prevent it, and the symptom —
+    // the AI silently failing from one machine but not another — is near-impossible to diagnose.
+    "Cache-Control": "no-store",
   };
 }
 
@@ -325,6 +376,12 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
 
+    // Remote MCP endpoint for the Claude app's custom connector. Authenticates on its own token
+    // (never a Supabase session), so it is checked before the user-auth routes below.
+    if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+      return handleMcp(request, env, url, cors);
+    }
+
     if (request.method === "GET" && url.pathname === "/health") {
       return json(200, {
         ok: true,
@@ -571,6 +628,9 @@ export default {
             name: typeof it?.name === "string" && it.name.trim() ? it.name.trim() : "Unknown item",
             category: CATEGORIES.includes(cat) ? cat : "other",
             kind: ITEM_KINDS.includes(kind) ? kind : "part",
+            // The prompt captures a size/spec for parts & fittings ("3/4 in", "4 in pop-up"); pass it
+            // through so it lands in size_specs. Dropping it here nulled every fitting's size.
+            size: typeof it?.size === "string" ? it.size.slice(0, 40) : "",
             brand: typeof it?.brand === "string" ? it.brand : "",
             model: typeof it?.model === "string" ? it.model : "",
             quantity: clampInt(it?.quantity, 1, 999, 1),

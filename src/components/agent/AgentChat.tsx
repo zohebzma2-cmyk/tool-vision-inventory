@@ -4,7 +4,7 @@
 // your approval before it happens.
 
 import { useEffect, useRef, useState } from "react";
-import { Bot, X, Send, Camera, Loader2, Check, Wrench } from "lucide-react";
+import { Bot, X, Send, Camera, Loader2, Check, Wrench, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { callAgent, isAgentConfigured, type LlmMessage } from "@/lib/agentChat";
 import { AGENT_SYSTEM_PROMPT, executeTool } from "@/lib/agentTools";
@@ -66,6 +66,14 @@ export function AgentChat({ open, onOpenChange }: { open: boolean; onOpenChange:
     new Promise((res) => { resolveRef.current = res as (v: unknown) => void; setPending(p); });
   const answer = (v: unknown) => { const r = resolveRef.current; resolveRef.current = null; setPending(null); r?.(v); };
 
+  // Wipe the conversation back to a clean state — the guaranteed escape hatch if anything ever hangs
+  // or a bad tool round-trip wedges the history.
+  const reset = () => {
+    resolveRef.current = null;
+    llmRef.current = [{ role: "system", content: AGENT_SYSTEM_PROMPT }];
+    setPending(null); setBusy(false); setBubbles([]);
+  };
+
   const runLoop = async () => {
     setBusy(true);
     try {
@@ -75,28 +83,48 @@ export function AgentChat({ open, onOpenChange }: { open: boolean; onOpenChange:
         const calls = msg.tool_calls || [];
         if (!calls.length) { add({ kind: "assistant", text: String(msg.content || "…") }); break; }
         if (msg.content) add({ kind: "assistant", text: String(msg.content) });
+        let awaitText = false; // set when we need a typed reply — end the loop so the user can type
         for (const tc of calls) {
-          let args: Record<string, unknown> = {};
-          try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* keep {} */ }
+          // CRITICAL: every tool_call MUST get a matching tool response pushed below, even on failure.
+          // A dangling tool_call makes the model API reject every future message (the chat would brick
+          // until reload). So all paths set `content`, and the push happens unconditionally at the end.
           let content: string;
-          if (tc.function.name === "ask_user_choice") {
-            add({ kind: "assistant", text: String(args.question || "Which one?") });
-            const choice = await waitUser<string>({ type: "choice", question: String(args.question || ""), options: (args.options as string[]) || [] });
-            add({ kind: "user", text: choice });
-            content = JSON.stringify({ chosen: choice });
-          } else {
-            add({ kind: "tool", text: TOOL_LABEL[tc.function.name] || tc.function.name });
-            const tr = await executeTool(tc.function.name, args);
-            if (tr.confirm) {
-              const ok = await waitUser<boolean>({ type: "confirm", summary: tr.confirm.summary });
-              if (ok) { const r = await tr.confirm.run(); add({ kind: "tool", text: `✓ ${tr.confirm.summary}` }); content = JSON.stringify({ confirmed: true, result: r }); }
-              else { add({ kind: "tool", text: "✗ Declined" }); content = JSON.stringify({ declined: true }); }
+          try {
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* keep {} */ }
+            if (tc.function.name === "ask_user_choice") {
+              const opts = Array.from(new Set(((args.options as string[]) || []).map((o) => String(o).trim()).filter(Boolean)));
+              add({ kind: "assistant", text: String(args.question || "Which one?") });
+              if (opts.length >= 1) {
+                const choice = await waitUser<string>({ type: "choice", question: String(args.question || ""), options: opts });
+                add({ kind: "user", text: choice });
+                content = JSON.stringify({ chosen: choice });
+              } else {
+                // No usable options → can't render buttons. Don't hang: answer the call and end the
+                // loop so the user can type their reply as a normal message.
+                content = JSON.stringify({ chosen: null, note: "No options were provided; ask the user to type their answer." });
+                awaitText = true;
+              }
             } else {
-              content = JSON.stringify(tr.result);
+              add({ kind: "tool", text: TOOL_LABEL[tc.function.name] || tc.function.name });
+              const tr = await executeTool(tc.function.name, args);
+              if (tr.confirm) {
+                const ok = await waitUser<boolean>({ type: "confirm", summary: tr.confirm.summary });
+                if (ok) { const r = await tr.confirm.run(); add({ kind: "tool", text: `✓ ${tr.confirm.summary}` }); content = JSON.stringify({ confirmed: true, result: r }); }
+                else { add({ kind: "tool", text: "✗ Declined" }); content = JSON.stringify({ declined: true }); }
+              } else {
+                content = JSON.stringify(tr.result);
+              }
             }
+          } catch (err) {
+            // A tool (or its confirmed run) threw. Surface it AND still answer the tool_call so the
+            // conversation stays valid for the next message.
+            add({ kind: "tool", text: `⚠ ${tc.function.name} failed` });
+            content = JSON.stringify({ error: String((err as Error)?.message || err) });
           }
           llmRef.current.push({ role: "tool", tool_call_id: tc.id, content: content.slice(0, 4000) });
         }
+        if (awaitText) break; // let the user type their answer; the next send continues the conversation
       }
     } catch (e) {
       add({ kind: "assistant", text: `⚠ ${String((e as Error)?.message || e)}` });
@@ -124,7 +152,12 @@ export function AgentChat({ open, onOpenChange }: { open: boolean; onOpenChange:
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-primary-foreground"><Bot className="h-4 w-4" /></span>
           <div><div className="font-display font-semibold leading-tight">Assistant</div><div className="text-xs text-muted-foreground">Ask, or send a photo — it can act with your OK</div></div>
         </div>
-        <button onClick={() => onOpenChange(false)} className="rounded p-1.5 hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
+        <div className="flex items-center gap-1">
+          {bubbles.length > 0 && (
+            <button onClick={reset} className="rounded p-1.5 text-muted-foreground hover:bg-muted" aria-label="Reset conversation" title="Start over"><RotateCcw className="h-4 w-4" /></button>
+          )}
+          <button onClick={() => onOpenChange(false)} className="rounded p-1.5 hover:bg-muted" aria-label="Close"><X className="h-5 w-5" /></button>
+        </div>
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3">

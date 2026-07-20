@@ -73,3 +73,34 @@ describe("classifyCommand", () => {
     expect(classifyCommand("").kind).toBe("unclear");
   });
 });
+
+describe("classifyCommand — sizes in a correction are not quantities", () => {
+  // A garage correction almost always contains a number that is part of the tool's NAME.
+  // Reading it as a quantity sets the wrong stock count AND prints that many labels.
+  it("does not read a metric size as a quantity", () => {
+    const c = classifyCommand("no it's a 10 mm wrench");
+    expect(c.kind).toBe("yes");
+    expect(c.correctedName).toBe("10 Mm Wrench");
+    expect(c.qty).toBe(1);
+  });
+
+  it("does not read a voltage, drive size or gauge as a quantity", () => {
+    expect(classifyCommand("it's a 18 volt drill").qty).toBe(1);
+    expect(classifyCommand("actually a 3/8 drive ratchet").qty).toBe(1);
+    expect(classifyCommand("that's a number 2 phillips").qty).toBe(1);
+    expect(classifyCommand("it's a 6 inch backing pad").qty).toBe(1);
+  });
+
+  it("still honours a quantity spoken BEFORE the correction", () => {
+    const c = classifyCommand("add two, it's a 10 mm wrench");
+    expect(c.kind).toBe("yes");
+    expect(c.correctedName).toBe("10 Mm Wrench");
+    expect(c.qty).toBe(2);
+  });
+
+  it("leaves plain confirmations working exactly as before", () => {
+    expect(classifyCommand("yes two").qty).toBe(2);
+    expect(classifyCommand("add 12").qty).toBe(12);
+    expect(classifyCommand("yes").qty).toBe(1);
+  });
+});

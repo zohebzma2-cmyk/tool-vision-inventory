@@ -79,31 +79,64 @@ export async function executeTool(name: string, args: Record<string, unknown>): 
     case "create_item": {
       const nm = String(a.name || "").trim();
       const binName = a.bin ? String(a.bin) : "";
+      // Resolve the bin BEFORE confirming, so the summary is truthful and we never create an orphan
+      // item when the named bin doesn't exist.
+      const bin = binName ? await findBin(binName) : null;
+      if (binName && !bin) return { result: { error: `Couldn't find bin “${binName}”. Nothing was created — check the bin name and try again.` } };
       return { confirm: {
-        summary: `Create “${nm}”${a.category ? ` (${a.category})` : ""}${binName ? ` and file into ${binName}` : ""}`,
+        summary: `Create “${nm}”${a.category ? ` (${a.category})` : ""}${bin ? ` and file into ${bin.name}` : ""}`,
         run: async () => {
-          const bin = binName ? await findBin(binName) : null;
           const code = await mintShortCode();
           const { data: created, error } = await supabase.from("items").insert({
             name: nm, category: String(a.category || "Other"), quantity: 1, quantity_unit: "piece", qr_code: code,
             ...(a.brand ? { brand: String(a.brand) } : {}), ...(a.size ? { size_specs: String(a.size) } : {}),
           }).select("id").single();
           if (error) throw error;
-          if (bin) await supabase.from("item_locations").insert({ item_id: created!.id, location_id: bin.id, quantity: 1 });
-          return { created: nm, code, bin: bin?.name };
+          if (bin) {
+            // Don't claim it was filed unless the link actually succeeded.
+            const { error: linkErr } = await supabase.from("item_locations").insert({ item_id: created!.id, location_id: bin.id, quantity: 1 });
+            if (linkErr) return { created: nm, code, bin: null, warning: `Created, but couldn't file into ${bin.name}: ${linkErr.message}. File it manually.` };
+          }
+          return { created: nm, code, bin: bin?.name || null };
         },
       } };
     }
     case "move_item": {
       const itemName = String(a.item || ""), binName = String(a.bin || "");
+      // Resolve BOTH before confirming: the summary must name the exact item/bin the run will touch,
+      // and we fail cleanly (no confirm) if either can't be found.
+      const item = await findItem(itemName);
+      const bin = await findBin(binName);
+      if (!item || !bin) return { result: { error: `Couldn't find ${!item ? `item “${itemName}”` : `bin “${binName}”`}. Nothing moved.` } };
       return { confirm: {
-        summary: `Move “${itemName}” into ${binName}`,
+        summary: `Move “${item.name}” into ${bin.name}`,
         run: async () => {
-          const item = await findItem(itemName); const bin = await findBin(binName);
-          if (!item || !bin) return { error: `couldn't resolve ${!item ? "item" : "bin"}` };
-          await supabase.from("item_locations").update({ date_removed: new Date().toISOString() }).eq("item_id", item.id).is("date_removed", null);
-          await supabase.from("item_locations").insert({ item_id: item.id, location_id: bin.id, quantity: 1 });
-          return { moved: item.name, to: bin.name };
+          // Read current placements so we can preserve quantity (never silently reset it to 1).
+          const { data: current } = await supabase.from("item_locations")
+            .select("id,location_id,quantity").eq("item_id", item.id).is("date_removed", null);
+          const rows = (current || []) as Array<{ id: string; location_id: string; quantity?: number }>;
+          const qty = rows.reduce((s, r) => s + (r.quantity || 1), 0) || 1;
+          const now = new Date().toISOString();
+          // Remove it from every location EXCEPT the target.
+          const toRemove = rows.filter((r) => r.location_id !== bin.id).map((r) => r.id);
+          if (toRemove.length) {
+            const { error } = await supabase.from("item_locations").update({ date_removed: now }).in("id", toRemove);
+            if (error) return { error: `Couldn't move: ${error.message}` };
+          }
+          // Land it in the target. There's a UNIQUE(item_id, location_id), so a prior (even soft-removed)
+          // row for this bin must be REACTIVATED, not re-inserted (which would throw).
+          const { data: prior } = await supabase.from("item_locations")
+            .select("id").eq("item_id", item.id).eq("location_id", bin.id).limit(1);
+          if (prior && prior[0]) {
+            const { error } = await supabase.from("item_locations")
+              .update({ date_removed: null, quantity: qty }).eq("id", (prior[0] as { id: string }).id);
+            if (error) return { error: `Couldn't move: ${error.message}` };
+          } else {
+            const { error } = await supabase.from("item_locations")
+              .insert({ item_id: item.id, location_id: bin.id, quantity: qty });
+            if (error) return { error: `Couldn't move: ${error.message}` };
+          }
+          return { moved: item.name, to: bin.name, quantity: qty };
         },
       } };
     }

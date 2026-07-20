@@ -103,10 +103,31 @@ export async function computeOrgReport(): Promise<OrgReport> {
     supabase.from("items").select("id,name,category,brand"),
     supabase.from("item_locations").select("item_id,location_id,quantity").is("date_removed", null),
   ]);
-  const locations = (locRes.data ?? []) as Loc[];
-  const items = (itemRes.data ?? []) as Item[];
-  const placements = (placeRes.data ?? []) as Placement[];
+  return buildOrgReport(
+    (locRes.data ?? []) as Loc[],
+    (itemRes.data ?? []) as Item[],
+    (placeRes.data ?? []) as Placement[]
+  );
+}
 
+/**
+ * Can a tool actually be filed *into* this location?
+ *
+ * A leaf, and not a whole space. Filing a wrench into "Garage", or into a bin wall as a unit, is
+ * worse than wherever it already was — that's what the Add-tool flow already refuses to do.
+ *
+ * Crucially this does NOT exclude `is_slot` rows. The bins of a mapped bin wall are stored as slot
+ * children of the wall, so they are exactly where real items live; judging "sortable storage" by
+ * `is_slot === false` made the whole feature blind to them. Structural rather than type-based, so
+ * an unusual `type` string can't sneak a container through.
+ */
+function isFilingTarget(loc: Loc, hasChildren: Set<string>): boolean {
+  if (norm(loc.type) === "space") return false;
+  return !hasChildren.has(loc.id);
+}
+
+/** The pure core, split out from the fetch so it can be tested against fixed data. */
+export function buildOrgReport(locations: Loc[], items: Item[], placements: Placement[]): OrgReport {
   const locById = new Map(locations.map((l) => [l.id, l]));
   const itemById = new Map(items.map((i) => [i.id, i]));
   const slotChildCount = new Map<string, number>();
@@ -122,8 +143,16 @@ export async function computeOrgReport(): Promise<OrgReport> {
     placedItemIds.add(p.item_id);
   }
 
-  // Storage locations we assess: real containers (not individual slots), that hold items or have capacity.
+  // Units we measure fullness on: real containers, not the individual cells inside them. A mapped
+  // bin wall is one unit whose capacity is its slot children.
   const storage = locations.filter((l) => !l.is_slot);
+
+  // Places a tool can actually sit, and therefore be judged misplaced in or moved to. These ARE
+  // mostly slot rows (the bins of a bin wall), which is why this can't reuse `storage`.
+  const hasChildren = new Set(
+    locations.filter((l) => l.parent_location_id).map((l) => l.parent_location_id as string)
+  );
+  const fileable = locations.filter((l) => isFilingTarget(l, hasChildren));
 
   const suggestions: OrgSuggestion[] = [];
   const fullness: Fullness[] = [];
@@ -156,13 +185,17 @@ export async function computeOrgReport(): Promise<OrgReport> {
 
   // --- 2) Misplaced items --------------------------------------------------
   // Precompute, per category, a location whose own category matches — the natural "home" to suggest.
+  // Only leaf containers are eligible (see isFilingTarget): "Garage" and the bin wall itself both
+  // carry categories but must never be the target of a one-tap Move. Sorted by name so the same
+  // home is chosen every run — the rows come back from Postgres unordered.
   const homeForCategory = new Map<string, Loc>();
-  for (const loc of storage) if (loc.category) {
+  for (const loc of [...fileable].sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!loc.category) continue;
     const key = norm(loc.category);
     if (!homeForCategory.has(key)) homeForCategory.set(key, loc);
   }
 
-  for (const loc of storage) {
+  for (const loc of fileable) {
     const placed = (itemsInLoc.get(loc.id) ?? [])
       .map((p) => itemById.get(p.item_id))
       .filter((i): i is Item => !!i);

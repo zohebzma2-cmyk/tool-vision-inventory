@@ -395,9 +395,11 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
             if (!chosen) {
               chosen = findFirst(l => /general/.test(norm(l.name)));
             }
-            if (!chosen) {
-              chosen = findFirst(() => true);
-            }
+            // Deliberately NO blind `findFirst(() => true)` fallback here. It sorted by lowest
+            // occupancy, so an unrecognized tool was filed into whichever EMPTY cell came first —
+            // typically a random hole in a mapped pegboard — and the toast then said it was "placed
+            // in Slot B7". A tool you can't find is worse than one that is openly unfiled: leaving
+            // it unplaced surfaces it in Sort Mode as homeless, with a one-tap Assign.
 
             if (chosen) {
               const wasEmpty = (occMap.get(chosen.id) || 0) === 0;
@@ -405,10 +407,23 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
               const { error: ilErr } = await supabase.from('item_locations').insert([
                 { item_id: item.id, location_id: chosen.id, quantity: formData.quantity }
               ]);
-              if (!ilErr) assignedLocationName = chosen.name;
+              // Don't quietly pretend it was filed. The tool row exists either way, so a swallowed
+              // error here produced a "placed in Bin 4" toast for something that is actually sitting
+              // in no bin at all, and only resurfaces as "homeless" days later.
+              if (ilErr) {
+                toast({
+                  title: "Saved, but not filed",
+                  description: `${item.name} couldn't be placed in ${chosen.name}: ${ilErr.message}. Assign it in Sort Mode.`,
+                  variant: "destructive",
+                });
+              } else {
+                assignedLocationName = chosen.name;
+              }
 
-              // Categorize bin on first assignment if it has no category
-              if (norm(chosen.type) === 'bin' && (!chosen.category || !String(chosen.category).trim())) {
+              // Categorize bin on first assignment if it has no category. Only when the item really
+              // landed there — otherwise a failed placement would still stamp the bin's permanent
+              // theme, which Sort Mode then judges every other tool in it against.
+              if (!ilErr && norm(chosen.type) === 'bin' && (!chosen.category || !String(chosen.category).trim())) {
                 await supabase
                   .from('locations')
                   .update({ category: finalCategory })
@@ -446,7 +461,9 @@ export function AddItemDialog({ open, onOpenChange }: AddItemDialogProps) {
       };
       toast({
         title: "Tool added",
-        description: `${item.name}${assignedLocationName ? ` — placed in ${assignedLocationName}` : ''}.`,
+        description: assignedLocationName
+          ? `${item.name} — placed in ${assignedLocationName}.`
+          : `${item.name} — not filed anywhere yet. Give it a home in Sort Mode.`,
         variant: "success",
         action: isLabelOutputSupported() ? (
           <ToastAction altText="Print label" onClick={() => {
