@@ -37,8 +37,40 @@ async function sb(env, method, path, { params, body, prefer } = {}) {
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`Supabase ${res.status}: ${text.slice(0, 300)}`);
+  if (!res.ok) throw new Error(`Supabase ${res.status}: ${safeDetail(text)}`);
   return text ? JSON.parse(text) : null;
+}
+
+/**
+ * Strip anything key-shaped from a string that is about to be shown to someone.
+ *
+ * A backstop, not the primary defence: the service-role key travels in a header and is never
+ * expected in an error body. This exists so that if that ever stops being true, the secret does not
+ * silently ride out to the model.
+ */
+export function redact(s) {
+  return String(s || "")
+    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/g, "[redacted]")      // JWTs (anon / service-role keys)
+    .replace(/\bsb_[a-z]+_[A-Za-z0-9_-]{10,}\b/g, "[redacted]")   // new-format Supabase keys
+    .replace(/\b[A-Za-z0-9_-]{40,}\b/g, "[redacted]")             // any other long opaque token
+    .slice(0, 160);
+}
+
+/**
+ * Reduce an UPSTREAM error body to something safe to surface.
+ *
+ * Whatever this returns can end up in the model's reply, and therefore in conversation history and
+ * logs — so it must not be a pass-through for an arbitrary upstream payload. Keep only PostgREST's
+ * short `message` field; `details` and `hint` are dropped because they quote row data.
+ */
+export function safeDetail(text) {
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.message === "string" && parsed.message) return redact(parsed.message);
+  } catch {
+    /* not JSON — deliberately fall through rather than echoing an unknown body */
+  }
+  return "request rejected";
 }
 
 /** The single owner this connector acts for. Everything is scoped to them. */
@@ -305,7 +337,7 @@ async function callTool(env, name, args) {
           prefer: "return=minimal",
         });
       } catch (e) {
-        return `Saved “${item.name}” but could NOT file it into ${bin.name}: ${e.message}. It needs a home.`;
+        return `Saved “${item.name}” but could NOT file it into ${bin.name} (${redact(e.message)}). It needs a home.`;
       }
       const where = await pathOf(env, owner, bin);
       const queued = await queueLabel(env, owner, {
@@ -507,8 +539,10 @@ export async function handleMcp(request, env, url, cors) {
           return rpcOk(id, { content: [{ type: "text", text: String(text) }] });
         } catch (e) {
           // Report the failure as tool output rather than a protocol error, so the model can tell
-          // the user what went wrong and try something else instead of the turn dying.
-          return rpcOk(id, { content: [{ type: "text", text: `That didn't work: ${e.message}` }], isError: true });
+          // the user what went wrong and try something else instead of the turn dying. The detail is
+          // scrubbed first: this text goes into the conversation, so it must not be a pass-through
+          // for an arbitrary upstream error body.
+          return rpcOk(id, { content: [{ type: "text", text: `That didn't work: ${redact(e.message)}` }], isError: true });
         }
       }
       default:
