@@ -161,9 +161,34 @@ export function SortBinDialog({ open, onOpenChange, bin, onSaved }: Props) {
   const spaceReady = (spaceSel && spaceSel !== NEW) || (spaceSel === NEW && newSpaceName.trim().length > 0);
   const rackReady = rackSel !== NEW || newRackName.trim().length > 0;
 
+  /**
+   * Get the space/rack of this name, creating it only if it isn't already there.
+   *
+   * This used to insert unconditionally. Typing a name that already exists — easy, since the picker
+   * only lists a few types and anything else has to be re-typed — silently added another root
+   * "Garage" every time, and the `|| "Garage"` defaults elsewhere meant even a blank name did it.
+   */
   const resolvePlace = async (type: string, name: string, parentId?: string): Promise<Place> => {
+    const trimmed = name.trim();
+    let existing = supabase
+      .from("locations")
+      .select("id, name, qr_code")
+      .eq("is_slot", false)
+      .ilike("name", trimmed)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    // Match the level too: a rack named "Wall" inside the Garage is not the same thing as a
+    // top-level space that happens to share the name.
+    existing = parentId ? existing.eq("parent_location_id", parentId) : existing.is("parent_location_id", null);
+    const { data: found, error: findErr } = await existing;
+    if (findErr) throw findErr;
+    if (found?.length) {
+      const f = found[0];
+      return { id: f.id as string, name: f.name as string, qr: f.qr_code as string };
+    }
+
     const { data, error } = await supabase.from("locations").insert([{
-      name, type, is_slot: false, qr_code: await mintShortCode(),
+      name: trimmed, type, is_slot: false, qr_code: await mintShortCode(),
       parent_location_id: parentId ?? null, layout: { placeKind: type },
     }]).select("id, name, qr_code").single();
     if (error) throw error;

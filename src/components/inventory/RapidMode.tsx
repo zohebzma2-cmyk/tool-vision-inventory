@@ -196,19 +196,27 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
     const saveAndPrint = async (
       item: { name: string; category?: string; brand?: string; model?: string; text?: string }, frame: string, qty: number,
       logoP: Promise<HTMLImageElement | null>,
-    ): Promise<{ merged: boolean; total?: number; noLabel?: boolean }> => {
+    ): Promise<{ merged: boolean; total?: number; noLabel?: boolean; labelDropped?: boolean }> => {
       // Already in this bin? Bump its quantity instead of creating a duplicate row — but still print a
       // label for each newly-added physical unit so every one on the shelf is labeled.
       const dup = await findItemInBin(bin!.id, item.name);
       if (dup) {
         const total = await mergeQuantity(dup, qty);
         lastCreated = null; // a merge isn't a fresh row to undo
-        if (dup.code) {
-          const media = getLabelMedia();
-          const label = renderItemLabel({ name: dup.name, code: dup.code, sub: [], media, logo: await logoP }).toDataURL("image/png");
-          await printCopies(label, media, dup.name, qty);
+        // Items created outside Rapid Mode (Add Tool, the assistant, an import) can have no qr_code.
+        // Skipping the print in that case put an unlabeled unit on the shelf while still announcing
+        // success, so mint a code for the existing row and label it like any other unit.
+        let code = dup.code;
+        if (!code) {
+          code = await mintShortCode();
+          const { error } = await supabase.from("items").update({ qr_code: code }).eq("id", dup.id);
+          if (error) code = null; // couldn't claim a code — fall through and report it below
         }
-        return { merged: true, total };
+        if (!code) return { merged: true, total, labelDropped: true };
+        const media = getLabelMedia();
+        const label = renderItemLabel({ name: dup.name, code, sub: [], media, logo: await logoP }).toDataURL("image/png");
+        const labelSafe = await printCopies(label, media, dup.name, qty);
+        return { merged: true, total, labelDropped: !labelSafe };
       }
       // If the package already carries a real barcode (UPC/EAN in the OCR), store the item with its
       // SKU and DON'T print a Tool Vision label — that's the owner's rule for SKU'd parts.
@@ -387,7 +395,14 @@ export function RapidMode({ open, onOpenChange, bin, onSaved }: Props) {
           const r = await saveAndPrint(item, frame, qty, logoP);
           haptic.success();
           if (r.merged) {
-            await say(`You already have ${item.name} here — now ${r.total}.`);
+            // A merged unit is still a unit handled this session — the badge counted only fresh
+            // rows, so presenting the same tool twice made the running total drift low.
+            countRef.current += 1; setCount(countRef.current);
+            await say(
+              r.labelDropped
+                ? `You already have ${item.name} here — now ${r.total}, but its label didn't print.`
+                : `You already have ${item.name} here — now ${r.total}.`
+            );
           } else if (r.noLabel) {
             countRef.current += 1; setCount(countRef.current);
             await say(`${item.name} has a barcode — stored without a new label.`);
