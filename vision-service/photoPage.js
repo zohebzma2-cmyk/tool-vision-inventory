@@ -54,20 +54,49 @@ export async function pendingPhotos(env, owner, limit = 60) {
 }
 
 /** Store the JPEG in the public bucket and point the item at it. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Store the JPEG in the public bucket and point the item at it.
+ *
+ * `itemId` is caller-supplied and lands in a URL path against a service-role-authenticated Storage
+ * API, so it is checked three ways before anything is written:
+ *   1. it must be a UUID — "../../whatever" is rejected outright;
+ *   2. the row must exist AND belong to this owner — the object is written under the owner's prefix,
+ *      so an id belonging to somebody else would otherwise plant a file there;
+ *   3. it is percent-encoded into the path regardless.
+ * Order matters: the ownership check runs BEFORE the upload. Writing first and letting the
+ * owner-scoped PATCH fail afterwards still leaves the object on disk.
+ */
 async function attachPhoto(env, owner, itemId, dataUrl) {
+  if (!UUID_RE.test(String(itemId || ""))) throw new Error("bad itemId");
+
+  const [item] = (await sb(env, "GET", "rest/v1/items", {
+    params: { id: `eq.${itemId}`, owner_id: `eq.${owner}`, select: "id", limit: "1" },
+  })) || [];
+  if (!item) throw new Error("no such item");
+
   const b64 = dataUrl.split(",", 2)[1] || "";
-  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  let bytes;
+  try {
+    bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  } catch {
+    throw new Error("could not decode that image");
+  }
   if (!bytes.length) throw new Error("empty image");
   if (bytes.length > 4_000_000) throw new Error("image too large");
+  // Only accept an actual JPEG — the bucket is public, so this is the one place to stop it becoming
+  // a host for arbitrary content.
+  if (!(bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)) throw new Error("not a JPEG");
 
-  const path = `${owner}/${itemId}-${Date.now()}.jpg`;
+  const path = `${encodeURIComponent(owner)}/${encodeURIComponent(itemId)}-${Date.now()}.jpg`;
   await sb(env, "POST", `storage/v1/object/${BUCKET}/${path}`, {
     raw: bytes,
     contentType: "image/jpeg",
   });
   const publicUrl = `${env.SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
-  // Scope the update by owner as well as id: the service-role key bypasses RLS, so the row filter is
-  // the only thing enforcing ownership here.
+  // Still owner-scoped: the service-role key bypasses RLS, so this filter is what enforces ownership
+  // at the database layer even though we already checked above.
   await sb(env, "PATCH", "rest/v1/items", {
     params: { id: `eq.${itemId}`, owner_id: `eq.${owner}` },
     body: { photo_path: publicUrl },
@@ -205,17 +234,32 @@ load();
 </script></body></html>`;
 }
 
+/** Constant-time-ish compare, so `===` can't leak a prefix on a secret. */
+function sameToken(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 /**
  * Routes: GET /photo/<token> (the page) · GET /photo/<token>/pending · POST /photo/<token>/attach
  *
- * Same token as the MCP endpoint. It sits in the URL for the same reason it does there — this link
- * gets opened by tapping it on a phone, where there is nowhere to put a header.
+ * Authenticated by PHOTO_TOKEN — deliberately NOT the MCP token. This link is handed to the model,
+ * lands in conversation history, and gets tapped on a phone; the MCP token grants full read/write
+ * over the whole inventory, so putting it here would mean a link for uploading a photo also carried
+ * complete API access. A leak of PHOTO_TOKEN costs exactly two capabilities: list what's missing a
+ * photo, and attach one. Comma-separated for rotation, same as MCP_TOKEN.
+ *
+ * The token sits in the URL because there is nowhere to put a header when you tap a link on a phone.
  */
-export async function handlePhoto(request, env, url, tokenMatches) {
+export async function handlePhoto(request, env, url) {
   const parts = url.pathname.split("/").filter(Boolean); // ["photo", token, action?]
   const token = parts[1] || "";
   const action = parts[2] || "";
-  if (!tokenMatches(token)) return html("<h1>Not found</h1>", 404);
+  const allowed = String(env.PHOTO_TOKEN || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!allowed.length) return html("<h1>Not configured</h1>", 503);
+  if (!allowed.some((t) => sameToken(token, t))) return html("<h1>Not found</h1>", 404);
   if (!env.MCP_OWNER_ID) return html("<h1>Not configured</h1>", 503);
   const owner = env.MCP_OWNER_ID;
 
