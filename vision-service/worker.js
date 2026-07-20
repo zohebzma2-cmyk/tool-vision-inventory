@@ -30,10 +30,54 @@ const DEFAULT_MODEL = "google/gemma-4-31b-it:free";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** The desktop connector's port. Only things IT serves are trusted on a LAN address. */
+const CONNECTOR_PORT = 17777;
+
+const isPrivateIp = (host) => {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (!m) return false;
+  const [a, b] = m.slice(1).map(Number);
+  if (m.slice(1).some((n) => Number(n) > 255)) return false;
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+};
+
+/**
+ * Which value to send back in Access-Control-Allow-Origin.
+ *
+ * Beyond the explicitly configured ALLOWED_ORIGINS, we trust the *local station*: the app as served
+ * by the desktop connector. This is not a convenience — it is required. Label printing only works
+ * from the connector-served app (Chrome's Private Network Access forbids the public https site from
+ * calling localhost), so if the AI were not reachable from that same origin, identifying and
+ * labelling could never happen in one place. Mirrors the connector's own `_origin_ok`.
+ *
+ * Trust is bounded: loopback on any port (the connector itself + the vite dev server), and
+ * private-LAN / mDNS hosts ONLY on the connector's port. Every request is still authenticated with
+ * a Supabase token, so this widens who may *ask*, never what an anonymous caller may do.
+ */
+export function resolveAllowOrigin(origin, env) {
+  const allowed = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (allowed.length === 0) return "*"; // unset = dev only
+  if (allowed.includes(origin)) return origin;
+
+  let u;
+  try {
+    u = new URL(origin);
+  } catch {
+    return "null";
+  }
+  // Exact host match only — never a suffix test, which "localhost.evil.com" would satisfy.
+  const host = u.hostname.replace(/\.$/, "").toLowerCase();
+  if (u.protocol === "http:") {
+    if (host === "localhost" || host === "127.0.0.1") return origin;
+    const port = Number(u.port);
+    if (port === CONNECTOR_PORT && (isPrivateIp(host) || /^[a-z0-9-]+\.local$/.test(host))) return origin;
+  }
+  return "null";
+}
+
 function corsHeaders(request, env) {
   const origin = request.headers.get("Origin") || "";
-  const allowed = (env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const allowOrigin = allowed.length === 0 ? "*" : allowed.includes(origin) ? origin : "null";
+  const allowOrigin = resolveAllowOrigin(origin, env);
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Access-Control-Allow-Headers": "content-type, authorization, apikey, x-vision-key",
